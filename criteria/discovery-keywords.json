@@ -1,0 +1,163 @@
+{
+  "version": "1",
+  "concepts": {
+    "Artificial intelligence": [
+      "artificial intelligence",
+      "AI"
+    ],
+    "Machine learning": [
+      "machine learning",
+      "ML"
+    ],
+    "LLMs": [
+      "large language model",
+      "large language models",
+      "LLM",
+      "LLMs"
+    ],
+    "AI agents": [
+      "AI agent",
+      "AI agents",
+      "agentic",
+      "agent platform"
+    ],
+    "Data platforms": [
+      "data platform",
+      "data platforms",
+      "DataOS"
+    ],
+    "Data products": [
+      "data product",
+      "data products"
+    ],
+    "APIs": [
+      "API",
+      "APIs",
+      "application programming interface"
+    ],
+    "Analytics": [
+      "analytics",
+      "analytical"
+    ],
+    "B2B": [
+      "B2B",
+      "business to business"
+    ],
+    "Product strategy": [
+      "product strategy",
+      "product vision"
+    ],
+    "Roadmaps": [
+      "roadmap",
+      "roadmaps"
+    ],
+    "Customer discovery": [
+      "customer discovery",
+      "customer interviews",
+      "user interviews"
+    ],
+    "Experimentation": [
+      "experimentation",
+      "A/B testing",
+      "experiments"
+    ],
+    "Product launches": [
+      "product launch",
+      "product launches",
+      "go to market",
+      "GTM"
+    ],
+    "Stakeholder management": [
+      "stakeholder",
+      "stakeholders",
+      "cross functional"
+    ],
+    "SQL": [
+      "SQL"
+    ],
+    "Python": [
+      "Python"
+    ],
+    "Data governance": [
+      "data governance",
+      "governed data"
+    ],
+    "Data pipelines": [
+      "data pipeline",
+      "data pipelines",
+      "ETL"
+    ],
+    "Infrastructure": [
+      "infrastructure"
+    ],
+    "Developer tools": [
+      "developer tools",
+      "developer experience"
+    ],
+    "Platform products": [
+      "platform product",
+      "platform products",
+      "platform PM"
+    ],
+    "Technical products": [
+      "technical product",
+      "technical PM",
+      "PMT"
+    ],
+    "Product management": [
+      "product manager",
+      "product management",
+      "product lead"
+    ],
+    "SaaS": [
+      "SaaS",
+      "software as a service"
+    ],
+    "Integrations": [
+      "integration",
+      "integrations"
+    ],
+    "Metrics": [
+      "KPIs",
+      "KPI",
+      "product metrics",
+      "success metrics"
+    ],
+    "UX research": [
+      "user research",
+      "usability testing",
+      "UX research"
+    ],
+    "Prototyping": [
+      "prototype",
+      "prototypes",
+      "prototyping"
+    ],
+    "Supply chain": [
+      "supply chain"
+    ],
+    "Manufacturing": [
+      "manufacturing"
+    ],
+    "Sales enablement": [
+      "sales enablement"
+    ],
+    "Growth": [
+      "growth"
+    ],
+    "Pricing": [
+      "pricing",
+      "monetization"
+    ],
+    "Search and retrieval": [
+      "retrieval",
+      "semantic search",
+      "RAG"
+    ],
+    "Evaluation": [
+      "evaluation",
+      "evaluations",
+      "evals"
+    ]
+  }
+}

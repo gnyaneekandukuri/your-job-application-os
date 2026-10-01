@@ -1,0 +1,58 @@
+{
+  "version": "1",
+  "section_weights": {
+    "title": 0.8,
+    "responsibilities": 1.0,
+    "requirements": 1.0,
+    "unknown": 0.25,
+    "company": 0.0,
+    "benefits": 0.0
+  },
+  "concept_weights": {
+    "specific": 3.0,
+    "work": 1.5,
+    "generic": 0.25
+  },
+  "generic_concepts": [
+    "Product management",
+    "Stakeholder management",
+    "Metrics",
+    "Growth"
+  ],
+  "work_concepts": [
+    "Product strategy",
+    "Roadmaps",
+    "Customer discovery",
+    "Experimentation",
+    "Product launches",
+    "UX research",
+    "Prototyping",
+    "Pricing",
+    "Evaluation"
+  ],
+  "context_weights": {
+    "work": 1.0,
+    "mention": 0.2
+  },
+  "target_boost": 1.5,
+  "high_threshold": 8.0,
+  "minimum_substantive_matches": 2,
+  "notes": [
+    "High requires a target-role title match and a specific work-backed match in responsibilities or requirements.",
+    "Each canonical concept contributes once, using its strongest job passage and strongest context passage.",
+    "Company and benefits text contribute zero. Unknown sections have reduced weight.",
+    "Thresholds are provisional until user calibration; internal points are not a probability or qualification score."
+  ],
+  "role_aliases": {
+    "product manager": [
+      "product manager",
+      "product lead",
+      "PM"
+    ],
+    "technical product manager": [
+      "technical product manager",
+      "product manager technical",
+      "PMT"
+    ]
+  }
+}

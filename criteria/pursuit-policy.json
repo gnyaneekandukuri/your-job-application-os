@@ -1,0 +1,45 @@
+{
+  "schema_version": "0.2.0",
+  "status": "ACTIVE_PRODUCT_DEFAULTS_NOT_HIRING_PROBABILITIES",
+  "updated_at": "2026-09-28",
+  "personal_context_source": "knowledge/profile.json",
+  "principles": {
+    "separate_documented_fit_from_personal_priority": true,
+    "missing_information_is_not_a_confirmed_dealbreaker": true,
+    "missing_sponsorship_language": {
+      "status": "UNKNOWN",
+      "exclude": false,
+      "penalty": false,
+      "interpretation": "Employer may support transfer; no confirmation either way."
+    },
+    "sponsorship_claims": "Require dated evidence for CONFIRMED, LIKELY or UNAVAILABLE. Historical support does not confirm this role. Ambiguous no-sponsorship wording must not be silently equated to an explicit refusal of the needed transfer.",
+    "location": "Apply allowed countries and arrangements; preferred cities improve priority without excluding other allowed locations.",
+    "role_content": "Evaluate responsibilities and evidence rather than title alone. Distinguish product prototyping and technical collaboration from a core software-engineering job.",
+    "seniority": "Compare scope and ownership, using personal level preferences; title mismatch alone is not a hard gate.",
+    "investor_backing": "Optional priority signal requiring sourced company-specific evidence. Examples in personal context are not an allowlist. Unknown backing is not a disqualifier and does not alter capability scores.",
+    "success": "Explain evidence supporting interview competitiveness, offer competitiveness and ability to perform the work; do not invent probabilities or guarantee outcomes.",
+    "human_review": "Present recommendation, rationale, uncertainties and what would change it; user chooses pursuit level."
+  },
+  "recommendation_categories": [
+    "SKIP",
+    "CASUAL",
+    "ATTACK_HARD"
+  ],
+  "decision_rules": {
+    "skip": "Only a sourced incompatibility with an explicit profile constraint; never missing career evidence alone.",
+    "attack_hard": {
+      "minimum_overall": 75,
+      "minimum_actions": 50,
+      "minimum_ownership": 50,
+      "minimum_scope": 50,
+      "maximum_core_insufficient_percent": 20,
+      "requires_role_content_match": true,
+      "requires_no_unresolved_noncapability_requirements": true
+    },
+    "otherwise": "CASUAL",
+    "unknown_sponsorship_blocks_attack_hard": false,
+    "unknown_investors_blocks_attack_hard": false,
+    "company_preferences_change_capability_score": false
+  },
+  "calibration": "Initial explainable product defaults. Review against real user decisions before claiming predictive validity."
+}

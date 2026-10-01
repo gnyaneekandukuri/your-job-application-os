@@ -1,0 +1,14 @@
+.local/
+.env
+.env.*
+.venv/
+node_modules/
+frontend/dist/
+__pycache__/
+*.pyc
+.pytest_cache/
+*.sqlite3*
+*.db
+knowledge/
+sources/
+artifacts/
