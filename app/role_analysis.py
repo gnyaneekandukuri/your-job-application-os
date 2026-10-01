@@ -124,7 +124,7 @@ class RoleAnalysis:
     def cache_key(job, version):
         return "role-analysis:" + job.id + ":" + version
 
-    def view(self, job):
+    def view(self, job, compact=False):
         version, _, _, stories = self.environment(job)
         key = self.cache_key(job, version)
         record = self.engine.get(key)
@@ -151,6 +151,9 @@ class RoleAnalysis:
                     if previous["job_id"] != job.id: previous = None
                 except (ValueError, TypeError):
                     previous = None
+        if compact:
+            return {"run":record, "previous_result_outdated":bool(self.engine.get("role-analysis-latest:" + job.id)) and record is None,
+                    "score":score_report(record) if SCORING_ENABLED else None}
         return {"workflow": self.workflow.status(job, version), "previous_run": previous, "previous_score": score_report(previous),
                 "experience_update": latest(self, job), "input_version": version, "ready": bool(stories) and all(s["ready"] for s in stories),
                 "unready_sources": [s["title"] for s in stories if not s["ready"]], "run": record,

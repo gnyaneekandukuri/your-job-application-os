@@ -108,6 +108,10 @@ def create_app(data_dir: Path | None = None):
     def discovery_status(request: Request):
         return request.app.state.discovery.view()
 
+    @api.get("/api/assessments")
+    def assessment_results(request: Request):
+        return request.app.state.discovery.assessment_results()
+
     @api.get("/api/library/keywords")
     def library_keywords(request: Request):
         return request.app.state.discovery.keywords.enrich([], load_preferences(workspace / "knowledge/discovery-preferences.json"))

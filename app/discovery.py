@@ -85,8 +85,31 @@ class Discovery:
     def configure(self, data):
         with self.lock, self.db() as db:
             cfg = self.settings(); cfg.update(data.model_dump())
+            if data.auto_assess: cfg.pop('auto_assess_pause_reason', None)
             db.execute('UPDATE config SET payload=? WHERE id=1', (json.dumps(cfg),))
         return self.view()
+
+    def pause_on_provider_limit(self, error):
+        if '(HTTP 429)' not in error: return False
+        with self.lock, self.db() as db:
+            cfg = self.settings()
+            cfg.update(auto_assess=False, auto_assess_pause_reason='OpenAI returned HTTP 429. Automatic analysis is paused; check API billing or rate limits before re-enabling it.')
+            db.execute('UPDATE config SET payload=? WHERE id=1',(json.dumps(cfg),))
+        return True
+
+    def assessment_results(self):
+        """All saved deep analyses, including roles entered without discovery."""
+        with self.db() as db:
+            discovered = {r['job_id']: dict(r) for r in db.execute('SELECT * FROM opportunities WHERE job_id IS NOT NULL')}
+        items = []
+        for job_id in self.service.store.ids():
+            job = self.service.store.read(job_id)[0]
+            row = discovered.get(job_id)
+            changed = bool(row and row['imported_hash'] != self.content_hash(json.loads(row['payload'])))
+            summary = self.assessment_summary({'job_id':job_id,'description_changed':changed})
+            if summary['state'] == 'NOT_STARTED': continue
+            items.append({'job_id':job_id,'company':job.company,'title':job.title,'url':str(job.source_url or ''),'assessment':summary})
+        return {'items':items, 'queued_count':len(self.queued_ids), 'settings':self.settings()}
 
     def view(self):
         preferences = load_preferences(self.analysis.library.root / "knowledge/discovery-preferences.json")
@@ -125,7 +148,7 @@ class Discovery:
         try:
             # Polling must not reconcile the review graph or compete for its lock.
             job = self.service.store.read(item['job_id'])[0]
-            view = self.analysis.view(job)
+            view = self.analysis.view(job, compact=True)
             run = view.get('run')
             if view.get('previous_result_outdated'):
                 return {'state':'STALE','score':None,'recommendation':None,'stage':'Context or criteria changed. Reassess when ready.'}
@@ -283,25 +306,34 @@ class Discovery:
         candidates = [item for item in self.view()['items'] if item['id'] in seen_ids]
         candidates.sort(key=lambda item: -item.get('keyword_match',{}).get('ranking',{}).get('points',0))
         self.queued_ids = {item['id'] for item in candidates if self.auto_eligible(item)}
+        last_job = None
         for item in candidates:
             while not self.stop.is_set() and self.settings()['auto_assess'] and self.analysis.worker and self.analysis.worker.is_alive():
                 self.stop.wait(2)
             if self.stop.is_set() or not self.settings()['auto_assess']: break
+            if last_job:
+                summary = self.assessment_summary({'job_id':last_job})
+                if self.pause_on_provider_limit(summary.get('error','') + summary.get('recommendation_error','')): break
             # Context, target or job text may change while another job is running.
             current = next((v for v in self.view()['items'] if v['id']==item['id']), None)
             self.queued_ids.discard(item['id'])
             if not current or not self.auto_eligible(current): continue
             try:
-                self.import_role(item['id'], analyze=True, automatic=True)
+                imported = self.import_role(item['id'], analyze=True, automatic=True)
+                last_job = imported.get('job_id') if imported else None
             except Exception as exc:
                 from .retrieval import RetrievalError
                 error = str(exc) if isinstance(exc,(RetrievalError,Conflict,Missing)) else 'Automatic assessment stopped. Retry explicitly from the role.'
                 with self.db() as db:
                     db.execute("UPDATE automatic_assessments SET state='FAILED',error=? WHERE opportunity_id=?",(error,item['id']))
                     db.execute('UPDATE opportunities SET assessment_state=? WHERE id=?',(error,item['id']))
+                if self.pause_on_provider_limit(error): break
         self.queued_ids.clear()
         while not self.stop.is_set() and self.analysis.worker and self.analysis.worker.is_alive():
             self.stop.wait(2)
+        if last_job and not self.stop.is_set():
+            summary = self.assessment_summary({'job_id':last_job})
+            self.pause_on_provider_limit(summary.get('error','') + summary.get('recommendation_error',''))
 
     @staticmethod
     def auto_eligible(item):

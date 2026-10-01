@@ -120,3 +120,38 @@ def test_waiting_jobs_are_explicitly_queued(tmp_path, monkeypatch):
         discovery.assess_high_priority({'one','two'})
         assert queued==[{'two'},set()]
         assert not discovery.queued_ids
+
+
+def test_provider_limit_pauses_queue_but_not_collection(tmp_path, monkeypatch):
+    with TestClient(create_app(tmp_path)) as client:
+        discovery=configure(client)
+        discovery.configure(Settings(enabled=True,auto_assess=True))
+        base={'keyword_match':{'priority':'high'},'location_match':{'status':'match'},'description':'A full saved description of product responsibilities.'}
+        monkeypatch.setattr(discovery,'view',lambda:{'items':[{**base,'id':'one'},{**base,'id':'two'}]})
+        attempts=[]
+        def imported(oid,**kwargs):
+            attempts.append(oid)
+            return {'job_id':'job-one'}
+        monkeypatch.setattr(discovery,'import_role',imported)
+        monkeypatch.setattr(discovery,'assessment_summary',lambda item:{'error':'Limit reached (HTTP 429)'})
+        discovery.assess_high_priority({'one','two'})
+        assert attempts==['one']
+        assert discovery.settings()['enabled'] is True
+        assert discovery.settings()['auto_assess'] is False
+        assert '429' in discovery.settings()['auto_assess_pause_reason']
+
+
+def test_results_include_manual_roles_and_separate_unstarted(tmp_path, monkeypatch):
+    with TestClient(create_app(tmp_path)) as client:
+        discovery=configure(client)
+        for title in ('Completed role','Failed role','Unstarted role'):
+            response=client.post('/api/jobs',headers={'X-Local-Review':'1'},json={'request_id':str(uuid4()),'company':'Example Labs','title':title,'description':'Own customer research and delivery of reporting products.'})
+            assert response.status_code==201
+        def summary(item):
+            title=discovery.service.store.read(item['job_id'])[0].title
+            state={'Completed role':'COMPLETE','Failed role':'ERROR','Unstarted role':'NOT_STARTED'}[title]
+            return {'state':state,'score':80 if state=='COMPLETE' else None,'recommendation':'CASUAL' if state=='COMPLETE' else None}
+        monkeypatch.setattr(discovery,'assessment_summary',summary)
+        result=client.get('/api/assessments')
+        assert result.status_code==200
+        assert {r['title'] for r in result.json()['items']}=={'Completed role','Failed role'}

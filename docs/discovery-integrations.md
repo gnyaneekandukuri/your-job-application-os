@@ -24,3 +24,10 @@ The scan records collection, description retrieval, and assessment phases. It fi
 ## Deferred
 
 Gmail and phone alerts are a later milestone: notify after assessment with the role, score, pursuit recommendation, and listing link, with deduplication and user-selected delivery preferences. No notification service is configured or messages sent by this feature.
+
+## Results screen and provider limits
+
+Deep analysis lists saved analyses from both discovery and manually entered roles. Completed score/recommendation pairs appear first; running and failed/interrupted/stale work have separate views. Completed evidence analyses leave New opportunities, including those whose pursuit recommendation still needs attention. Records remain saved.
+
+An HTTP 429 from either evidence analysis or pursuit pauses the automatic paid queue before dispatching another role. Free scheduled collection remains enabled. Failed roles are not automatically retried after re-enabling the queue. Historical error messages alone cannot distinguish exhausted quota from a temporary rate limit; no account billing state is inferred.
+

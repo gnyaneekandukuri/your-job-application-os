@@ -13,7 +13,7 @@ async function request<T>(path="",body?:unknown):Promise<T> {
 }
 const when=(date:string)=>new Date(date).toLocaleString();
 const freshnessLabel=(item:Item)=>item.freshness==="within_24h"?"Source reports <24h":item.freshness==="older"?"Older than 24h":item.freshness==="date_only"?"Date only - age uncertain":"Date unknown";
-export function Discovery({onOpen,view="opportunities"}:{view?:"runs"|"opportunities";onOpen:(jobId:string)=>Promise<void>}) {
+export function Discovery({onOpen,onResults,view="opportunities"}:{onResults:()=>void;view?:"runs"|"opportunities";onOpen:(jobId:string)=>Promise<void>}) {
  const [state,setState]=useState<State|null>(null);
  const [error,setError]=useState("");
  const [busy,setBusy]=useState(false);
@@ -33,7 +33,7 @@ export function Discovery({onOpen,view="opportunities"}:{view?:"runs"|"opportuni
  async function act(work:()=>Promise<void>){setBusy(true);setError("");try{await work();}catch(e){setError(e instanceof Error?e.message:"Action failed");}finally{setBusy(false);}}
  function openJD(item:Item){setError("");setJD({url:item.url,id:item.id,expected_hash:item.content_hash,title:item.title,company:item.company,description:item.description});}
  async function assess(item:Item){await request<{job_id:string}>(`/${item.id}/assess`,{});setState(await request<State>());}
- const rows=(state?.items??[]).filter(item=>(locationFilter==="all"||(item.location_match?.status??"unclear")===locationFilter)&&(boardFilter==="all"||item.sources.some(s=>s.board===boardFilter))&&(filter==="all"||(filter==="recent"?item.freshness==="within_24h":filter==="discovered"?Date.now()-Date.parse(item.first_seen)<86400000:filter==="uncertain"?["date_only","unknown"].includes(item.freshness):item.description.length<20))&&`${item.title} ${item.company} ${item.location}`.toLowerCase().includes(query.toLowerCase()));
+ const rows=(state?.items??[]).filter(item=>item.assessment?.state!=="COMPLETE").filter(item=>(locationFilter==="all"||(item.location_match?.status??"unclear")===locationFilter)&&(boardFilter==="all"||item.sources.some(s=>s.board===boardFilter))&&(filter==="all"||(filter==="recent"?item.freshness==="within_24h":filter==="discovered"?Date.now()-Date.parse(item.first_seen)<86400000:filter==="uncertain"?["date_only","unknown"].includes(item.freshness):item.description.length<20))&&`${item.title} ${item.company} ${item.location}`.toLowerCase().includes(query.toLowerCase()));
  return <section className="panel discovery">
   <div className="section-heading"><div><div className="eyebrow">LOCAL JOB DISCOVERY</div><h1>{view==="runs"?"Discovery runs":"New opportunities"}</h1><p>{view==="runs"?"Check job boards and review the latest run.":"Find roles that overlap with your experience and what you want to do next."}</p></div>
   {view==="runs"&&<button className="primary" disabled={busy||state?.running} onClick={()=>void act(async()=>setState(await request<State>("/check",{})))}>{state?.running?(state.scan?.payload.phase==="assessing"?"Assessing High priority jobs...":"Checking boards..."):"Check now"}</button>}</div>
@@ -79,7 +79,7 @@ export function Discovery({onOpen,view="opportunities"}:{view?:"runs"|"opportuni
     <label>Job board<select value={boardFilter} onChange={e=>setBoardFilter(e.target.value)}><option value="all">All boards</option>{Object.entries(state.boards).map(([id,name])=><option key={id} value={id}>{name}</option>)}</select></label>
     <label>Show<select value={filter} onChange={e=>setFilter(e.target.value)}>{[["all","All saved"],["recent","Source reports <24h"],["discovered","Discovered in last 24h"],["uncertain","Date uncertain"],["missing","Description needed"]].map(([id,label])=><option key={id} value={id}>{label}</option>)}</select></label>
    </div>
-   <p className="discovery-clock">{rows.length} shown · {state.items.length} saved</p>
+   <p className="discovery-clock">{rows.length} shown · completed assessments are in <button onClick={onResults}>Deep analysis</button></p>
    {!rows.length?<p>{state.scan?"No saved opportunities match these filters. Try Location unclear or All locations.":"Open Discovery runs and choose Check now to collect listings."}</p>:<div className="discovery-table-scroll" tabIndex={0} role="region" aria-label="All opportunities"><table className="discovery-table opportunities-table"><thead><tr><th scope="col">Company / role</th><th scope="col">Priority / keywords</th><th scope="col">Link</th><th scope="col">Job board</th><th scope="col">Location</th><th scope="col">Posted / freshness</th><th scope="col">Analysis</th></tr></thead><tbody>
     {rows.map(item=><tr key={item.id}><td><strong>{item.company}</strong><div className="discovery-role">{item.title}</div>
      <details className="discovery-row-details"><summary>Job details</summary><p>Funding: {item.funding||"Unknown"}</p><p>First detected: {when(item.first_seen)}<br/>Last seen: {when(item.last_seen)}<br/>Sources: {item.sources.map(s=>state.boards[s.board]||s.board).join(", ")}</p>
@@ -93,17 +93,11 @@ export function Discovery({onOpen,view="opportunities"}:{view?:"runs"|"opportuni
       {item.queued_for_assessment && <strong role="status">Queued for automatic analysis</strong>}
       {item.assessment?.state==="RUNNING" && <strong role="status">Analyzing</strong>}
       {["ERROR","INTERRUPTED","NEEDS_ATTENTION"].includes(item.assessment?.state??"") && <strong>Needs attention</strong>}
-      {item.automatic_assessment?.state==="FAILED" && <small role="alert">{item.automatic_assessment.error}</small>}
-      {item.assessment?.score != null && <strong>{item.assessment.score}/100{item.assessment.provisional ? " (in progress)" : ""}</strong>}
-      {item.assessment?.recommendation && <small>{item.assessment.recommendation.replaceAll("_"," ")}</small>}
-      {item.assessment?.choice && <small>Your choice: {item.assessment.choice.replaceAll("_"," ")}</small>}
-      {item.assessment && !["NOT_STARTED","NEEDS_JD"].includes(item.assessment.state) && <small>{item.assessment.state.replaceAll("_"," ")}{item.assessment.stage ? ` · ${item.assessment.stage}` : ""}</small>}
-      {item.assessment?.error && <small role="alert">{item.assessment.error}</small>}
-      {item.assessment?.state==="COMPLETE" && !item.assessment.recommendation && <small>{item.assessment.recommendation_state==="FAILED" ? "Recommendation needs attention. Open analysis to retry." : "Recommendation pending. Open analysis for details."}</small>}
+      {["ERROR","INTERRUPTED","STALE","NEEDS_ATTENTION"].includes(item.assessment?.state??"") && <button onClick={onResults}>View in Deep analysis</button>}
       {item.description.length<20 || item.description_changed ? <button disabled={busy} onClick={()=>openJD(item)}>{item.description_changed ? "Review updated JD" : "Get full JD"}</button> : <>
-       {!item.queued_for_assessment && !["COMPLETE","RUNNING"].includes(item.assessment?.state ?? "") && <button disabled={busy} onClick={()=>void act(()=>assess(item))}>{item.job_id ? "Resume / reassess (paid)" : "Save & analyze (paid)"}</button>}
+       {!item.queued_for_assessment && ["NOT_STARTED", ""].includes(item.assessment?.state ?? "") && <button disabled={busy} onClick={()=>void act(()=>assess(item))}>{item.job_id ? "Resume / reassess (paid)" : "Save & analyze (paid)"}</button>}
       </>}
-      {item.job_id && <button disabled={busy} onClick={()=>void act(()=>onOpen(item.job_id!))}>Open role &amp; analysis</button>}
+      {item.job_id && item.assessment?.state==="NOT_STARTED" && <button disabled={busy} onClick={()=>void act(()=>onOpen(item.job_id!))}>Open role &amp; analysis</button>}
      </td>
     </tr>)}
    </tbody></table></div>}
