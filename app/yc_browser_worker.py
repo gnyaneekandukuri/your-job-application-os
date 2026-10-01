@@ -2,6 +2,8 @@
 import json
 import re
 import sys
+import sqlite3
+from datetime import datetime, timezone
 import time
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -53,6 +55,40 @@ def directory_ready(page):
             and urlsplit(page.url).path == '/companies'
             and page.locator('a[href="/conversations"], a[href="https://www.workatastartup.com/conversations"]').count() > 0
             and re.search(r'Showing\s+\d+\s+matching startups', page.locator('body').inner_text()) is not None)
+
+
+def cached_description(row, saved, current=None):
+    current = current or datetime.now(timezone.utc)
+    if not saved or any(row.get(k) != saved.get(k) for k in ('title','company','url')):
+        return None
+    stamp = saved.get('description_checked_at')
+    try:
+        age = (current - datetime.fromisoformat(stamp)).total_seconds()
+    except (TypeError, ValueError):
+        return None
+    if 0 <= age < 4 * 3600 and len(saved.get('description','')) >= 200:
+        return saved['description'], stamp
+    return None
+
+
+def saved_descriptions(root):
+    path = root.parent / 'discovery.sqlite3'
+    if not path.exists(): return {}
+    db = sqlite3.connect(path,timeout=10)
+    try:
+        saved = {}
+        for payload, seen in db.execute("SELECT o.payload,o.last_seen FROM opportunities o JOIN sightings s ON o.id=s.opportunity_id WHERE s.board='yc'"):
+            item = json.loads(payload)
+            # One-time migration for descriptions verified before timestamps were stored.
+            item.setdefault('description_checked_at', seen)
+            saved[item.get('url')] = item
+        return saved
+    finally:
+        db.close()
+
+
+def job_heading_matches(headings, row):
+    return any(row['title'].casefold() in heading.casefold() and row['company'].casefold() in heading.casefold() for heading in headings)
 
 
 def directory_settled(snapshot, empty_checks):
@@ -128,12 +164,22 @@ def run(command, root):
                 page.wait_for_timeout(1800)
             else:
                 warnings.append('Directory scrolling limit reached.')
+            save_status(root,"SCANNING",f"Loaded {loaded}/{total} YC startups and {len(rows)} product roles. Reading job descriptions...")
             detail = context.new_page()
+            cached = saved_descriptions(root)
+            detail_requests = 0
             for index, row in enumerate(rows.values()):
+                if index % 10 == 0:
+                    save_status(root,"SCANNING",f"Prepared {index}/{len(rows)} product roles; requested {detail_requests} descriptions.")
                 row.update(description='', posted_at=None, date_basis='unknown', funding='Unknown',
                            date_label='Posting date unavailable', collection_method='authenticated_browser')
-                if index >= 120 or time.monotonic() > deadline:
+                recent = cached_description(row, cached.get(row['url']))
+                if recent:
+                    row['description'], row['description_checked_at'] = recent
                     continue
+                if detail_requests >= 120 or time.monotonic() > deadline:
+                    continue
+                detail_requests += 1
                 try:
                     response = detail.goto(row['url'],wait_until='domcontentloaded',timeout=20000)
                     if response and response.status >= 400:
@@ -141,10 +187,13 @@ def run(command, root):
                         continue
                     if urlsplit(detail.url).hostname == 'account.ycombinator.com' or urlsplit(detail.url).path == '/':
                         return fail(root,'LOGIN_REQUIRED','YC session expired during collection. Sign in again.','login_required')
-                    heading = detail.locator('h1').inner_text()
-                    if row['title'].casefold() not in heading.casefold() or row['company'].casefold() not in heading.casefold():
+                    detail.locator('h1').first.wait_for(state='visible')
+                    headings = detail.locator('h1').all_inner_texts()
+                    if not job_heading_matches(headings, row):
                         raise ValueError('Detail identity changed')
                     row['description'] = job_description(detail.locator('body').inner_text())
+                    if row['description']:
+                        row['description_checked_at'] = datetime.now(timezone.utc).isoformat()
                 except Exception as exc:
                     warnings.append(f"Job {row['source_id']}: {type(exc).__name__}; description needs review.")
             missing = sum(not r['description'] for r in rows.values())

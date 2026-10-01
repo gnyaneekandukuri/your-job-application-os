@@ -52,3 +52,6 @@ Directory scrolling is bounded to 50 steps, stops after three unchanged checks, 
 
 
 YC verification fixes: an initial zero count is treated as a loading placeholder, not an empty result; empty results must settle before collection ends. Check YC now runs only YC, with other source results labeled not checked for that run. Discovery uses SQLite WAL, and dashboard assembly releases the listing read before building expensive assessment summaries, so dashboard polling does not hold up scan writes.
+
+
+YC description reads wait for rendered headings and validate the job/company against all H1 headings, since employers may include their own H1 headings inside descriptions. Descriptions are reused for up to four hours only when URL, title, and company match; reuse preserves the original check timestamp rather than extending it. This lets repeated scans spend their 120-request budget on missing descriptions. Legacy entries without a check timestamp use their last-seen time once during migration. Existing descriptions can therefore lag employer edits within this cache window; newly discovered roles are fetched immediately.

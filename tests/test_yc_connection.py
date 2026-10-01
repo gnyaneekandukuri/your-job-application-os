@@ -140,3 +140,22 @@ def test_dashboard_summaries_do_not_block_scan_writes(tmp_path,monkeypatch):
             return {'state':'NOT_STARTED','score':None}
         monkeypatch.setattr(d,'assessment_summary',summary)
         assert len(d.view()['items'])==1
+
+
+def test_company_description_heading_does_not_break_job_identity():
+    from app.yc_browser_worker import job_heading_matches
+    row={'title':'Product Manager, Marketplace','company':'HUD'}
+    assert job_heading_matches(['Product Manager, Marketplace at HUD(W25)','About HUD'],row)
+    assert not job_heading_matches(['Product Manager, Marketplace at Other','About HUD'],row)
+
+
+def test_recent_description_cache_does_not_refresh_its_own_age():
+    from datetime import datetime, timezone, timedelta
+    from app.yc_browser_worker import cached_description
+    now=datetime.now(timezone.utc)
+    row={'title':'Product Manager','company':'Example','url':'https://www.workatastartup.com/jobs/1'}
+    stamp=(now-timedelta(hours=1)).isoformat()
+    saved={**row,'description':'Verified responsibilities '*20,'description_checked_at':stamp}
+    assert cached_description(row,saved,now)==(saved['description'],stamp)
+    assert cached_description(row,saved,now+timedelta(hours=4)) is None
+    assert cached_description({**row,'company':'Other'},saved,now) is None
