@@ -73,7 +73,7 @@ def test_unknown_rescan_age_does_not_keep_old_freshness(tmp_path):
         client.post('/api/setup',headers={'X-Local-Review':'1'},json={'target_roles':['Product Manager'],'countries':['US']})
         d=client.app.state.discovery
         parser=Cards();parser.feed(CARD)
-        row={**parser.rows[0], 'description':'', 'date_basis':'source_relative_age',
+        row={**parser.rows[0], 'location':'Chicago, IL', 'description':'', 'date_basis':'source_relative_age',
              'search_country':'US','source_filter':'past_24_hours'}
         d.save('linkedin',{**row,**age_bounds('2 hours ago',datetime.now(timezone.utc))})
         item=d.view()['items'][0]
@@ -81,3 +81,5 @@ def test_unknown_rescan_age_does_not_keep_old_freshness(tmp_path):
         assert item['location_match']['status']=='match'
         d.save('linkedin',{**row,'date_label':'Recently'})
         assert d.view()['items'][0]['freshness']=='unknown'
+        d.save('linkedin',{**row,'location':'Toronto, Canada'})
+        assert d.view()['items'][0]['location_match']['status']=='outside'

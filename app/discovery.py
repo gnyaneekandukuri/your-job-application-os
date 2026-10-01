@@ -126,7 +126,7 @@ class Discovery:
             items.append({'job_id':job_id,'company':job.company,'title':job.title,'url':str(job.source_url or ''),'assessment':summary})
         return {'items':items, 'queued_count':len(self.queued_ids), 'settings':self.settings()}
 
-    def view(self):
+    def view(self, include_analysis=True):
         preferences = load_preferences(self.analysis.library.root / "knowledge/discovery-preferences.json")
         with self.db() as db:
             items = []
@@ -138,7 +138,9 @@ class Discovery:
                             description_changed=bool(row['imported_hash'] and row['imported_hash'] != self.content_hash(item)),
                             sources=[{'board': s['board'], 'seen_at': s['seen_at'], 'posted_at': json.loads(s['payload']).get('posted_at')} for s in sources])
                 item["location_match"] = location_match(item.get("location"), preferences)
-                if (item['location_match']['status'] == 'unclear' and item.get('search_country')
+                us_state = (item.get('search_country') == 'US' and re.search(
+                    r',\s*(AL|AK|AZ|AR|CA|CO|CT|DE|DC|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|MA|MI|MN|MS|MO|MT|NE|NV|NH|NJ|NM|NY|NC|ND|OH|OK|OR|PA|RI|SC|SD|TN|TX|UT|VT|VA|WA|WV|WI|WY)\s*$', item.get('location', '')))
+                if ((item['location_match']['status'] == 'unclear' or us_state) and item.get('search_country')
                         and item.get('source_filter') == 'past_24_hours'
                         and any(s['board'] == 'linkedin' for s in sources)):
                     code = item['search_country']
@@ -154,9 +156,10 @@ class Discovery:
                 items.append(item)
             scan = db.execute('SELECT * FROM scans ORDER BY id DESC LIMIT 1').fetchone()
         # Never hold a listing cursor/read lock during filesystem-heavy analysis summaries.
-        for item in items:
-            item["assessment"] = self.assessment_summary(item)
-        keyword_profile = self.keywords.enrich(items, preferences)
+        if include_analysis:
+            for item in items:
+                item["assessment"] = self.assessment_summary(item)
+        keyword_profile = self.keywords.enrich(items, preferences) if include_analysis else None
         return {'yc_connection': self.yc.status(), 'keyword_profile': keyword_profile, 'items': items, 'location_preference': preferences.get('location_filter', {}), 'settings': self.settings(), 'running': bool(self.worker and self.worker.is_alive()),
                 'scan': {**dict(scan), 'payload': scan_summary(json.loads(scan['payload']))} if scan else None,
                 'boards': BOARDS, 'unavailable': UNAVAILABLE, 'timezone': str(datetime.now().astimezone().tzinfo),
@@ -267,7 +270,7 @@ class Discovery:
         def identity(text):
             return re.sub(r'\b(inc|llc|ltd|company|corporation)\b', '', re.sub(r'[^a-z0-9]+',' ',text.lower())).strip()
         counts = {'fetched':0, 'needs_paste':0}
-        for item in self.view()['items']:
+        for item in self.view(include_analysis=False)['items']:
             if self.stop.is_set(): break
             if item['id'] not in seen_ids or len(item.get('description','')) >= 20 or item['location_match']['status'] == 'outside': continue
             previous = item.get('description_fetch')
