@@ -7,12 +7,13 @@ type JDDraft = {url:string;id:string;expected_hash:string;title:string;company:s
 type Item = {queued_for_assessment?:boolean;description_fetch?:{state:string;error:string}|null;automatic_assessment?:{state:string;error:string}|null;assessment?:Assessment;content_hash:string;keyword_match?:KeywordMatch;location_match?:{status:"match"|"outside"|"unclear";reason:string};id:string;title:string;company:string;location:string;url:string;description:string;posted_at:string|null;date_label:string;date_basis:string;funding:string;freshness:string;first_seen:string;last_seen:string;job_id:string|null;description_changed:boolean;assessment_state:string|null;sources:{board:string}[]};
 type Diagnostic = {reason:string;kind:string;http_status?:number;host:string;path:string;attempts:number;causes:string[]};
 type Source = {checked_at?:string;state:string;count?:number;error?:string;coverage?:string;warnings?:(string | (Diagnostic & {listing:string}))[];diagnostic?:Diagnostic};
-type State = {keyword_profile?:KeywordProfile;location_preference?:{label:string;countries:string[]};items:Item[];running:boolean;settings:{enabled:boolean;auto_assess:boolean};boards:Record<string,string>;unavailable:Record<string,string>;timezone:string;schedule:string[];scan:null|{started:string;finished:string|null;payload:{phase?:string;descriptions?:{fetched:number;needs_paste:number};state:string;new_count?:number;sources:Record<string,Source>;error?:string}}};
+type YCConnection = {state:string;message:string;busy:boolean;checked_at?:string};
+type State = {yc_connection?:YCConnection;keyword_profile?:KeywordProfile;location_preference?:{label:string;countries:string[]};items:Item[];running:boolean;settings:{enabled:boolean;auto_assess:boolean};boards:Record<string,string>;unavailable:Record<string,string>;timezone:string;schedule:string[];scan:null|{started:string;finished:string|null;payload:{phase?:string;descriptions?:{fetched:number;needs_paste:number};state:string;new_count?:number;sources:Record<string,Source>;error?:string}}};
 async function request<T>(path="",body?:unknown):Promise<T> {
  const response=await fetch(`/api/discovery${path}`,body===undefined?undefined:{method:"POST",headers:{"Content-Type":"application/json","X-Local-Review":"1"},body:JSON.stringify(body)});
  const value=await response.json();if(!response.ok)throw new Error(typeof value.detail==="string"?value.detail:"Action failed. Try again.");return value;
 }
-const statusLabel=(state:string):string=>({complete:"Completed",incomplete:"Incomplete coverage",failed:"Failed",blocked:"Access denied / limited",partial:"Partial coverage",checked:"Checked"} as Record<string,string>)[state]??state;
+const statusLabel=(state:string):string=>({complete:"Completed",incomplete:"Incomplete coverage",failed:"Failed",blocked:"Access denied / limited",partial:"Partial coverage",checked:"Checked",login_required:"Sign in to YC",busy:"YC browser busy"} as Record<string,string>)[state]??state;
 const when=(date:string)=>new Date(date).toLocaleString();
 const freshnessLabel=(item:Item)=>item.freshness==="within_24h"?"Source reports <24h":item.freshness==="older"?"Older than 24h":item.freshness==="date_only"?"Date only - age uncertain":"Date unknown";
 export function Discovery({onOpen,onResults,view="opportunities"}:{onResults:()=>void;view?:"runs"|"opportunities";onOpen:(jobId:string)=>Promise<void>}) {
@@ -49,6 +50,13 @@ export function Discovery({onOpen,onResults,view="opportunities"}:{onResults:()=
     <div><span>New this run</span><strong>{state.scan?.payload.new_count??"—"}</strong></div>
    </div>
    <p className="discovery-clock">Times shown in your browser's local timezone. Scheduled checks: {state.settings.enabled?state.schedule.join(" / "):"Paused"} ({state.timezone}, server clock).</p>
+   {state.yc_connection && <div className="discovery-preferences">
+    <strong>YC · Work at a Startup — {({CONNECTED:"Connected",NOT_CONNECTED:"Not connected",LOGIN_REQUIRED:"Sign in again",WAITING_FOR_LOGIN:"Waiting for sign-in",CONNECTING:"Connecting",SCANNING:"Collecting",NEEDS_CHECK:"Check connection",BLOCKED:"Access denied",ERROR:"Connection error",SETUP_REQUIRED:"Setup required"} as Record<string,string>)[state.yc_connection.state]??state.yc_connection.state}</strong>
+    <p>{state.yc_connection.message}</p>
+    <button disabled={busy||state.yc_connection.busy||state.running} onClick={()=>void act(async()=>{const connection=await request<YCConnection>("/yc/connect",{});setState({...state,yc_connection:connection});})}>{state.yc_connection.state==="CONNECTED"?"Reconnect YC":"Connect YC"}</button>
+    <button disabled={busy||state.yc_connection.busy||state.running} onClick={()=>void act(async()=>{const connection=await request<YCConnection>("/yc/check",{});setState({...state,yc_connection:connection});})}>Check connection</button>
+    <details><summary>How sign-in works</summary><p>Connect YC opens a separate Microsoft Edge window. Sign in there; it closes once the directory is verified. The app keeps that browser profile in your private workspace and uses it for scheduled checks. If YC expires the session, reconnect here. No password is requested by this app.</p></details>
+   </div>}
    <h2>Job boards</h2><div className="discovery-table-scroll" tabIndex={0} role="region" aria-label="Job board run summary"><table className="discovery-table board-overview"><thead><tr><th>Board</th><th>Last check</th><th>Status</th><th>Found this run</th><th>Saved</th></tr></thead><tbody>
    {Object.entries(state.boards).map(([id,name])=>{const source=state.scan?.payload.sources[id];return <tr key={id}><th scope="row">{name}</th><td>{source?.checked_at?when(source.checked_at):"Not checked this run"}</td><td>{statusLabel(source?.state??(state.running?"Waiting":"Not checked"))}</td><td>{source?.count??"—"}</td><td>{state.items.filter(item=>item.sources.some(s=>s.board===id)).length}</td></tr>;})}
    </tbody></table></div>

@@ -2,7 +2,7 @@
 
 Reviewed September 30, 2026. Collection is local and uses no language model or Firecrawl.
 
-- **YC:** reads embedded listing JSON from the public Product Manager category page and JobPosting JSON-LD from individual YC listings. Up to 60 details. This is a website adapter, not a documented developer API or complete YC feed.
+- **YC:** now uses an app-owned, authenticated Microsoft Edge session for the Work at a Startup Product / Fulltime directory. Connect YC in Discovery runs; login is required. The old public category adapter remains in source for reference but is no longer selected by the live default collector. Browser session state is private and never copied from Codex.
 - **Built In:** reads public product-category listing pages and JobPosting JSON-LD from individual listings. Up to five category pages and 40 details. Coverage remains partial; calendar dates do not prove a precise 24-hour publication window.
 - **a16z, Sequoia, Lightspeed:** use the boards' website search endpoint `/api-boards/search-jobs`, with an anonymous session token, product-title filter, and board-provided past-day filter. Cursor pagination is bounded to five pages. The response may contain only metadata. Board timestamps are not verified original employer publication dates.
 - **Wellfound, Khosla, Index:** previously blocked direct access; not enabled. Welcome to the Jungle remains unverified.
@@ -42,3 +42,10 @@ Run status is failed if no board could be collected, incomplete if a source fail
 Diagnostics retain the exception category, HTTP status, endpoint host/path, attempt count, and exception cause types. Detail-page failures also carry diagnostics. Response bodies, cookies, query strings, and raw error messages are not recorded. Exact causes such as bot protection cannot be inferred from HTTP 403 alone.
 
 Official feed review: https://docs.considerapi.com/ documents authenticated board jobs with X-API-Key. A key must be issued through Consider support/customer success, and access to our target boards has not been established. No supported public YC or Built In collection API was verified. Their website collectors remain explicitly partial; no paid third-party feed or guessed API has been substituted.
+
+
+## Authenticated YC directory
+
+The browser profile lives in the active private directory under `yc-browser/profile`. Login and scans are exclusive operations managed by a subprocess, so scheduler threads do not share Playwright contexts. Connect YC opens a visible Edge window; checks and scheduled collection use a headless instance of the same profile. All operations verify the signed-in directory. A missing/expired session is reported as `login_required`, independently of HTTP access denial. Other boards continue and existing listings remain saved.
+
+Directory scrolling is bounded to 50 steps, stops after three unchanged checks, and reports loaded vs reported startup counts. At most 120 detail pages are attempted within a ten-minute scan budget. Only matching product titles are collected; filtering by the user's country and priority continues in the existing pipeline. Descriptions require a matching job/company heading and an About the role section. Partial or missing descriptions are reported. No passwords or cookies appear in diagnostics; the profile is Git-ignored. Live authenticated verification is required before claiming this connection works on a given installation.

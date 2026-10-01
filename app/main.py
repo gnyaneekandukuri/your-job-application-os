@@ -108,6 +108,14 @@ def create_app(data_dir: Path | None = None):
     def discovery_status(request: Request):
         return request.app.state.discovery.view()
 
+    @api.post("/api/discovery/yc/connect")
+    def yc_connect(request: Request):
+        return request.app.state.discovery.yc.start('login')
+
+    @api.post("/api/discovery/yc/check")
+    def yc_check(request: Request):
+        return request.app.state.discovery.yc.start('check')
+
     @api.get("/api/assessments")
     def assessment_results(request: Request):
         return request.app.state.discovery.assessment_results()

@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from .discovery_sources import BOARDS, UNAVAILABLE, canonical, collect, freshness
 from .discovery_preferences import load_preferences
 from .discovery_network import diagnose
+from .yc_connection import YCConnection
 from .discovery_location import location_match
 from .discovery_keywords import KeywordIndex
 from .models import JobInput
@@ -56,8 +57,9 @@ class Discovery:
     def __init__(self, path, service, analysis, collector=collect, sources=lambda: []):
         self.path, self.service, self.analysis, self.collector = path, service, analysis, collector
         self.lock, self.stop = RLock(), Event()
+        self.yc = YCConnection(path.parent)
         if collector is collect:
-            self.collector = lambda board: collect(board, stop=self.stop)
+            self.collector = lambda board: self.yc.collect() if board == "yc" else collect(board, stop=self.stop)
         self.worker = self.scheduler = None
         self.queued_ids = set()
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -145,7 +147,7 @@ class Discovery:
                 items.append(item)
             scan = db.execute('SELECT * FROM scans ORDER BY id DESC LIMIT 1').fetchone()
         keyword_profile = self.keywords.enrich(items, preferences)
-        return {'keyword_profile': keyword_profile, 'items': items, 'location_preference': preferences.get('location_filter', {}), 'settings': self.settings(), 'running': bool(self.worker and self.worker.is_alive()),
+        return {'yc_connection': self.yc.status(), 'keyword_profile': keyword_profile, 'items': items, 'location_preference': preferences.get('location_filter', {}), 'settings': self.settings(), 'running': bool(self.worker and self.worker.is_alive()),
                 'scan': {**dict(scan), 'payload': scan_summary(json.loads(scan['payload']))} if scan else None,
                 'boards': BOARDS, 'unavailable': UNAVAILABLE, 'timezone': str(datetime.now().astimezone().tzinfo),
                 'schedule': ['08:00', '13:00', '20:00']}
@@ -296,7 +298,7 @@ class Discovery:
                     result['sources'][board] = {'state': 'partial' if warnings or 'partial' in coverage.lower() or 'not established' in coverage.lower() else 'checked', 'count': len(rows), 'coverage': coverage, 'warnings': warnings, 'checked_at': now()}
                 except Exception as exc:
                     code = getattr(getattr(exc, 'response', None), 'status_code', None)
-                    result['sources'][board] = {'state': 'blocked' if code in (403, 429) else 'error', 'error': f'{type(exc).__name__}' + (f' (HTTP {code})' if code else ''), 'checked_at': now(), 'diagnostic': getattr(exc, 'discovery_diagnostic', diagnose(exc))}
+                    result['sources'][board] = {'state': getattr(exc, 'source_state', 'blocked' if code in (403, 429) else 'error'), 'error': f'{type(exc).__name__}' + (f' (HTTP {code})' if code else ''), 'checked_at': now(), 'diagnostic': getattr(exc, 'discovery_diagnostic', diagnose(exc))}
                 with self.db() as db: db.execute('UPDATE scans SET payload=? WHERE id=?', (json.dumps(result), sid))
             result['phase'] = 'descriptions'
             with self.db() as db: db.execute('UPDATE scans SET payload=? WHERE id=?',(json.dumps(result),sid))
@@ -415,5 +417,6 @@ class Discovery:
 
     def close(self):
         self.stop.set()
+        self.yc.close()
         if self.scheduler: self.scheduler.join(timeout=2)
         if self.worker: self.worker.join(timeout=25)

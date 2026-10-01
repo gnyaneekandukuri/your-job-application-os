@@ -36,3 +36,18 @@ Stop both app servers. Run `python scripts/migrate_workspace.py LEGACY_ROOT .loc
 
 Make future feature changes in this repository, test, then commit and push only code. Back up `.local` separately for personal history. Do not resume the legacy app after cutover unless deliberately restoring that older snapshot.
 
+
+
+### Connect YC / Work at a Startup
+
+Install Microsoft Edge and the optional browser dependency:
+
+```powershell
+.venv/Scripts/python.exe -m pip install -r requirements-yc.txt
+```
+
+In **Discovery runs**, choose **Connect YC**. Sign in in the separate Edge window; the window closes when the authenticated Product / Fulltime directory is verified. Use **Check connection** to verify the saved session, then **Check now** to collect. Scheduled scans use the same private browser profile while the backend is running. A login in Codex or your regular browser is separate and is not copied.
+
+The profile is saved under the active private data directory, `yc-browser/profile`, and is excluded from Git. Treat that directory as sensitive login data; do not share or upload it. Browser state is saved by Edge, not exported into an API response. The app never asks for your password. If YC expires the session, Discovery runs displays **Sign in again**. An access denial remains an access denial; the app does not bypass it or silently substitute the public YC collector.
+
+The collector scrolls the directory and reads linked job descriptions. Coverage remains partial because company cards can omit roles; the scan reports loaded startups, warnings, and missing descriptions. No posting dates are inferred from sort order or first discovery. YC's sponsorship labels are retained as source claims, not proof of H-1B transfer eligibility. Existing YC IDs retain their history across the public-site to authenticated-directory transition.
