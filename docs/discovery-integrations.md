@@ -31,3 +31,14 @@ Deep analysis lists saved analyses from both discovery and manually entered role
 
 An HTTP 429 from either evidence analysis or pursuit pauses the automatic paid queue before dispatching another role. Free scheduled collection remains enabled. Failed roles are not automatically retried after re-enabling the queue. Historical error messages alone cannot distinguish exhausted quota from a temporary rate limit; no account billing state is inferred.
 
+
+
+## Connection recovery and coverage (October 1, 2026)
+
+Free board requests retry transient network/time-out errors and HTTP 502/503/504 after 10, 30, and 60 seconds, for at most four attempts per request. Shutdown interrupts retry waits. HTTP 401/403/429, response-format errors, and responses with Retry-After are not immediately retried. These retries do not apply to paid analysis. A failed source can be tried at the next scheduled scan or through Check now.
+
+Run status is failed if no board could be collected, incomplete if a source failed or any collector reports partial coverage, and complete only when all collectors report checked coverage. Previously saved complete statuses are interpreted with the same rules when displayed; historical records are not rewritten. Jobs from successful sources and all older listings remain saved. Incomplete coverage is visible on New opportunities and Discovery runs.
+
+Diagnostics retain the exception category, HTTP status, endpoint host/path, attempt count, and exception cause types. Detail-page failures also carry diagnostics. Response bodies, cookies, query strings, and raw error messages are not recorded. Exact causes such as bot protection cannot be inferred from HTTP 403 alone.
+
+Official feed review: https://docs.considerapi.com/ documents authenticated board jobs with X-API-Key. A key must be issued through Consider support/customer success, and access to our target boards has not been established. No supported public YC or Built In collection API was verified. Their website collectors remain explicitly partial; no paid third-party feed or guessed API has been substituted.

@@ -8,6 +8,7 @@ from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
 
 import httpx
 from .extraction import JsonLdParser, plain_text
+from .discovery_network import BoardClient, recover, diagnose
 
 BOARDS = {'yc': 'Y Combinator', 'builtin': 'Built In', 'a16z': 'a16z',
           'sequoia': 'Sequoia', 'lightspeed': 'Lightspeed'}
@@ -52,6 +53,10 @@ def relevant(title):
 
 
 def fetch(client, url, payload=None, headers=None):
+    return recover(client, url, lambda: fetch_once(client, url, payload, headers))
+
+
+def fetch_once(client, url, payload=None, headers=None):
     with client.stream('POST' if payload is not None else 'GET', url, json=payload, headers=headers) as r:
         r.raise_for_status()
         if r.is_redirect:
@@ -111,9 +116,9 @@ def detail(client, url):
             'snapshot_sha256': hashlib.sha256(raw.encode()).hexdigest()}
 
 
-def collect(board):
+def collect(board, stop=None):
     rows, warnings = [], []
-    with httpx.Client(timeout=20, follow_redirects=False, trust_env=False) as client:
+    with BoardClient(stop=stop, timeout=20, follow_redirects=False, trust_env=False) as client:
         if board in CONSIDER:
             base, board_id = CONSIDER[board]
             page = fetch(client, base + '/jobs')
@@ -154,7 +159,7 @@ def collect(board):
                     parsed = detail(client, row['url'])
                     # Preserve the board listing's explicit company/location when detail omits them.
                     row.update({k: v for k, v in parsed.items() if v and v != 'Unknown'})
-                except Exception as exc: warnings.append(f'Description unavailable for {j["id"]}: {type(exc).__name__}')
+                except Exception as exc: warnings.append({'listing': str(j['id']), **getattr(exc, 'discovery_diagnostic', diagnose(exc))})
                 rows.append(row)
             if len(jobs) > 60: warnings.append('Reached 60-detail limit')
             coverage = 'Public PM category page only; full YC coverage is not established. Individual detail dates checked.'
@@ -173,6 +178,8 @@ def collect(board):
                     row = detail(client, base + path)
                     rows.append({**row, 'source_id': path.rsplit('/', 1)[-1], 'url': base + path,
                                  'date_basis': 'source_datePosted', 'funding': 'Unknown'})
-                except Exception as exc: warnings.append(f'Description unavailable for {path}: {type(exc).__name__}')
+                except Exception as exc: warnings.append({'listing': path, **getattr(exc, 'discovery_diagnostic', diagnose(exc))})
         else: raise ValueError('Unsupported board')
+        if client.recovered_requests:
+            warnings.append(f'Recovered {client.recovered_requests} requests after temporary connection failures.')
     return rows, coverage, warnings

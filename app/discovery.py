@@ -11,6 +11,7 @@ from uuid import uuid4, uuid5, NAMESPACE_URL
 from pydantic import BaseModel, ConfigDict, Field
 from .discovery_sources import BOARDS, UNAVAILABLE, canonical, collect, freshness
 from .discovery_preferences import load_preferences
+from .discovery_network import diagnose
 from .discovery_location import location_match
 from .discovery_keywords import KeywordIndex
 from .models import JobInput
@@ -25,6 +26,15 @@ def slot_at(current):
     """Machine-local clock, including its DST offset; one catch-up per latest due slot."""
     due = [h for h in (8, 13, 20) if current.hour >= h]
     return current.strftime('%Y-%m-%d') + f'T{due[-1]:02d}' if due else None
+
+
+def scan_summary(payload):
+    result = dict(payload)
+    if result.get('state') == 'complete':
+        states = [source['state'] for source in result.get('sources', {}).values()]
+        good = sum(state in ('checked', 'partial') for state in states)
+        result['state'] = 'failed' if not good else 'incomplete' if good < len(BOARDS) or 'partial' in states else 'complete'
+    return result
 
 
 class Settings(BaseModel):
@@ -46,6 +56,8 @@ class Discovery:
     def __init__(self, path, service, analysis, collector=collect, sources=lambda: []):
         self.path, self.service, self.analysis, self.collector = path, service, analysis, collector
         self.lock, self.stop = RLock(), Event()
+        if collector is collect:
+            self.collector = lambda board: collect(board, stop=self.stop)
         self.worker = self.scheduler = None
         self.queued_ids = set()
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -134,7 +146,7 @@ class Discovery:
             scan = db.execute('SELECT * FROM scans ORDER BY id DESC LIMIT 1').fetchone()
         keyword_profile = self.keywords.enrich(items, preferences)
         return {'keyword_profile': keyword_profile, 'items': items, 'location_preference': preferences.get('location_filter', {}), 'settings': self.settings(), 'running': bool(self.worker and self.worker.is_alive()),
-                'scan': {**dict(scan), 'payload': json.loads(scan['payload'])} if scan else None,
+                'scan': {**dict(scan), 'payload': scan_summary(json.loads(scan['payload']))} if scan else None,
                 'boards': BOARDS, 'unavailable': UNAVAILABLE, 'timezone': str(datetime.now().astimezone().tzinfo),
                 'schedule': ['08:00', '13:00', '20:00']}
 
@@ -284,7 +296,7 @@ class Discovery:
                     result['sources'][board] = {'state': 'partial' if warnings or 'partial' in coverage.lower() or 'not established' in coverage.lower() else 'checked', 'count': len(rows), 'coverage': coverage, 'warnings': warnings, 'checked_at': now()}
                 except Exception as exc:
                     code = getattr(getattr(exc, 'response', None), 'status_code', None)
-                    result['sources'][board] = {'state': 'blocked' if code in (403, 429) else 'error', 'error': f'{type(exc).__name__}' + (f' (HTTP {code})' if code else ''), 'checked_at': now()}
+                    result['sources'][board] = {'state': 'blocked' if code in (403, 429) else 'error', 'error': f'{type(exc).__name__}' + (f' (HTTP {code})' if code else ''), 'checked_at': now(), 'diagnostic': getattr(exc, 'discovery_diagnostic', diagnose(exc))}
                 with self.db() as db: db.execute('UPDATE scans SET payload=? WHERE id=?', (json.dumps(result), sid))
             result['phase'] = 'descriptions'
             with self.db() as db: db.execute('UPDATE scans SET payload=? WHERE id=?',(json.dumps(result),sid))
@@ -293,7 +305,12 @@ class Discovery:
                 result['phase'] = 'assessing'
                 with self.db() as db: db.execute('UPDATE scans SET payload=? WHERE id=?',(json.dumps(result),sid))
                 self.assess_high_priority(pending)
-            result['state'] = 'interrupted' if self.stop.is_set() else 'complete'
+            states = [source['state'] for source in result['sources'].values()]
+            successful = sum(state in ('checked', 'partial') for state in states)
+            result['state'] = ('interrupted' if self.stop.is_set() else
+                               'failed' if not successful else
+                               'incomplete' if successful < len(BOARDS) or 'partial' in states else 'complete')
+            result['coverage'] = {'responded': successful, 'total': len(BOARDS)}
             result['phase'] = result['state']
         except Exception:
             result.update(state='error', phase='error', error='Discovery pipeline stopped. Saved results are retained.')

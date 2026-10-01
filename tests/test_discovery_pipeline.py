@@ -67,7 +67,7 @@ def test_pipeline_completes_descriptions_before_assessment(tmp_path, monkeypatch
         discovery.scan()
         assert [v[0] for v in events]==['descriptions','assess']
         assert events[0][1]==events[1][1]
-        assert discovery.view()['scan']['payload']['state']=='complete'
+        assert discovery.view()['scan']['payload']['state']=='incomplete'
         assert discovery.view()['scan']['finished']
 
 
