@@ -29,3 +29,10 @@ Generic defaults live in `criteria/`. Feedback changes the user's local copies, 
 ## Verify
 
 Run `python -m pytest tests -q` and `npm run build` in `frontend`. Tests use fictional inputs, temporary directories, and no paid model calls.
+
+## Migrate an existing local workspace
+
+Stop both app servers. Run `python scripts/migrate_workspace.py LEGACY_ROOT .local/personal` from this repository. The destination must not exist. The script copies user sources and local uploads, backs up all top-level SQLite databases, verifies database integrity and row counts, and checks copied file hashes. It leaves the source intact. Write `personal` into `.local/active-workspace` to select the migrated directory on future starts, or set `JOB_REVIEW_DATA_DIR` explicitly. The selection file and all migrated data are ignored by Git. The Windows launcher is `./scripts/start-review.ps1`.
+
+Make future feature changes in this repository, test, then commit and push only code. Back up `.local` separately for personal history. Do not resume the legacy app after cutover unless deliberately restoring that older snapshot.
+

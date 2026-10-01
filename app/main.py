@@ -33,13 +33,13 @@ from . import feedback_learning as learning
 from .discovery import Discovery, Settings as DiscoverySettings, DescriptionInput
 from .discovery_keywords import TargetInput, library_sources
 from .discovery_preferences import load_preferences
-from .user_workspace import initialize, SetupInput, save_setup, setup_view
+from .user_workspace import initialize, SetupInput, save_setup, setup_view, default_data_directory
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 def create_app(data_dir: Path | None = None):
-    private_dir = data_dir or Path(os.environ.get("JOB_REVIEW_DATA_DIR", ROOT / ".local"))
+    private_dir = data_dir or default_data_directory()
 
     workspace = private_dir / "workspace"
     initialize(workspace)

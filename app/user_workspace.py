@@ -9,6 +9,21 @@ from pydantic import BaseModel, ConfigDict, Field
 PRODUCT = Path(__file__).resolve().parents[1]
 
 
+def default_data_directory():
+    if os.environ.get('JOB_REVIEW_DATA_DIR'):
+        return Path(os.environ['JOB_REVIEW_DATA_DIR']).resolve()
+    base = PRODUCT / '.local'
+    marker = base / 'active-workspace'
+    if marker.exists():
+        selected = (base / marker.read_text(encoding='utf-8').strip()).resolve()
+        if not selected.is_relative_to(base.resolve()) or selected == base.resolve():
+            raise ValueError('Active workspace must be a subdirectory of .local')
+        if not (selected / 'reviews.sqlite3').is_file():
+            raise ValueError('Active workspace is missing its database; refusing an empty replacement')
+        return selected
+    return base
+
+
 class SetupInput(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
     name: str = Field(default="", max_length=120)
