@@ -102,3 +102,41 @@ def test_yc_actions_require_local_header(tmp_path,monkeypatch):
         assert not called
         assert client.post('/api/discovery/yc/connect',headers={'X-Local-Review':'1'}).status_code==200
         assert called==['login']
+
+
+def test_zero_during_loading_is_not_an_empty_directory():
+    from app.yc_browser_worker import directory_settled
+    assert not directory_settled({'loaded':0,'total':0,'loading':False},1)
+    assert not directory_settled({'loaded':0,'total':0,'loading':True},20)
+    assert not directory_settled({'loaded':0,'total':None,'loading':False},20)
+    assert directory_settled({'loaded':10,'total':148,'loading':True},0)
+    assert directory_settled({'loaded':0,'total':0,'loading':False},10)
+
+
+def test_single_source_scan_does_not_call_other_boards(tmp_path):
+    with TestClient(create_app(tmp_path)) as client:
+        d=client.app.state.discovery
+        calls=[]
+        d.collector=lambda board: (calls.append(board) or [], 'Checked', [])
+        d.complete_descriptions=lambda ids:{'fetched':0,'needs_paste':0}
+        d.scan(['yc'])
+        assert calls==['yc']
+        with d.db() as db:
+            result=json.loads(db.execute('SELECT payload FROM scans').fetchone()[0])
+        assert result['state']=='complete'
+        assert result['coverage']=={'responded':1,'total':1}
+
+
+def test_dashboard_summaries_do_not_block_scan_writes(tmp_path,monkeypatch):
+    import sqlite3
+    with TestClient(create_app(tmp_path)) as client:
+        d=client.app.state.discovery
+        row={'source_id':'one','url':'https://www.workatastartup.com/jobs/1',
+             'company':'Example','title':'Product Manager','location':'US','description':'Description '*30}
+        d.save('yc',row)
+        def summary(item):
+            with sqlite3.connect(d.path,timeout=0.1) as db:
+                db.execute('INSERT INTO scans(started,payload) VALUES(?,?)',('test','{}'))
+            return {'state':'NOT_STARTED','score':None}
+        monkeypatch.setattr(d,'assessment_summary',summary)
+        assert len(d.view()['items'])==1

@@ -34,7 +34,7 @@ def scan_summary(payload):
     if result.get('state') == 'complete':
         states = [source['state'] for source in result.get('sources', {}).values()]
         good = sum(state in ('checked', 'partial') for state in states)
-        result['state'] = 'failed' if not good else 'incomplete' if good < len(BOARDS) or 'partial' in states else 'complete'
+        result['state'] = 'failed' if not good else 'incomplete' if good < len(result.get('boards', BOARDS)) or 'partial' in states else 'complete'
     return result
 
 
@@ -64,6 +64,7 @@ class Discovery:
         self.queued_ids = set()
         path.parent.mkdir(parents=True, exist_ok=True)
         with self.db() as db:
+            db.execute("PRAGMA journal_mode=WAL")
             db.executescript('''CREATE TABLE IF NOT EXISTS opportunities (
                 id TEXT PRIMARY KEY, payload TEXT NOT NULL, first_seen TEXT NOT NULL,
                 last_seen TEXT NOT NULL, job_id TEXT, imported_hash TEXT, assessment_state TEXT);
@@ -138,7 +139,6 @@ class Discovery:
                             sources=[{'board': s['board'], 'seen_at': s['seen_at'], 'posted_at': json.loads(s['payload']).get('posted_at')} for s in sources])
                 item["location_match"] = location_match(item.get("location"), preferences)
                 item["content_hash"] = self.content_hash(item)
-                item["assessment"] = self.assessment_summary(item)
                 attempt = db.execute('SELECT state,attempted_at,error FROM automatic_assessments WHERE opportunity_id=?',(row['id'],)).fetchone()
                 item['automatic_assessment'] = dict(attempt) if attempt else None
                 item['queued_for_assessment'] = row['id'] in self.queued_ids
@@ -146,6 +146,9 @@ class Discovery:
                 item['description_fetch'] = dict(fetched) if fetched else None
                 items.append(item)
             scan = db.execute('SELECT * FROM scans ORDER BY id DESC LIMIT 1').fetchone()
+        # Never hold a listing cursor/read lock during filesystem-heavy analysis summaries.
+        for item in items:
+            item["assessment"] = self.assessment_summary(item)
         keyword_profile = self.keywords.enrich(items, preferences)
         return {'yc_connection': self.yc.status(), 'keyword_profile': keyword_profile, 'items': items, 'location_preference': preferences.get('location_filter', {}), 'settings': self.settings(), 'running': bool(self.worker and self.worker.is_alive()),
                 'scan': {**dict(scan), 'payload': scan_summary(json.loads(scan['payload']))} if scan else None,
@@ -272,20 +275,23 @@ class Discovery:
                 counts['needs_paste'] += 1
         return counts
 
-    def start(self):
+    def start(self, boards=None):
         with self.lock:
             if self.worker and self.worker.is_alive(): return self.view()
-            self.worker = Thread(target=self.scan, daemon=True)
+            self.worker = Thread(target=self.scan, args=(boards,), daemon=True)
             self.worker.start()
         return self.view()
 
-    def scan(self):
-        result = {'state': 'running', 'phase':'collecting', 'sources': {}, 'new_count': 0}
+    def scan(self, boards=None):
+        boards = list(boards) if boards is not None else list(BOARDS)
+        if not boards or any(board not in BOARDS for board in boards):
+            raise ValueError("Unknown discovery source")
+        result = {'state': 'running', 'phase':'collecting', 'boards': boards, 'sources': {}, 'new_count': 0}
         with self.db() as db:
             sid = db.execute('INSERT INTO scans(started,payload) VALUES(?,?)', (now(), json.dumps(result))).lastrowid
         pending = set()
         try:
-            for board in BOARDS:
+            for board in boards:
                 if self.stop.is_set(): break
                 try:
                     rows, coverage, warnings = self.collector(board)
@@ -311,8 +317,8 @@ class Discovery:
             successful = sum(state in ('checked', 'partial') for state in states)
             result['state'] = ('interrupted' if self.stop.is_set() else
                                'failed' if not successful else
-                               'incomplete' if successful < len(BOARDS) or 'partial' in states else 'complete')
-            result['coverage'] = {'responded': successful, 'total': len(BOARDS)}
+                               'incomplete' if successful < len(boards) or 'partial' in states else 'complete')
+            result['coverage'] = {'responded': successful, 'total': len(boards)}
             result['phase'] = result['state']
         except Exception:
             result.update(state='error', phase='error', error='Discovery pipeline stopped. Saved results are retained.')

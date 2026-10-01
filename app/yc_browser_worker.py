@@ -34,7 +34,7 @@ LISTINGS_JS = r'''() => {
   const companies = new Set([...document.querySelectorAll('a[href]')]
     .map(a=>new URL(a.href).pathname).filter(p=>/^\/companies\/[^/]+$/.test(p) && !p.endsWith('/website')));
   const total = document.body.innerText.match(/Showing\s+(\d+)\s+matching startups/i);
-  return {rows, loaded:companies.size, total:total ? Number(total[1]) : null};
+  return {rows, loaded:companies.size, total:total ? Number(total[1]) : null, loading:/Loading matches|Loading companies|Loading jobs/i.test(document.body.innerText)};
 }'''
 
 
@@ -53,6 +53,11 @@ def directory_ready(page):
             and urlsplit(page.url).path == '/companies'
             and page.locator('a[href="/conversations"], a[href="https://www.workatastartup.com/conversations"]').count() > 0
             and re.search(r'Showing\s+\d+\s+matching startups', page.locator('body').inner_text()) is not None)
+
+
+def directory_settled(snapshot, empty_checks):
+    # A zero placeholder is not evidence of an empty search result.
+    return snapshot['loaded'] > 0 or (snapshot['total'] == 0 and empty_checks >= 10 and not snapshot.get('loading'))
 
 
 def run(command, root):
@@ -100,11 +105,20 @@ def run(command, root):
             previous = -1
             loaded = 0
             deadline = time.monotonic() + 600
+            empty_checks = 0
             for _ in range(50):
                 snapshot = page.evaluate(LISTINGS_JS)
                 total, loaded = snapshot['total'], snapshot['loaded']
                 for row in snapshot['rows']:
                     if relevant(row['title']): rows[row['source_id']] = row
+                # React initially renders 0 before the directory request resolves.
+                if loaded == 0:
+                    empty_checks += 1
+                    if not directory_settled(snapshot, empty_checks):
+                        if empty_checks >= 25:
+                            return fail(root,'ERROR','YC directory did not finish loading. No zero-result scan was assumed.','error')
+                        page.wait_for_timeout(1800)
+                        continue
                 if total is not None and loaded >= total: break
                 stalled = stalled+1 if loaded == previous else 0
                 if stalled >= 3 or time.monotonic() > deadline:

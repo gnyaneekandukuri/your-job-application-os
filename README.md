@@ -46,7 +46,7 @@ Install Microsoft Edge and the optional browser dependency:
 .venv/Scripts/python.exe -m pip install -r requirements-yc.txt
 ```
 
-In **Discovery runs**, choose **Connect YC**. Sign in in the separate Edge window; the window closes when the authenticated Product / Fulltime directory is verified. Use **Check connection** to verify the saved session, then **Check now** to collect. Scheduled scans use the same private browser profile while the backend is running. A login in Codex or your regular browser is separate and is not copied.
+In **Discovery runs**, choose **Connect YC**. Sign in in the separate Edge window; the window closes when the authenticated Product / Fulltime directory is verified. Use **Check connection** to verify the saved session, then **Check YC now** to collect only YC. **Check now** still checks all enabled sources. Scheduled scans use the same private browser profile while the backend is running. A login in Codex or your regular browser is separate and is not copied.
 
 The profile is saved under the active private data directory, `yc-browser/profile`, and is excluded from Git. Treat that directory as sensitive login data; do not share or upload it. Browser state is saved by Edge, not exported into an API response. The app never asks for your password. If YC expires the session, Discovery runs displays **Sign in again**. An access denial remains an access denial; the app does not bypass it or silently substitute the public YC collector.
 

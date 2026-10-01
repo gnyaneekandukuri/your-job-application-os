@@ -112,6 +112,10 @@ def create_app(data_dir: Path | None = None):
     def yc_connect(request: Request):
         return request.app.state.discovery.yc.start('login')
 
+    @api.post("/api/discovery/yc/scan")
+    def yc_scan(request: Request):
+        return request.app.state.discovery.start(['yc'])
+
     @api.post("/api/discovery/yc/check")
     def yc_check(request: Request):
         return request.app.state.discovery.yc.start('check')
