@@ -5,7 +5,7 @@ import json
 import re
 from datetime import datetime, timezone
 from html.parser import HTMLParser
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, urlsplit, unquote, quote
 from uuid import UUID, uuid4
 
 from .models import ExtractionDraft, now
@@ -122,7 +122,7 @@ def ashby_reference(url: str):
     parts = urlsplit(url)
     if parts.hostname != "jobs.ashbyhq.com":
         return None
-    match = re.fullmatch(r"/([A-Za-z0-9_-]+)/([0-9a-fA-F-]{36})(?:/application)?/?", parts.path)
+    match = re.fullmatch(r"/([A-Za-z0-9_ -]+)/([0-9a-fA-F-]{36})(?:/application)?/?", unquote(parts.path))
     if not match:
         raise ExtractionError("Use an Ashby link for a specific job, not the company job list.")
     try:
@@ -133,7 +133,7 @@ def ashby_reference(url: str):
 
 
 def ashby_target(reference):
-    return f"https://api.ashbyhq.com/posting-api/job-board/{reference[0]}"
+    return 'https://api.ashbyhq.com/posting-api/job-board/' + quote(reference[0], safe='')
 
 
 def ashby_details(page, reference, fetcher):

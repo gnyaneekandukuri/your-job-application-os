@@ -1,6 +1,7 @@
 """Persistent local discovery queue and three-times-daily scheduler."""
 import hashlib
 import json
+import re
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -58,6 +59,7 @@ class Discovery:
                 CREATE TABLE IF NOT EXISTS import_intents (id TEXT PRIMARY KEY, payload TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS automatic_assessments (opportunity_id TEXT PRIMARY KEY, state TEXT, attempted_at TEXT, error TEXT);
                 CREATE TABLE IF NOT EXISTS discovery_drafts (id TEXT PRIMARY KEY, opportunity_id TEXT, payload TEXT);
+                CREATE TABLE IF NOT EXISTS description_fetches (opportunity_id TEXT PRIMARY KEY, state TEXT, checked_at TEXT, error TEXT);
                 CREATE TABLE IF NOT EXISTS revisions (opportunity_id TEXT, content_hash TEXT, payload TEXT, seen_at TEXT,
                 PRIMARY KEY(opportunity_id,content_hash));''')
             db.execute('INSERT OR IGNORE INTO config VALUES (1,?)', (json.dumps({'enabled': False, 'auto_assess': False, 'last_slot': slot_at(datetime.now().astimezone())}),))
@@ -101,6 +103,8 @@ class Discovery:
                 item["assessment"] = self.assessment_summary(item)
                 attempt = db.execute('SELECT state,attempted_at,error FROM automatic_assessments WHERE opportunity_id=?',(row['id'],)).fetchone()
                 item['automatic_assessment'] = dict(attempt) if attempt else None
+                fetched = db.execute('SELECT state,checked_at,error FROM description_fetches WHERE opportunity_id=?',(row['id'],)).fetchone()
+                item['description_fetch'] = dict(fetched) if fetched else None
                 items.append(item)
             scan = db.execute('SELECT * FROM scans ORDER BY id DESC LIMIT 1').fetchone()
         keyword_profile = self.keywords.enrich(items, preferences)
@@ -194,6 +198,40 @@ class Discovery:
             db.execute('INSERT OR IGNORE INTO revisions VALUES(?,?,?,?)', (oid, self.content_hash(merged), json.dumps(merged), stamp))
         return oid, row is None
 
+    def complete_descriptions(self, seen_ids):
+        """Fetch missing JDs without a model; mismatches require manual review."""
+        from .extraction import extract_job
+        from .safe_fetch import ExtractionError
+        def identity(text):
+            return re.sub(r'\b(inc|llc|ltd|company|corporation)\b', '', re.sub(r'[^a-z0-9]+',' ',text.lower())).strip()
+        counts = {'fetched':0, 'needs_paste':0}
+        for item in self.view()['items']:
+            if self.stop.is_set(): break
+            if item['id'] not in seen_ids or len(item.get('description','')) >= 20 or item['location_match']['status'] == 'outside': continue
+            previous = item.get('description_fetch')
+            if previous and freshness(previous['checked_at']) == 'within_24h':
+                counts['needs_paste'] += 1
+                continue
+            try:
+                draft = extract_job(item['url']).model_dump(mode='json')
+                if (identity(draft['title']) != identity(item['title']) or identity(draft['company']) != identity(item['company']) or len(draft['description']) < 200):
+                    raise ValueError('Listing identity or description needs review')
+                with self.lock, self.db() as db:
+                    row = db.execute('SELECT payload FROM opportunities WHERE id=?',(item['id'],)).fetchone()
+                    current = json.loads(row[0])
+                    if self.content_hash(current) != item['content_hash']: continue
+                    current.update(description=draft['description'], description_provenance={'method':'listing_extraction','saved_at':now(),'draft':draft})
+                    db.execute('UPDATE opportunities SET payload=? WHERE id=?',(json.dumps(current),item['id']))
+                    db.execute('INSERT OR IGNORE INTO revisions VALUES(?,?,?,?)',(item['id'],self.content_hash(current),json.dumps(current),now()))
+                    db.execute('INSERT OR REPLACE INTO description_fetches VALUES(?,?,?,?)',(item['id'],'FETCHED',now(),''))
+                counts['fetched'] += 1
+            except Exception as exc:
+                message = str(exc) if isinstance(exc,ExtractionError) else 'Full JD could not be verified against this listing.'
+                with self.db() as db:
+                    db.execute('INSERT OR REPLACE INTO description_fetches VALUES(?,?,?,?)',(item['id'],'NEEDS_PASTE',now(),message))
+                counts['needs_paste'] += 1
+        return counts
+
     def start(self):
         with self.lock:
             if self.worker and self.worker.is_alive(): return self.view()
@@ -202,7 +240,7 @@ class Discovery:
         return self.view()
 
     def scan(self):
-        result = {'state': 'running', 'sources': {}, 'new_count': 0}
+        result = {'state': 'running', 'phase':'collecting', 'sources': {}, 'new_count': 0}
         with self.db() as db:
             sid = db.execute('INSERT INTO scans(started,payload) VALUES(?,?)', (now(), json.dumps(result))).lastrowid
         pending = set()
@@ -222,15 +260,22 @@ class Discovery:
                     code = getattr(getattr(exc, 'response', None), 'status_code', None)
                     result['sources'][board] = {'state': 'blocked' if code in (403, 429) else 'error', 'error': f'{type(exc).__name__}' + (f' (HTTP {code})' if code else ''), 'checked_at': now()}
                 with self.db() as db: db.execute('UPDATE scans SET payload=? WHERE id=?', (json.dumps(result), sid))
+            result['phase'] = 'descriptions'
+            with self.db() as db: db.execute('UPDATE scans SET payload=? WHERE id=?',(json.dumps(result),sid))
+            result['descriptions'] = self.complete_descriptions(pending)
+            if not self.stop.is_set() and self.settings()['auto_assess']:
+                result['phase'] = 'assessing'
+                with self.db() as db: db.execute('UPDATE scans SET payload=? WHERE id=?',(json.dumps(result),sid))
+                self.assess_high_priority(pending)
             result['state'] = 'interrupted' if self.stop.is_set() else 'complete'
+            result['phase'] = result['state']
+        except Exception:
+            result.update(state='error', phase='error', error='Discovery pipeline stopped. Saved results are retained.')
         finally:
             with self.db() as db: db.execute('UPDATE scans SET finished=?,payload=? WHERE id=?', (now(), json.dumps(result), sid))
-        if not self.stop.is_set() and self.settings()['auto_assess']:
-            self.assess_high_priority(pending)
 
     def assess_high_priority(self, seen_ids):
-        # Current-run sightings only. Keep the existing confirmed-24h freshness
-        # boundary; older/uncertain dates remain available for manual analysis.
+        # Current-run sightings only; publication age does not imply poor fit.
         candidates = [item for item in self.view()['items'] if item['id'] in seen_ids]
         candidates.sort(key=lambda item: -item.get('keyword_match',{}).get('ranking',{}).get('points',0))
         for item in candidates:
@@ -248,12 +293,13 @@ class Discovery:
                 with self.db() as db:
                     db.execute("UPDATE automatic_assessments SET state='FAILED',error=? WHERE opportunity_id=?",(error,item['id']))
                     db.execute('UPDATE opportunities SET assessment_state=? WHERE id=?',(error,item['id']))
+        while not self.stop.is_set() and self.analysis.worker and self.analysis.worker.is_alive():
+            self.stop.wait(2)
 
     @staticmethod
     def auto_eligible(item):
         return (item.get('keyword_match',{}).get('priority')=='high'
                 and item.get('location_match',{}).get('status')=='match'
-                and item.get('freshness')=='within_24h'
                 and len(item.get('description',''))>=20
                 and not item.get('description_changed')
                 and not item.get('automatic_assessment'))

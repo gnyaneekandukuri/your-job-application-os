@@ -129,7 +129,7 @@ def collect(board):
                     if not relevant(j.get('title', '')): continue
                     rows.append({'source_id': str(j['jobId']), 'title': j['title'], 'company': j.get('companyName', 'Unknown'),
                                  'location': '; '.join(j.get('locations', [])), 'url': canonical(j['url']),
-                                 'description': '', 'posted_at': j.get('timeStamp'), 'date_label': 'Board reports past 24 hours',
+                                 'description': plain_text(j.get('description', ''))[:50000], 'posted_at': j.get('timeStamp'), 'date_label': 'Board reports past 24 hours',
                                  'funding': (j.get('fundingLV') or {}).get('label', 'Unknown'),
                                  'date_basis': 'board_timestamp', 'snapshot_sha256': hashlib.sha256(json.dumps(j, sort_keys=True).encode()).hexdigest()})
                 cursor = data.get('meta', {}).get('sequence')
@@ -161,13 +161,13 @@ def collect(board):
         elif board == 'builtin':
             base, paths = 'https://builtin.com', []
             for number in range(1, 6):
-                url = base + '/jobs' + (f'?page={number}' if number > 1 else '')
+                url = base + '/jobs/product' + (f'?page={number}' if number > 1 else '')
                 parser = PageParser(); parser.feed(fetch(client, url))
                 for path in parser.links:
                     if re.fullmatch(r'/job/[^/?#]+/\d+', path) and relevant(path.replace('-', ' ')) and path not in paths:
                         paths.append(path)
-                if f'/jobs?page={number + 1}' not in parser.links: break
-            coverage = 'Up to five public listing pages; partial coverage. Calendar dates and repost labels are preserved.'
+                if f'/jobs/product?page={number + 1}' not in parser.links: break
+            coverage = 'Up to five public product-category pages and 40 details; partial coverage. Calendar dates and repost labels are preserved.'
             for path in paths[:40]:
                 try:
                     row = detail(client, base + path)

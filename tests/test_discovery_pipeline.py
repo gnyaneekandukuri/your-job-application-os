@@ -1,0 +1,99 @@
+from types import SimpleNamespace
+from uuid import uuid4
+import pytest
+from fastapi.testclient import TestClient
+from app.main import create_app
+from app.discovery import Discovery, Settings
+from app.extraction import ashby_reference, ashby_target
+from app.safe_fetch import ExtractionError
+
+
+def row(description=''):
+    return {'source_id':'example','title':'Product Manager','company':'Example Labs',
+            'url':'https://example.com/jobs/pm','location':'New York, NY, USA',
+            'description':description,'posted_at':None}
+
+
+def configure(client):
+    client.post('/api/setup', headers={'X-Local-Review':'1'}, json={'target_roles':['Product Manager'],'countries':['US']})
+    return client.app.state.discovery
+
+
+@pytest.mark.parametrize('date',['older','unknown','date_only','within_24h'])
+def test_priority_not_posting_age_controls_eligibility(date):
+    item={'keyword_match':{'priority':'high'},'location_match':{'status':'match'},
+          'freshness':date,'description':'A complete description of the job responsibilities.'}
+    assert Discovery.auto_eligible(item)
+    assert not Discovery.auto_eligible({**item,'automatic_assessment':{'state':'FAILED'}})
+    assert not Discovery.auto_eligible({**item,'description_changed':True})
+    assert not Discovery.auto_eligible({**item,'location_match':{'status':'outside'}})
+    assert not Discovery.auto_eligible({**item,'description':''})
+
+
+def test_fetch_match_is_saved_but_wrong_company_needs_paste(tmp_path, monkeypatch):
+    with TestClient(create_app(tmp_path)) as client:
+        discovery=configure(client)
+        oid,_=discovery.save('yc',row())
+        draft={'title':'Product Manager','company':'Wrong Employer','description':'Responsibilities: research customers and deliver products. '*20}
+        monkeypatch.setattr('app.extraction.extract_job',lambda _:SimpleNamespace(model_dump=lambda **kw:draft))
+        assert discovery.complete_descriptions({oid})['needs_paste']==1
+        assert discovery.view()['items'][0]['description']==''
+        # Retry is bounded: a failed automatic fetch is not repeated each poll/scan.
+        monkeypatch.setattr('app.extraction.extract_job',lambda _:pytest.fail('Unexpected repeat fetch'))
+        discovery.complete_descriptions({oid})
+        with discovery.db() as db: db.execute('DELETE FROM description_fetches')
+        draft['company']='Example Labs'
+        monkeypatch.setattr('app.extraction.extract_job',lambda _:SimpleNamespace(model_dump=lambda **kw:draft))
+        assert discovery.complete_descriptions({oid})['fetched']==1
+        saved=discovery.view()['items'][0]
+        assert saved['description']==draft['description']
+        assert saved['description_provenance']['method']=='listing_extraction'
+        assert saved['job_id'] is None  # Fetching alone never spends on analysis.
+
+
+def test_pipeline_completes_descriptions_before_assessment(tmp_path, monkeypatch):
+    with TestClient(create_app(tmp_path)) as client:
+        discovery=configure(client)
+        discovery.configure(Settings(enabled=False,auto_assess=True))
+        monkeypatch.setattr('app.discovery.BOARDS',{'yc':'YC'})
+        discovery.collector=lambda _:([row()],'Category only; partial coverage',[])
+        events=[]
+        discovery.complete_descriptions=lambda ids:events.append(('descriptions',ids)) or {'fetched':0,'needs_paste':1}
+        def assess(ids):
+            events.append(('assess',ids))
+            with discovery.db() as db:
+                assert db.execute('SELECT finished FROM scans').fetchone()[0] is None
+        discovery.assess_high_priority=assess
+        discovery.scan()
+        assert [v[0] for v in events]==['descriptions','assess']
+        assert events[0][1]==events[1][1]
+        assert discovery.view()['scan']['payload']['state']=='complete'
+        assert discovery.view()['scan']['finished']
+
+
+def test_encoded_ashby_company_segment_stays_on_fixed_api_host():
+    job=str(uuid4())
+    ref=ashby_reference('https://jobs.ashbyhq.com/Example%20Labs/'+job)
+    assert ashby_target(ref)=='https://api.ashbyhq.com/posting-api/job-board/Example%20Labs'
+    with pytest.raises(ExtractionError):
+        ashby_reference('https://jobs.ashbyhq.com/Example%2fOther/'+job)
+
+
+def test_automatic_dispatch_is_not_repeated_after_unknown_paid_failure(tmp_path, monkeypatch):
+    from app.retrieval import RetrievalError
+    with TestClient(create_app(tmp_path)) as client:
+        discovery=configure(client)
+        discovery.configure(Settings(enabled=False,auto_assess=True))
+        oid,_=discovery.save('yc',row('A full saved description of product responsibilities.'))
+        monkeypatch.setattr(discovery.analysis,'view',lambda job:{'run':None,'ready':True,'input_version':'a'*64})
+        attempts=[]
+        def fail(job, data):
+            attempts.append(job.id)
+            raise RetrievalError('Provider outcome unknown')
+        monkeypatch.setattr(discovery.analysis,'start',fail)
+        with pytest.raises(RetrievalError):
+            discovery.import_role(oid,automatic=True)
+        discovery.import_role(oid,automatic=True)
+        assert len(attempts)==1
+        with discovery.db() as db:
+            assert db.execute('SELECT COUNT(*) FROM automatic_assessments').fetchone()[0]==1
