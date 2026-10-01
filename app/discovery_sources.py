@@ -11,7 +11,7 @@ from .extraction import JsonLdParser, plain_text
 from .discovery_network import BoardClient, recover, diagnose
 
 BOARDS = {'yc': 'Y Combinator', 'builtin': 'Built In', 'a16z': 'a16z',
-          'sequoia': 'Sequoia', 'lightspeed': 'Lightspeed'}
+          'sequoia': 'Sequoia', 'lightspeed': 'Lightspeed', 'linkedin': 'LinkedIn'}
 UNAVAILABLE = {'wellfound': 'Direct access blocked (403)', 'khosla': 'Direct access blocked (403)',
                'index': 'Direct access blocked (403)', 'welcome_to_the_jungle': 'Collection not verified'}
 CONSIDER = {'a16z': ('https://portfoliojobs.a16z.com', 'andreessen-horowitz'),
@@ -116,10 +116,29 @@ def detail(client, url):
             'snapshot_sha256': hashlib.sha256(raw.encode()).hexdigest()}
 
 
-def collect(board, stop=None):
+def listing_freshness(item, current=None):
+    current = current or datetime.now(timezone.utc)
+    if item.get('date_basis') == 'source_relative_age':
+        try:
+            if current < datetime.fromisoformat(item['age_observed_at']):
+                return 'unknown'
+            if current < datetime.fromisoformat(item['fresh_until']):
+                return 'within_24h'
+            if current >= datetime.fromisoformat(item['older_after']):
+                return 'older'
+            return 'unknown'
+        except (KeyError, ValueError, TypeError):
+            return 'unknown'
+    return freshness(item.get('posted_at'), current)
+
+
+def collect(board, stop=None, countries=None):
     rows, warnings = [], []
     with BoardClient(stop=stop, timeout=20, follow_redirects=False, trust_env=False) as client:
-        if board in CONSIDER:
+        if board == 'linkedin':
+            from .linkedin_source import collect_linkedin
+            rows, coverage, warnings = collect_linkedin(client, fetch, countries, stop)
+        elif board in CONSIDER:
             base, board_id = CONSIDER[board]
             page = fetch(client, base + '/jobs')
             token = re.search(r'"csrfToken":"([^\"]+)"', page)

@@ -120,6 +120,10 @@ def create_app(data_dir: Path | None = None):
     def yc_check(request: Request):
         return request.app.state.discovery.yc.start('check')
 
+    @api.post("/api/discovery/linkedin/scan")
+    def linkedin_scan(request: Request):
+        return request.app.state.discovery.start(['linkedin'])
+
     @api.get("/api/assessments")
     def assessment_results(request: Request):
         return request.app.state.discovery.assessment_results()

@@ -9,7 +9,7 @@ from threading import RLock, Thread, Event
 from uuid import uuid4, uuid5, NAMESPACE_URL
 
 from pydantic import BaseModel, ConfigDict, Field
-from .discovery_sources import BOARDS, UNAVAILABLE, canonical, collect, freshness
+from .discovery_sources import BOARDS, UNAVAILABLE, canonical, collect, freshness, listing_freshness
 from .discovery_preferences import load_preferences
 from .discovery_network import diagnose
 from .yc_connection import YCConnection
@@ -59,7 +59,7 @@ class Discovery:
         self.lock, self.stop = RLock(), Event()
         self.yc = YCConnection(path.parent)
         if collector is collect:
-            self.collector = lambda board: self.yc.collect() if board == "yc" else collect(board, stop=self.stop)
+            self.collector = self.collect_board
         self.worker = self.scheduler = None
         self.queued_ids = set()
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -134,10 +134,17 @@ class Discovery:
                 item = json.loads(row['payload'])
                 sources = [dict(r) for r in db.execute('SELECT board,seen_at,payload FROM sightings WHERE opportunity_id=?', (row['id'],))]
                 item.update(id=row['id'], first_seen=row['first_seen'], last_seen=row['last_seen'], job_id=row['job_id'],
-                            assessment_state=row['assessment_state'], freshness=freshness(item.get('posted_at')),
+                            assessment_state=row['assessment_state'], freshness=listing_freshness(item),
                             description_changed=bool(row['imported_hash'] and row['imported_hash'] != self.content_hash(item)),
                             sources=[{'board': s['board'], 'seen_at': s['seen_at'], 'posted_at': json.loads(s['payload']).get('posted_at')} for s in sources])
                 item["location_match"] = location_match(item.get("location"), preferences)
+                if (item['location_match']['status'] == 'unclear' and item.get('search_country')
+                        and item.get('source_filter') == 'past_24_hours'
+                        and any(s['board'] == 'linkedin' for s in sources)):
+                    code = item['search_country']
+                    target = preferences.get('location_filter', {}).get('countries', [])
+                    item['location_match'] = {**item['location_match'], 'status': 'match' if code in target else 'outside',
+                                              'countries': [code], 'reason': f'LinkedIn search country: {code}; listing location retained as provided.'}
                 item["content_hash"] = self.content_hash(item)
                 attempt = db.execute('SELECT state,attempted_at,error FROM automatic_assessments WHERE opportunity_id=?',(row['id'],)).fetchone()
                 item['automatic_assessment'] = dict(attempt) if attempt else None
@@ -154,6 +161,14 @@ class Discovery:
                 'scan': {**dict(scan), 'payload': scan_summary(json.loads(scan['payload']))} if scan else None,
                 'boards': BOARDS, 'unavailable': UNAVAILABLE, 'timezone': str(datetime.now().astimezone().tzinfo),
                 'schedule': ['08:00', '13:00', '20:00']}
+
+    def collect_board(self, board):
+        if board == 'yc':
+            return self.yc.collect()
+        if board == 'linkedin':
+            prefs = load_preferences(self.analysis.library.root / 'knowledge/discovery-preferences.json')
+            return collect(board, stop=self.stop, countries=prefs.get('location_filter', {}).get('countries', []))
+        return collect(board, stop=self.stop)
 
     def assessment_summary(self, item):
         if not item.get('job_id'):
@@ -236,6 +251,10 @@ class Discovery:
                 old = json.loads(row[0])
                 # A failed detail fetch or metadata-only source must not erase a good description.
                 merged = {**old, **{k: v for k, v in item.items() if v not in ('', None, 'Unknown')}}
+                if item.get('date_basis') == 'source_relative_age':
+                    # A later unparseable age must not inherit an old freshness claim.
+                    for key in ('fresh_until', 'older_after', 'age_observed_at'):
+                        merged[key] = item.get(key)
             db.execute('INSERT INTO opportunities(id,payload,first_seen,last_seen) VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload,last_seen=excluded.last_seen', (oid, json.dumps(merged), stamp, stamp))
             db.execute('INSERT OR REPLACE INTO sightings VALUES(?,?,?,?,?)', (board, item['source_id'], oid, json.dumps(item), stamp))
             db.execute('INSERT OR IGNORE INTO revisions VALUES(?,?,?,?)', (oid, self.content_hash(merged), json.dumps(merged), stamp))
