@@ -47,6 +47,7 @@ class Discovery:
         self.path, self.service, self.analysis, self.collector = path, service, analysis, collector
         self.lock, self.stop = RLock(), Event()
         self.worker = self.scheduler = None
+        self.queued_ids = set()
         path.parent.mkdir(parents=True, exist_ok=True)
         with self.db() as db:
             db.executescript('''CREATE TABLE IF NOT EXISTS opportunities (
@@ -103,6 +104,7 @@ class Discovery:
                 item["assessment"] = self.assessment_summary(item)
                 attempt = db.execute('SELECT state,attempted_at,error FROM automatic_assessments WHERE opportunity_id=?',(row['id'],)).fetchone()
                 item['automatic_assessment'] = dict(attempt) if attempt else None
+                item['queued_for_assessment'] = row['id'] in self.queued_ids
                 fetched = db.execute('SELECT state,checked_at,error FROM description_fetches WHERE opportunity_id=?',(row['id'],)).fetchone()
                 item['description_fetch'] = dict(fetched) if fetched else None
                 items.append(item)
@@ -121,7 +123,8 @@ class Discovery:
         from .retrieval import RetrievalError
         from .pursuit import PursuitService
         try:
-            job = self.service.review(item['job_id']).job
+            # Polling must not reconcile the review graph or compete for its lock.
+            job = self.service.store.read(item['job_id'])[0]
             view = self.analysis.view(job)
             run = view.get('run')
             if view.get('previous_result_outdated'):
@@ -272,18 +275,21 @@ class Discovery:
         except Exception:
             result.update(state='error', phase='error', error='Discovery pipeline stopped. Saved results are retained.')
         finally:
+            self.queued_ids.clear()
             with self.db() as db: db.execute('UPDATE scans SET finished=?,payload=? WHERE id=?', (now(), json.dumps(result), sid))
 
     def assess_high_priority(self, seen_ids):
         # Current-run sightings only; publication age does not imply poor fit.
         candidates = [item for item in self.view()['items'] if item['id'] in seen_ids]
         candidates.sort(key=lambda item: -item.get('keyword_match',{}).get('ranking',{}).get('points',0))
+        self.queued_ids = {item['id'] for item in candidates if self.auto_eligible(item)}
         for item in candidates:
             while not self.stop.is_set() and self.settings()['auto_assess'] and self.analysis.worker and self.analysis.worker.is_alive():
                 self.stop.wait(2)
             if self.stop.is_set() or not self.settings()['auto_assess']: break
             # Context, target or job text may change while another job is running.
             current = next((v for v in self.view()['items'] if v['id']==item['id']), None)
+            self.queued_ids.discard(item['id'])
             if not current or not self.auto_eligible(current): continue
             try:
                 self.import_role(item['id'], analyze=True, automatic=True)
@@ -293,6 +299,7 @@ class Discovery:
                 with self.db() as db:
                     db.execute("UPDATE automatic_assessments SET state='FAILED',error=? WHERE opportunity_id=?",(error,item['id']))
                     db.execute('UPDATE opportunities SET assessment_state=? WHERE id=?',(error,item['id']))
+        self.queued_ids.clear()
         while not self.stop.is_set() and self.analysis.worker and self.analysis.worker.is_alive():
             self.stop.wait(2)
 

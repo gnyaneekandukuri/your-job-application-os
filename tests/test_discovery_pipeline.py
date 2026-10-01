@@ -97,3 +97,26 @@ def test_automatic_dispatch_is_not_repeated_after_unknown_paid_failure(tmp_path,
         assert len(attempts)==1
         with discovery.db() as db:
             assert db.execute('SELECT COUNT(*) FROM automatic_assessments').fetchone()[0]==1
+
+
+def test_polling_does_not_reconcile_review_graph(tmp_path, monkeypatch):
+    with TestClient(create_app(tmp_path)) as client:
+        discovery=configure(client)
+        oid,_=discovery.save('yc',row('A full saved description of product responsibilities.'))
+        discovery.import_role(oid,analyze=False)
+        monkeypatch.setattr(discovery.service,'review',lambda _:pytest.fail('Polling reconciled review graph'))
+        assert discovery.view()['items'][0]['assessment']['state']=='NOT_STARTED'
+
+
+def test_waiting_jobs_are_explicitly_queued(tmp_path, monkeypatch):
+    with TestClient(create_app(tmp_path)) as client:
+        discovery=configure(client)
+        discovery.configure(Settings(enabled=False,auto_assess=True))
+        base={'keyword_match':{'priority':'high'},'location_match':{'status':'match'},'description':'A full saved description of product responsibilities.'}
+        items=[{**base,'id':'one'},{**base,'id':'two'}]
+        monkeypatch.setattr(discovery,'view',lambda:{'items':items})
+        queued=[]
+        monkeypatch.setattr(discovery,'import_role',lambda *a,**k:queued.append(set(discovery.queued_ids)))
+        discovery.assess_high_priority({'one','two'})
+        assert queued==[{'two'},set()]
+        assert not discovery.queued_ids

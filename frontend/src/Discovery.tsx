@@ -4,7 +4,7 @@ type KeywordProfile = {experience:{term:string;sources:KeywordSource[]}[];target
 type KeywordMatch = {priority:"high"|"worth_checking"|"low";label:string;experience:{term:string;sources:KeywordSource[];listing:{field:string;excerpt:string}}[];target:{term:string;field:string;excerpt:string}[];different_focus:string[]};
 type Assessment = {state:string;stage?:string;error?:string;score:number|null;provisional?:boolean;recommendation:string|null;choice?:string|null;recommendation_state?:string;recommendation_error?:string};
 type JDDraft = {url:string;id:string;expected_hash:string;title:string;company:string;description:string;extraction_id?:string;warnings?:string[]};
-type Item = {description_fetch?:{state:string;error:string}|null;automatic_assessment?:{state:string;error:string}|null;assessment?:Assessment;content_hash:string;keyword_match?:KeywordMatch;location_match?:{status:"match"|"outside"|"unclear";reason:string};id:string;title:string;company:string;location:string;url:string;description:string;posted_at:string|null;date_label:string;date_basis:string;funding:string;freshness:string;first_seen:string;last_seen:string;job_id:string|null;description_changed:boolean;assessment_state:string|null;sources:{board:string}[]};
+type Item = {queued_for_assessment?:boolean;description_fetch?:{state:string;error:string}|null;automatic_assessment?:{state:string;error:string}|null;assessment?:Assessment;content_hash:string;keyword_match?:KeywordMatch;location_match?:{status:"match"|"outside"|"unclear";reason:string};id:string;title:string;company:string;location:string;url:string;description:string;posted_at:string|null;date_label:string;date_basis:string;funding:string;freshness:string;first_seen:string;last_seen:string;job_id:string|null;description_changed:boolean;assessment_state:string|null;sources:{board:string}[]};
 type Source = {checked_at?:string;state:string;count?:number;error?:string;coverage?:string;warnings?:string[]};
 type State = {keyword_profile?:KeywordProfile;location_preference?:{label:string;countries:string[]};items:Item[];running:boolean;settings:{enabled:boolean;auto_assess:boolean};boards:Record<string,string>;unavailable:Record<string,string>;timezone:string;schedule:string[];scan:null|{started:string;finished:string|null;payload:{phase?:string;descriptions?:{fetched:number;needs_paste:number};state:string;new_count?:number;sources:Record<string,Source>;error?:string}}};
 async function request<T>(path="",body?:unknown):Promise<T> {
@@ -29,7 +29,7 @@ export function Discovery({onOpen,view="opportunities"}:{view?:"runs"|"opportuni
  const [jd,setJD]=useState<JDDraft|null>(null);
  const jdDialog=useRef<HTMLDialogElement>(null);
  useEffect(()=>{if(jd)jdDialog.current?.showModal();else jdDialog.current?.close();},[jd?.id]);
- useEffect(()=>{let live=true;const load=async()=>{try{const value=await request<State>();if(live){setState(value);setConnectionError("");}}catch(e){if(live)setConnectionError(String(e));}};void load();const timer=setInterval(()=>void load(),4000);return()=>{live=false;clearInterval(timer);};},[]);
+ useEffect(()=>{let live=true;let timer:ReturnType<typeof setTimeout>;const load=async()=>{try{const value=await request<State>();if(live){setState(value);setConnectionError("");}}catch(e){if(live)setConnectionError(String(e));}finally{if(live)timer=setTimeout(()=>void load(),4000);}};void load();return()=>{live=false;clearTimeout(timer);};},[]);
  async function act(work:()=>Promise<void>){setBusy(true);setError("");try{await work();}catch(e){setError(e instanceof Error?e.message:"Action failed");}finally{setBusy(false);}}
  function openJD(item:Item){setError("");setJD({url:item.url,id:item.id,expected_hash:item.content_hash,title:item.title,company:item.company,description:item.description});}
  async function assess(item:Item){await request<{job_id:string}>(`/${item.id}/assess`,{});setState(await request<State>());}
@@ -90,6 +90,9 @@ export function Discovery({onOpen,view="opportunities"}:{view?:"runs"|"opportuni
      <td><span className="discovery-status">{freshnessLabel(item)}</span><small>{item.posted_at?(/^\d{4}-\d{2}-\d{2}$/.test(item.posted_at)?item.posted_at:when(item.posted_at)):"Not provided"}</small>{item.date_label&&<small>{item.date_label}</small>}<small>Discovered: {when(item.first_seen)}</small></td>
      <td>
       {item.description.length<20 && item.description_fetch?.state==="NEEDS_PASTE" && <small>Open the listing and paste its full JD.</small>}
+      {item.queued_for_assessment && <strong role="status">Queued for automatic analysis</strong>}
+      {item.assessment?.state==="RUNNING" && <strong role="status">Analyzing</strong>}
+      {["ERROR","INTERRUPTED","NEEDS_ATTENTION"].includes(item.assessment?.state??"") && <strong>Needs attention</strong>}
       {item.automatic_assessment?.state==="FAILED" && <small role="alert">{item.automatic_assessment.error}</small>}
       {item.assessment?.score != null && <strong>{item.assessment.score}/100{item.assessment.provisional ? " (in progress)" : ""}</strong>}
       {item.assessment?.recommendation && <small>{item.assessment.recommendation.replaceAll("_"," ")}</small>}
@@ -98,7 +101,7 @@ export function Discovery({onOpen,view="opportunities"}:{view?:"runs"|"opportuni
       {item.assessment?.error && <small role="alert">{item.assessment.error}</small>}
       {item.assessment?.state==="COMPLETE" && !item.assessment.recommendation && <small>{item.assessment.recommendation_state==="FAILED" ? "Recommendation needs attention. Open analysis to retry." : "Recommendation pending. Open analysis for details."}</small>}
       {item.description.length<20 || item.description_changed ? <button disabled={busy} onClick={()=>openJD(item)}>{item.description_changed ? "Review updated JD" : "Get full JD"}</button> : <>
-       {!["COMPLETE","RUNNING"].includes(item.assessment?.state ?? "") && <button disabled={busy} onClick={()=>void act(()=>assess(item))}>{item.job_id ? "Resume / reassess (paid)" : "Save & analyze (paid)"}</button>}
+       {!item.queued_for_assessment && !["COMPLETE","RUNNING"].includes(item.assessment?.state ?? "") && <button disabled={busy} onClick={()=>void act(()=>assess(item))}>{item.job_id ? "Resume / reassess (paid)" : "Save & analyze (paid)"}</button>}
       </>}
       {item.job_id && <button disabled={busy} onClick={()=>void act(()=>onOpen(item.job_id!))}>Open role &amp; analysis</button>}
      </td>
