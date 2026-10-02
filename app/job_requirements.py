@@ -119,7 +119,9 @@ def extract(engine, job, data):
                 response = engine.paid("requirements", payload)
             except RetrievalError as exc:
                 # These local preflight errors occur before any provider dispatch.
-                if exc.status in (409, 503):
+                if exc.status in (409, 503) or any(f'(HTTP {code})' in str(exc) for code in (401, 403, 404, 429)):
+                    # Explicit provider rejection has no completed generation to reuse.
+                    # Clear only the marker; this call still fails without retrying.
                     engine.put(attempt, None)
                 raise
             engine.put(attempt, response)

@@ -182,6 +182,10 @@ class RoleAnalysis:
                 job_id=job.id, input_version=data.input_version, version=VERSION, model=MODEL,
                 source_versions=versions, state="RUNNING", stage="Extracting job requirements…",
                 created_at=now(), updated_at=now())
+            if '(HTTP 429)' in run.error:
+                attempt_key = key_for(job) + ':attempt'
+                if self.engine.get(attempt_key) == {'status': 'dispatching_or_failed'}:
+                    self.engine.put(attempt_key, None)
             run.state, run.error = "RUNNING", ""
             self.save(key, run)
             self.engine.put("role-analysis-latest:" + job.id, key)
