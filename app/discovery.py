@@ -15,6 +15,7 @@ from .discovery_network import diagnose
 from .yc_connection import YCConnection
 from .discovery_location import location_match
 from .discovery_keywords import KeywordIndex
+from .discovery_jev import JevClassifier
 from .models import JobInput
 from .role_analysis import AnalyzeInput
 from .store import Missing, Conflict
@@ -83,6 +84,7 @@ class Discovery:
             db.execute("UPDATE scans SET finished=?, payload=? WHERE finished IS NULL", (now(), json.dumps({'state': 'interrupted', 'sources': {}, 'error': 'Server stopped during this scan; saved listings were retained.'})))
 
         self.keywords = KeywordIndex(path, sources)
+        self.jev = JevClassifier(path)
 
     @contextmanager
     def db(self):
@@ -160,7 +162,9 @@ class Discovery:
             for item in items:
                 item["assessment"] = self.assessment_summary(item)
         keyword_profile = self.keywords.enrich(items, preferences) if include_analysis else None
-        return {'yc_connection': self.yc.status(), 'keyword_profile': keyword_profile, 'items': items, 'location_preference': preferences.get('location_filter', {}), 'settings': self.settings(), 'running': bool(self.worker and self.worker.is_alive()),
+        if include_analysis:
+            self.jev.annotate(items)
+        return {'jev': self.jev.status(), 'yc_connection': self.yc.status(), 'keyword_profile': keyword_profile, 'items': items, 'location_preference': preferences.get('location_filter', {}), 'settings': self.settings(), 'running': bool(self.worker and self.worker.is_alive()),
                 'scan': {**dict(scan), 'payload': scan_summary(json.loads(scan['payload']))} if scan else None,
                 'boards': BOARDS, 'unavailable': UNAVAILABLE, 'timezone': str(datetime.now().astimezone().tzinfo),
                 'schedule': ['08:00', '13:00', '20:00']}
@@ -331,6 +335,9 @@ class Discovery:
             result['phase'] = 'descriptions'
             with self.db() as db: db.execute('UPDATE scans SET payload=? WHERE id=?',(json.dumps(result),sid))
             result['descriptions'] = self.complete_descriptions(pending)
+            result['phase'] = 'classifying'
+            with self.db() as db: db.execute('UPDATE scans SET payload=? WHERE id=?',(json.dumps(result),sid))
+            result['classification'] = self.jev.run([item for item in self.view(include_analysis=False)['items'] if item['id'] in pending], self.stop)
             if not self.stop.is_set() and self.settings()['auto_assess']:
                 result['phase'] = 'assessing'
                 with self.db() as db: db.execute('UPDATE scans SET payload=? WHERE id=?',(json.dumps(result),sid))
