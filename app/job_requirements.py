@@ -77,6 +77,31 @@ def key_for(job):
     return "requirements:" + digest(VERSION + MODEL + PROMPT + job.id + source_hash(job))
 
 
+def shared_key(job):
+    # Identical descriptions from different boards need only one successful
+    # interpretation. Records/consent and requirement ownership stay per job.
+    return "requirements-content:" + digest(VERSION + MODEL + PROMPT + source_hash(job))
+
+
+def extraction_only(record):
+    return RequirementExtraction.model_validate({
+        'items': [{k:v for k,v in item.items() if k != 'id'} for item in record['items']],
+        'warnings': record['warnings'], 'empty_reason': record['empty_reason'],
+    })
+
+
+def save_record(engine, job, result):
+    validate(result, job.description)
+    record = {"job_id": job.id, "source_sha256": source_hash(job), "version": VERSION,
+              "model": MODEL, "created_at": now(), "source_text": job.description,
+              "status": "UNREVIEWED_INTERPRETATION", **result.model_dump()}
+    record["items"] = [{"id": f"{source_hash(job)[:12]}-R{i+1}", **item} for i,item in enumerate(record["items"])]
+    record = RequirementRecord.model_validate(record).model_dump()
+    engine.put(shared_key(job), result.model_dump())
+    engine.put(key_for(job), record)
+    return record
+
+
 def validate(result, text):
     if bool(result.items) == bool(result.empty_reason.strip()):
         raise RetrievalError("Requirements output is contradictory; nothing published.", 502)
@@ -105,7 +130,14 @@ def extract(engine, job, data):
         key = key_for(job)
         saved = engine.get(key)
         if saved:
+            original = extraction_only(saved)
+            validate(original, job.description)
+            engine.put(shared_key(job), original.model_dump())
             return {"source_sha256": source_hash(job), "result": saved, "cached": True, "usage": engine.usage()}
+        shared = engine.get(shared_key(job))
+        if shared:
+            record = save_record(engine, job, RequirementExtraction.model_validate(shared))
+            return {"source_sha256": source_hash(job), "result": record, "cached": True, "usage": engine.usage()}
         attempt = key + ":attempt"
         response = engine.get(attempt)
         if response is None:
@@ -136,11 +168,5 @@ def extract(engine, job, data):
             result = RequirementExtraction.model_validate_json("".join(p["text"] for p in parts if p.get("type") == "output_text"))
         except (ValueError, KeyError, TypeError):
             raise RetrievalError("Extraction unavailable or failed validation. No automatic paid retry; inspect the saved attempt before retrying.", 502) from None
-        validate(result, job.description)
-        record = {"job_id": job.id, "source_sha256": source_hash(job), "version": VERSION,
-                  "model": MODEL, "created_at": now(), "source_text": job.description,
-                  "status": "UNREVIEWED_INTERPRETATION", **result.model_dump()}
-        record["items"] = [{"id": f"{source_hash(job)[:12]}-R{i+1}", **item} for i,item in enumerate(record["items"])]
-        record = RequirementRecord.model_validate(record).model_dump()
-        engine.put(key, record)
+        record = save_record(engine, job, result)
         return {"source_sha256": source_hash(job), "result": record, "cached": False, "usage": engine.usage()}

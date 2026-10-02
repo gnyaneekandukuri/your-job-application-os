@@ -1,6 +1,6 @@
 from .user_workspace import control_documents
 from .cost_tracking import usage_scope
-from .analysis_context import select_passages, VERSION as CONTEXT_VERSION
+from .analysis_context import retrieve_evidence, VERSION as CONTEXT_VERSION
 """One explicit action drives a resumable whole-role evidence report.
 
 Single local worker; SQLite checkpoints survive browser navigation and process restarts.
@@ -218,18 +218,20 @@ class RoleAnalysis:
                     "source_class": entry["source_class"], "employer": entry["employer"],
                     "source_caveats": [line for line in chunk["text"].splitlines() if re.search(
                         r"unclear|unknown|unresolved|not provided|not verified|should be clarified|do not infer", line, re.I)]})
-        if len(passages) > 120 or len(json.dumps([{k:v for k,v in p.items() if k != "raw_vector"} for p in passages]).encode()) > 240000:
-            raise RetrievalError("Story library exceeds the current whole-role context limit. No stories were silently omitted.", 409)
+        # The library is searched locally. Only retrieved evidence is subject to
+        # the model context budget; growing the library must not send it all.
         return passages
 
     def batch(self, requirements, passages, rules, review_feedback=None, job_id=None):
         queries = [r.interpretation + "\n" + r.quote for r in requirements]
         with usage_scope(job_id, "evidence_retrieval"):
             vectors = self.engine.incremental_embeddings(queries)
-        passages = select_passages(passages, queries, vectors)
-        self.engine.put('retrieval-selection:' + digest(json.dumps([job_id, queries, [p['id'] for p in passages]], sort_keys=True)),
-                        {'version': CONTEXT_VERSION, 'job_id': job_id, 'requirements': [r.id for r in requirements],
-                         'passage_ids': [p['id'] for p in passages], 'selected_bytes': len(json.dumps(passages,ensure_ascii=False).encode())})
+        selection = retrieve_evidence(passages, queries, vectors)
+        passages = selection['passages']
+        trace = {**selection['trace'], 'job_id': job_id,
+                 'requirements': [r.id for r in requirements],
+                 'source_revisions': {p['id']: p['source_sha256'] for p in passages}}
+        self.engine.put('retrieval-selection:' + digest(json.dumps([queries, trace], sort_keys=True)), trace)
         aliases = {f"p{i+1}": p["id"] for i, p in enumerate(passages)}
         body = {"requirements": [r.model_dump() for r in requirements], "authority_rules": rules,
                 "passages": [{**p, "id": f"p{i+1}"} for i, p in enumerate(passages)]}
