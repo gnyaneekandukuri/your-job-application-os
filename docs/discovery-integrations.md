@@ -1,5 +1,13 @@
 # Discovery sources and assessment handoff
 
+## Evidence review questions (October 2, 2026)
+
+Completed, current reports derive a compact review checklist from saved judgments and pursuit constraints. This adds no model call, scoring weight, or new candidate fact. Strong transferable evidence is not a gap. Insufficient or low-confidence evidence is missing documentation; supported partial evidence is an experience coverage gap, not proof of missing ability. Ambiguous requirements stay unresolved. Only a sourced incompatible pursuit constraint is displayed as an explicit conflict. Unknown sponsorship stays a question. Core work and explicit requirements precede preferred qualifications.
+
+The checklist starts collapsed, shows three points when opened, and retains JD/evidence quotes. Questions open the existing shared review dialog without overwriting the user's draft. Preference conflicts open pursuit decision controls rather than a story addition. Leaving questions unanswered changes no saved score. Outdated/incomplete reports do not show the current checklist.
+
+Design references reviewed: [ResumeSkills JD analyzer](https://github.com/Paramchoudhary/ResumeSkills/blob/main/skills/job-description-analyzer/SKILL.md), [JobSentinel research notes](https://github.com/cboyd0319/JobSentinel/blob/main/docs/research/semantic-resume-job-matching.md), [ai-cv-job-matcher](https://github.com/lamanIbrahimli/ai-cv-job-matcher), and [resume-rag](https://github.com/atharvguitarist/resume-rag). These informed the comparison of evidence, uncertainty and related-versus-equivalent work. No external code or prompts were copied or installed. Repository popularity is not validation of scoring. We did not adopt frequency-based mandatory requirements, high-match overqualification labels, or inferred hiring probabilities. Run `npm run test:gaps` in frontend for deterministic classification regressions.
+
 Reviewed September 30, 2026. Collection is local and uses no language model or Firecrawl.
 
 - **YC:** now uses an app-owned, authenticated Microsoft Edge session for the Work at a Startup Product / Fulltime directory. Connect YC in Discovery runs; login is required. The old public category adapter remains in source for reference but is no longer selected by the live default collector. Browser session state is private and never copied from Codex.

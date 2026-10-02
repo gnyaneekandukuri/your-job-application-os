@@ -9,7 +9,7 @@ type CommitBody = {request_id: string; revision: number; consent_to_send: true; 
 type Conversation = {revision: number; messages: {id:string; role:string; text:string}[]; proposal: Proposal|null;
   operation: null|{id:string; state:string; message:string; request:CommitBody}};
 export function ReviewConversation({jobId,inputVersion,requirements,focus,onChanged,onClose,onOpen}: {
-  jobId:string;inputVersion:string;requirements:Requirement[];focus:{id:string;nonce:number}|null;onChanged:()=>void;onClose:()=>void;onOpen:()=>void;
+  jobId:string;inputVersion:string;requirements:Requirement[];focus:{id:string;nonce:number;question?:string}|null;onChanged:()=>void;onClose:()=>void;onOpen:()=>void;
 }) {
   const [chat,setChat]=useState<Conversation|null>(null);
   const [sources,setSources]=useState<Source[]>([]);
@@ -79,6 +79,7 @@ export function ReviewConversation({jobId,inputVersion,requirements,focus,onChan
     <button className="review-close" onClick={onClose}>Close review</button>
     <section className="review-conversation" aria-label="Shared evidence review">
     <h3>What should we revisit?</h3>
+    {focus?.question&&<aside className="review-focus-question"><strong>Question you are reviewing</strong><p>{focus.question}</p>{focus.id&&<small>{requirements.find(r=>r.id===focus.id)?.interpretation}</small>}</aside>}
     <p>Describe missing context or an assessment you disagree with. One experience can address several requirements.</p>
     <div className="review-messages" role="log" aria-label="Review conversation history">
       {!chat?.messages.length&&<p className="review-assistant">Tell me what is missing or what you disagree with. I will propose where new details belong, or help recheck the evidence already saved.</p>}

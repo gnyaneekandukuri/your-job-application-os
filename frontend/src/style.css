@@ -835,3 +835,12 @@ footer span {
 .keyword-evidence>div {margin-bottom:14px}
 
 .opportunity-priority {margin-bottom:8px}
+/* Gap review is a read-only summary until the user opens an existing review flow. */
+.gap-review { margin: 1.25rem 0; padding: 1.1rem; border: 1px solid #d6ddd2; border-radius: 12px; background: #f8faf6; }
+.gap-review-card { padding: 1rem 0; border-top: 1px solid #d6ddd2; }
+.gap-review-card h4 { margin: .35rem 0; }
+.gap-review-card p { margin: .6rem 0; }
+.gap-review-card details { margin-top: .65rem; }
+.gap-blocker > .requirement-kind { color: #923d2f; font-weight: 700; }
+.gap-review-kept { padding: .75rem 0; }
+.review-focus-question { border-left: 3px solid #527052; padding: .7rem 1rem; background: #f2f5ed; margin-bottom: 1rem; }

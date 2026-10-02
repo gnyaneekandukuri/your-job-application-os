@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { FeedbackLearning } from './FeedbackLearning';
 
 type Choice = 'SKIP'|'CASUAL'|'ATTACK_HARD';
@@ -11,12 +11,15 @@ type Result={recommendation:Choice;rationale:string;score:number;created_at:stri
   core_evidence:{requirement_id:string;requirement:string;alignment:string;reason:string;fact_ids:string[];
     citations:{source_title:string;source_path:string;start_line:number;quote:string}[]}[];};
 type View={automatic?:{state:string;error?:string};ready:boolean;reason:string;version:string|null;result:Result|null;choice:{choice:Choice;reason:string;decided_at:string}|null};
-export function PursuitAssessment({jobId,onChanged=()=>{},onReviewEvidence=()=>{}}:{jobId:string;onChanged?:()=>void;onReviewEvidence?:()=>void}) {
+export function PursuitAssessment({jobId,onChanged=()=>{},onReviewEvidence=()=>{},onResult,reviewRequest=0}:{jobId:string;onChanged?:()=>void;onReviewEvidence?:()=>void;onResult?:(result:Result|null)=>void;reviewRequest?:number}) {
   const [view,setView]=useState<View|null>(null);
   const [error,setError]=useState('');
   const [busy,setBusy]=useState(false);
   const [choice,setChoice]=useState<Choice>('CASUAL');
   const [reason,setReason]=useState('');
+  const decision=useRef<HTMLDetailsElement>(null);
+  useEffect(()=>{if(reviewRequest&&decision.current){decision.current.open=true;decision.current.scrollIntoView({block:'center',behavior:'smooth'});decision.current.querySelector('textarea')?.focus({preventScroll:true});}},[reviewRequest]);
+  useEffect(()=>{onResult?.(view?.result??null);},[view?.result,onResult]);
   function receive(data:View){setView(data);setChoice(data.choice?.choice??data.result?.recommendation??'CASUAL');setReason(data.choice?.reason??'');}
   useEffect(()=>{
     let cancelled=false;
@@ -72,7 +75,7 @@ export function PursuitAssessment({jobId,onChanged=()=>{},onReviewEvidence=()=>{
         {e.fact_ids.length>0&&<small>Fact references: {e.fact_ids.join(', ')}</small>}</article>)}</details>
       {result.what_would_change_it.length>0&&<details><summary>What could change the recommendation?</summary><ul>{result.what_would_change_it.map((v,i)=><li key={i}>{v}</li>)}</ul><p>You can revisit the evidence through Review or add context above.</p></details>}
       <details><summary>Limits and assessment versions</summary><ul>{result.limitations.map(v=><li key={v}>{v}</li>)}</ul><p>Initial product defaults; not validated hiring predictions.</p>{Object.entries(result.input_versions).map(([k,v])=><p key={k}><strong>{k}:</strong> <small>{v}</small></p>)}</details>
-      <details><summary>Choose or change my pursuit decision</summary><fieldset disabled={busy}><legend>Your decision</legend>
+      <details ref={decision}><summary>Choose or change my pursuit decision</summary><fieldset disabled={busy}><legend>Your decision</legend>
         <label>Pursuit level<select value={choice} onChange={e=>setChoice(e.target.value as Choice)}>{Object.entries(labels).map(([v,l])=><option key={v} value={v}>{l}</option>)}</select></label>
         <label>{choice!==result.recommendation?'Why do you prefer this pursuit level?':'Reason or feedback (optional)'}<textarea rows={2} maxLength={2000} value={reason} onChange={e=>setReason(e.target.value)}/></label>
         <button onClick={()=>void act(true)}>{busy?'Saving…':view?.choice?'Update my decision':'Save my decision'}</button>

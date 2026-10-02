@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "tsc --noEmit && vite build",
+    "test:gaps": "tsc src/gapReviewLogic.ts --target ES2022 --module ES2022 --outDir ../.local/gap-tests --skipLibCheck && node --test tests/gapReview.test.mjs",
     "dev": "vite --host 127.0.0.1"
   },
   "dependencies": {

@@ -1,4 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { GapReview } from './GapReview';
+import { buildGapReview, type PursuitEvidence } from './gapReviewLogic';
 import { FeedbackLearning } from "./FeedbackLearning";
 import { PursuitAssessment } from "./PursuitAssessment";
 import { ReviewConversation } from "./ReviewConversation";
@@ -12,10 +14,13 @@ type State = { workflow?: {status:string;input_version:string;next:string[]}; ex
 export function Requirements({ jobId }: { jobId: string }) {
   const [state, setState] = useState<State | null>(null);
   const [learningNotice,setLearningNotice] = useState("");
+  const [preferenceReview,setPreferenceReview]=useState(0);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const lock = useRef(false);
-  const [reviewFocus,setReviewFocus] = useState<{id:string;nonce:number}|null>(null);
+  const [reviewFocus,setReviewFocus] = useState<{id:string;nonce:number;question?:string}|null>(null);
+  const [pursuit,setPursuit] = useState<{version:string;result:PursuitEvidence|null}|null>(null);
+  const receivePursuit=useCallback((result:PursuitEvidence|null)=>setPursuit({version:state?.input_version??'',result}),[state?.input_version]);
   useEffect(() => {
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout>;
@@ -82,6 +87,7 @@ export function Requirements({ jobId }: { jobId: string }) {
   const running = run?.state === "RUNNING";
   const done = Object.keys(run?.results ?? {}).length;
   const reviewReady = run?.state === "COMPLETE" && done > 0 && !outdated && !state?.previous_result_outdated;
+  const gaps=reviewReady?buildGapReview(run.requirements,run.results,pursuit?.version===state?.input_version?pursuit?.result??null:null):[];
   const labels: Record<string, string> = { unclear: "Needs clarification", not_documented: "Not documented", transferable: "Transferable", direct: "Direct evidence" };
   const counts = Object.fromEntries(Object.keys(labels).map(key => [key, Object.values(run?.results ?? {}).filter(r => r.judgment.support === key).length]));
   const alignments = {strong: "Strong alignment", partial: "Partial alignment", insufficient_evidence: "Not enough evidence"};
@@ -114,7 +120,8 @@ export function Requirements({ jobId }: { jobId: string }) {
         {state?.workflow?.status !== "REVIEWED" && <button disabled={busy} onClick={()=>void acceptAnalysis()}>{busy ? "Saving reviewâ€¦" : "Looks right"}</button>}
         <button onClick={()=>setReviewFocus({id:"",nonce:Date.now()})}>Review or add context</button>
       </section>}
-      {reviewReady && <PursuitAssessment key={state!.input_version} jobId={jobId} onReviewEvidence={()=>setReviewFocus({id:"",nonce:Date.now()})} onChanged={()=>{setLearningNotice("Feedback changes saved with history. Update any assessments marked outdated before making the next decision.");void refresh();}}/> }
+      {reviewReady && <PursuitAssessment key={state!.input_version} jobId={jobId} reviewRequest={preferenceReview} onResult={receivePursuit} onReviewEvidence={()=>setReviewFocus({id:"",nonce:Date.now()})} onChanged={()=>{setLearningNotice("Feedback changes saved with history. Update any assessments marked outdated before making the next decision.");void refresh();}}/> }
+      {reviewReady && <GapReview key={`gaps-${state!.input_version}`} gaps={gaps} onPreferenceReview={()=>setPreferenceReview(Date.now())} onReview={(id,question)=>setReviewFocus({id,question,nonce:Date.now()})}/>}
       {score && done > 0 && <details className="score-breakdown"><summary>Dimension scores and scoring details</summary>
       {score && done > 0 && <section className="match-score" aria-label="Documented job fit score">
         <div className="eyebrow">DOCUMENTED JOB FIT {outdated ? "Â· OUTDATED â€” BEFORE YOUR UPDATE" : score.provisional ? "Â· PROVISIONAL" : "Â· ANALYSIS COMPLETE"}</div>
@@ -161,7 +168,8 @@ export function Requirements({ jobId }: { jobId: string }) {
                 </details>}</> : "Not analyzed yet."}</td>
               <td>{match ? <>{assessment && <p>{assessment.transfer_reason}</p>}{match.judgment.limitation ? <p>{match.judgment.limitation}</p> : <p>No limitation stated by the model; not independently verified.</p>}
                 {match.judgment.clarification && <p><strong>Question:</strong> {match.judgment.clarification}</p>}
-                {assessment && reviewReady && <button onClick={()=>setReviewFocus({id:item.id,nonce:Date.now()})}>Clarify this requirement</button>}</> : "Pending"}</td>
+                {reviewReady && gaps.find(g=>g.requirementId===item.id)&&<small className="requirement-kind">{gaps.find(g=>g.requirementId===item.id)!.label}</small>}
+                {assessment && reviewReady && <button onClick={()=>setReviewFocus({id:item.id,question:match.judgment.clarification,nonce:Date.now()})}>Clarify this requirement</button>}</> : "Pending"}</td>
             </tr>;
           })}</tbody>
         </table>
