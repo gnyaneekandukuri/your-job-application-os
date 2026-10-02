@@ -1,3 +1,4 @@
+import { Usage } from "./Usage";
 import { AssessmentResults } from "./AssessmentResults";
 import { Setup } from "./Setup";
 import { useEffect, useRef, useState, type FormEvent } from "react";
@@ -58,7 +59,7 @@ const labels = {
 
 function App() {
   const [addContext, setAddContext] = useState(false);
-  const [page, setPage] = useState<"queue" | "retrieval" | "discovery" | "discovery-runs" | "assessments">("queue");
+  const [page, setPage] = useState<"queue" | "retrieval" | "discovery" | "discovery-runs" | "assessments" | "usage">("queue");
   const [jobs, setJobs] = useState<Review[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
@@ -254,11 +255,12 @@ function App() {
         <nav className="filters" aria-label="Workspace views">
           <button aria-pressed={page === "queue"} onClick={() => { setPage("queue"); setRoleOpen(false); setCreating(false); }}>All roles</button>
           <button aria-pressed={page === "discovery"} onClick={() => setPage("discovery")}>New opportunities</button>
+          <button aria-pressed={page === "usage"} onClick={() => setPage("usage")}>API costs</button>
           <button aria-pressed={page === "assessments"} onClick={() => setPage("assessments")}>Deep analysis</button>
           <button aria-pressed={page === "discovery-runs"} onClick={() => setPage("discovery-runs")}>Discovery runs</button>
           <button aria-pressed={page === "retrieval"} onClick={() => { setAddContext(false); setPage("retrieval"); }}>Your context</button>
         </nav>
-        {page === "assessments" ? <AssessmentResults onOpen={async (id) => { await refresh(); setSelected(id); setPage("queue"); setRoleOpen(true); setCreating(false); }} /> : page === "discovery" || page === "discovery-runs" ? <Discovery onResults={() => setPage("assessments")} view={page === "discovery-runs" ? "runs" : "opportunities"} onOpen={async (id) => { await refresh(); setSelected(id); setPage("queue"); setRoleOpen(true); setCreating(false); }} /> : page === "retrieval" ? <Retrieval initialAdd={addContext} /> : <>
+        {page === "usage" ? <Usage /> : page === "assessments" ? <AssessmentResults onOpen={async (id) => { await refresh(); setSelected(id); setPage("queue"); setRoleOpen(true); setCreating(false); }} /> : page === "discovery" || page === "discovery-runs" ? <Discovery onResults={() => setPage("assessments")} view={page === "discovery-runs" ? "runs" : "opportunities"} onOpen={async (id) => { await refresh(); setSelected(id); setPage("queue"); setRoleOpen(true); setCreating(false); }} /> : page === "retrieval" ? <Retrieval initialAdd={addContext} /> : <>
         <header>
           <div>
             <div className="eyebrow">YOUR JOB SEARCH, ONE STEP AT A TIME</div>

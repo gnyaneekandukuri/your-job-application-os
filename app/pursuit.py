@@ -1,3 +1,4 @@
+from .cost_tracking import usage_scope
 """Versioned pursuit recommendation, separate from documented capability scores."""
 import json
 import re
@@ -198,13 +199,14 @@ class PursuitService:
         def interpret(_):
             raw = manager.engine.get(key)
             if raw is None:
-                response = manager.engine.paid('evidence', {'model':MODEL,'store':False,'max_output_tokens':5000,
-                    'reasoning':{'effort':'none'},'instructions':PROMPT,
-                    'input':json.dumps({'job_description':job.description,'title':job.title,'profile':{
-                        'candidate':profile['candidate'],'target_role_families':profile['target_role_families'],
-                        'exclude_by_default':profile['exclude_by_default'],'pursuit_preferences':profile['pursuit_preferences']},
-                        'requirements':run['requirements']}),
-                    'text':{'format':{'type':'json_schema','name':'pursuit_interpretation','strict':True,'schema':Interpretation.model_json_schema()}}})
+                with usage_scope(job.id, "pursuit_recommendation"):
+                    response = manager.engine.paid('evidence', {'model':MODEL,'store':False,'max_output_tokens':5000,
+                        'reasoning':{'effort':'none'},'instructions':PROMPT,
+                        'input':json.dumps({'job_description':job.description,'title':job.title,'profile':{
+                            'candidate':profile['candidate'],'target_role_families':profile['target_role_families'],
+                            'exclude_by_default':profile['exclude_by_default'],'pursuit_preferences':profile['pursuit_preferences']},
+                            'requirements':run['requirements']}),
+                        'text':{'format':{'type':'json_schema','name':'pursuit_interpretation','strict':True,'schema':Interpretation.model_json_schema()}}})
                 try:
                     if response.get('status') != 'completed': raise ValueError()
                     parts=[p for i in response['output'] if i.get('type')=='message' for p in i.get('content',[])]

@@ -4,6 +4,8 @@ SQLite is the durable index/cache/usage ledger. Cosine and BM25 run locally.
 Provider access is injected, so tests never need credentials or network access.
 """
 import os
+import time
+from .cost_tracking import scope, token_cost
 import hashlib
 import json
 import math
@@ -169,6 +171,15 @@ class RetrievalService:
                     cost REAL, input_tokens INTEGER, output_tokens INTEGER);
             """)
 
+        self.migrate_usage()
+
+    def migrate_usage(self):
+        with closing(self.connect()) as db, db:
+            columns = {r[1] for r in db.execute("PRAGMA table_info(calls)")}
+            for name, kind in {"job_id":"TEXT", "stage":"TEXT", "cached_tokens":"INTEGER", "cache_write_tokens":"INTEGER", "cost_basis":"TEXT", "latency_ms":"INTEGER", "error":"TEXT"}.items():
+                if name not in columns:
+                    db.execute(f"ALTER TABLE calls ADD COLUMN {name} {kind}")
+
     def connect(self):
         return sqlite3.connect(self.path, timeout=10)
 
@@ -206,6 +217,10 @@ class RetrievalService:
             db.execute("BEGIN IMMEDIATE")
             call_id = db.execute("INSERT INTO calls(kind,model,created_at,state,reserved) VALUES (?,?,?,?,?)",
                                  (kind, payload["model"], now(), "RESERVED", reserved)).lastrowid
+        job_id, stage = scope.get()
+        started = time.monotonic()
+        with closing(self.connect()) as db, db:
+            db.execute("UPDATE calls SET job_id=?,stage=? WHERE id=?", (job_id, stage or kind, call_id))
         try:
             response = self.provider.request("responses" if generation else "embeddings", payload)
             usage = response["usage"]
@@ -213,15 +228,16 @@ class RetrievalService:
             outgoing = int(usage["output_tokens"]) if generation else 0
             if incoming < 0 or outgoing < 0:
                 raise ValueError("Invalid usage")
-            # Conservative estimate: no cache-read discount; reserve input cache-write premium.
-            cost = (incoming * (2.5 if generation else 0.02) + outgoing * 10) / 1_000_000
+            # Use provider cache details when available; retain a labeled fallback for unknown models.
+            details = usage.get("input_tokens_details", {})
+            cost, basis = token_cost(payload["model"], incoming, outgoing, details)
             with closing(self.connect()) as db, db:
-                db.execute("UPDATE calls SET state='RECEIVED',cost=?,input_tokens=?,output_tokens=? WHERE id=?",
-                           (cost, incoming, outgoing, call_id))
+                db.execute("UPDATE calls SET state='RECEIVED',cost=?,input_tokens=?,output_tokens=?,cached_tokens=?,cache_write_tokens=?,cost_basis=?,latency_ms=? WHERE id=?",
+                           (cost, incoming, outgoing, details.get("cached_tokens",0), details.get("cache_write_tokens",0), basis, round((time.monotonic()-started)*1000), call_id))
             return response
         except Exception as exc:
             with closing(self.connect()) as db, db:
-                db.execute("UPDATE calls SET state='FAILED_OR_UNKNOWN' WHERE id=?", (call_id,))
+                db.execute("UPDATE calls SET state='FAILED_OR_UNKNOWN',error=?,latency_ms=? WHERE id=?", (str(exc) if isinstance(exc,RetrievalError) else "Provider response could not be validated", round((time.monotonic()-started)*1000), call_id))
             if isinstance(exc, RetrievalError):
                 raise
             raise RetrievalError("Provider response could not be validated. No automatic retry; check pilot usage.", 502) from None

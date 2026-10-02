@@ -146,6 +146,11 @@ def create_app(data_dir: Path | None = None):
     def discovery_check(request: Request):
         return request.app.state.discovery.start()
 
+    @api.get("/api/usage")
+    def api_usage():
+        from .usage_dashboard import usage_report
+        return usage_report(private_dir)
+
     @api.post("/api/discovery/settings")
     def discovery_settings(data: DiscoverySettings, request: Request):
         return request.app.state.discovery.configure(data)

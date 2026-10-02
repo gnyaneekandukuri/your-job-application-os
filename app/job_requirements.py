@@ -1,3 +1,4 @@
+from .cost_tracking import usage_scope
 """JD-only interpretation. Never evaluates a candidate or changes a review decision."""
 import json
 from typing import Literal
@@ -116,7 +117,8 @@ def extract(engine, job, data):
                        "text": {"format": {"type": "json_schema", "name": "job_requirements",
                                 "strict": True, "schema": RequirementExtraction.model_json_schema()}}}
             try:
-                response = engine.paid("requirements", payload)
+                with usage_scope(job.id, "requirements"):
+                    response = engine.paid("requirements", payload)
             except RetrievalError as exc:
                 # These local preflight errors occur before any provider dispatch.
                 if exc.status in (409, 503) or any(f'(HTTP {code})' in str(exc) for code in (401, 403, 404, 429)):
