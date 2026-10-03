@@ -1,4 +1,5 @@
 from .user_workspace import control_documents
+from .read_snapshot import snapshot_cached
 from .cost_tracking import usage_scope
 from contextvars import copy_context
 from .analysis_context import retrieve_evidence, VERSION as CONTEXT_VERSION
@@ -104,6 +105,7 @@ class RoleAnalysis:
             self.jev = JevClient(self.engine)
         return self.jev
 
+    @snapshot_cached
     def environment(self, job):
         try:
             docs = control_documents(self.library.root)

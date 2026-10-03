@@ -9,8 +9,8 @@ type Diagnostic = {reason:string;kind:string;http_status?:number;host:string;pat
 type Source = {checked_at?:string;state:string;count?:number;error?:string;coverage?:string;warnings?:(string | (Diagnostic & {listing:string}))[];diagnostic?:Diagnostic};
 type YCConnection = {state:string;message:string;busy:boolean;checked_at?:string};
 type State = {jev?:{configured:boolean;message:string};yc_connection?:YCConnection;keyword_profile?:KeywordProfile;location_preference?:{label:string;countries:string[]};items:Item[];running:boolean;settings:{enabled:boolean;auto_assess:boolean};boards:Record<string,string>;unavailable:Record<string,string>;timezone:string;schedule:string[];scan:null|{started:string;finished:string|null;payload:{phase?:string;classification?:{state:string;classified:number;cached:number;skipped:number;error?:string};descriptions?:{fetched:number;needs_paste:number};state:string;new_count?:number;sources:Record<string,Source>;error?:string}}};
-async function request<T>(path="",body?:unknown):Promise<T> {
- const response=await fetch(`/api/discovery${path}`,body===undefined?undefined:{method:"POST",headers:{"Content-Type":"application/json","X-Local-Review":"1"},body:JSON.stringify(body)});
+async function request<T>(path="",body?:unknown,signal?:AbortSignal):Promise<T> {
+ const response=await fetch(`/api/discovery${path}`,body===undefined?{signal}:{method:"POST",headers:{"Content-Type":"application/json","X-Local-Review":"1"},body:JSON.stringify(body)});
  const value=await response.json();if(!response.ok)throw new Error(typeof value.detail==="string"?value.detail:"Action failed. Try again.");return value;
 }
 const statusLabel=(state:string):string=>({complete:"Completed",incomplete:"Incomplete coverage",failed:"Failed",blocked:"Access denied / limited",partial:"Partial coverage",checked:"Checked",login_required:"Sign in to YC",busy:"YC browser busy"} as Record<string,string>)[state]??state;
@@ -21,6 +21,7 @@ export function Discovery({onOpen,onResults,view="opportunities"}:{onResults:()=
  const [selected,setSelected]=useState<Record<string,string>>({});
  const [selectionNotice,setSelectionNotice]=useState("");
  const [priorityFilter,setPriorityFilter]=useState("all");
+ const [page,setPage]=useState(1);
  const [error,setError]=useState("");
  const [busy,setBusy]=useState(false);
  const [filter,setFilter]=useState("all");
@@ -35,7 +36,8 @@ export function Discovery({onOpen,onResults,view="opportunities"}:{onResults:()=
  const [jd,setJD]=useState<JDDraft|null>(null);
  const jdDialog=useRef<HTMLDialogElement>(null);
  useEffect(()=>{if(jd)jdDialog.current?.showModal();else jdDialog.current?.close();},[jd?.id]);
- useEffect(()=>{let live=true;let timer:ReturnType<typeof setTimeout>;const load=async()=>{try{const value=await request<State>();if(live){setState(value);setConnectionError("");}}catch(e){if(live)setConnectionError(String(e));}finally{if(live)timer=setTimeout(()=>void load(),4000);}};void load();return()=>{live=false;clearTimeout(timer);};},[]);
+ useEffect(()=>{let live=true;let timer:ReturnType<typeof setTimeout>;const controller=new AbortController();const load=async()=>{let interval=30000;try{const value=await request<State>("",undefined,controller.signal);if(live){setState(value);setConnectionError("");if(value.running||value.items.some(i=>i.assessment?.state==="RUNNING"||["QUEUED","RUNNING"].includes(i.selected_assessment?.state??"")))interval=4000;}}catch(e){if(live){setConnectionError(String(e));interval=5000;}}finally{if(live)timer=setTimeout(()=>void load(),document.hidden?60000:interval);}};void load();return()=>{live=false;controller.abort();clearTimeout(timer);};},[]);
+ useEffect(()=>setPage(1),[query,priorityFilter,locationFilter,boardFilter,filter]);
  async function act(work:()=>Promise<void>){setBusy(true);setError("");try{await work();}catch(e){setError(e instanceof Error?e.message:"Action failed");}finally{setBusy(false);}}
  function openJD(item:Item){setError("");setJD({url:item.url,id:item.id,expected_hash:item.content_hash,title:item.title,company:item.company,description:item.description});}
  async function assess(item:Item){await request<{job_id:string}>(`/${item.id}/assess`,{});setState(await request<State>());}
@@ -48,11 +50,14 @@ export function Discovery({onOpen,onResults,view="opportunities"}:{onResults:()=
  const queueActive=(item:Item)=>['QUEUED','RUNNING'].includes(item.selected_assessment?.state??'');
  const selectable=(item:Item)=>item.keyword_match?.priority==='worth_checking'&&item.description.length>=200&&!item.description_changed&&!item.queued_for_assessment&&!queueActive(item)&&!['RUNNING','COMPLETE'].includes(item.assessment?.state??'');
  const rows=(state?.items??[]).filter(item=>item.assessment?.state!=="COMPLETE").filter(item=>priorityFilter==="all"||item.keyword_match?.priority===priorityFilter).filter(item=>(locationFilter==="all"||(item.location_match?.status??"unclear")===locationFilter)&&(boardFilter==="all"||item.sources.some(s=>s.board===boardFilter))&&(filter==="all"||(filter==="recent"?item.freshness==="within_24h":filter==="discovered"?Date.now()-Date.parse(item.first_seen)<86400000:filter==="uncertain"?["date_only","unknown"].includes(item.freshness):item.description.length<200))&&`${item.title} ${item.company} ${item.location}`.toLowerCase().includes(query.toLowerCase()));
+ const pages=Math.max(1,Math.ceil(rows.length/25));
+ const currentPage=Math.min(page,pages);
+ const pageRows=rows.slice((currentPage-1)*25,currentPage*25);
  return <section className="panel discovery">
   <div className="section-heading"><div><div className="eyebrow">LOCAL JOB DISCOVERY</div><h1>{view==="runs"?"Discovery runs":"New opportunities"}</h1><p>{view==="runs"?"Check job boards and review the latest run.":"Find roles that overlap with your experience and what you want to do next."}</p></div>
   {view==="runs"&&<button className="primary" disabled={busy||state?.running} onClick={()=>void act(async()=>setState(await request<State>("/check",{})))}>{state?.running?(state.scan?.payload.phase==="assessing"?"Assessing High priority jobs...":"Checking boards..."):"Check now"}</button>}</div>
   {error&&<p className="error" role="alert">{error}</p>}{connectionError&&<p className="error" role="alert">Connection interrupted. Retrying... {connectionError}</p>}
-  {state && !state.running && ["failed","incomplete"].includes(state.scan?.payload.state??"") && <p role="status">{state.scan?.payload.state==="failed"?"The last scan could not check any boards. Saved listings are retained.":"The last scan has incomplete coverage. Saved listings do not represent every new job."} {view==="opportunities" && "See Discovery runs for board status."}</p>}
+  {state && !state.running && ["failed","incomplete"].includes(state.scan?.payload.state??"") && <p className="discovery-coverage" role="status">{view==="opportunities"?"Some boards were unavailable. See Discovery runs for coverage.":"The last scan has incomplete coverage. Saved listings are retained."}</p>}
   {!state?<p>Loading discovery...</p>:view==="runs"?<>
    <p><a href="/#usage">View scan costs</a></p>
    <div className="discovery-run" aria-label="Last discovery run">
@@ -98,18 +103,21 @@ export function Discovery({onOpen,onResults,view="opportunities"}:{onResults:()=
     </form>}
 
    </details>}
-   <div className="opportunity-filters">
-    <label>Priority<select value={priorityFilter} onChange={e=>setPriorityFilter(e.target.value)}><option value="all">All priorities</option><option value="worth_checking">Worth checking</option><option value="high">High priority</option><option value="low">Skip</option></select></label>
+   <div className="opportunity-filters discovery-filters">
     <label>Search<input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Company, role or location"/></label>
+    <label>Priority<select value={priorityFilter} onChange={e=>setPriorityFilter(e.target.value)}><option value="all">All priorities</option><option value="worth_checking">Worth checking</option><option value="high">High priority</option><option value="low">Skip</option></select></label>
     <label>Location<select value={locationFilter} onChange={e=>setLocationFilter(e.target.value)}><option value="match">{state.location_preference?.label || "Preferred country"} matches</option><option value="unclear">Location unclear</option><option value="all">All locations</option></select></label>
     <label>Job board<select value={boardFilter} onChange={e=>setBoardFilter(e.target.value)}><option value="all">All boards</option>{Object.entries(state.boards).map(([id,name])=><option key={id} value={id}>{name}</option>)}</select></label>
     <label>Show<select value={filter} onChange={e=>setFilter(e.target.value)}>{[["all","All saved"],["recent","Source reports <24h"],["discovered","Discovered in last 24h"],["uncertain","Date uncertain"],["missing","Description needed"]].map(([id,label])=><option key={id} value={id}>{label}</option>)}</select></label>
    </div>
-   <div className="selection-actions"><button className="primary" disabled={busy||!Object.keys(selected).length} onClick={()=>void act(analyzeSelected)}>Analyze selected ({Object.keys(selected).length})</button>{Object.keys(selected).length>0&&<button disabled={busy} onClick={()=>setSelected({})}>Clear selection</button>}<small>Choose Worth checking roles · API usage applies</small></div>
-   {selectionNotice&&<p role="status">{selectionNotice} <button onClick={onResults}>View Deep analysis</button></p>}
-   <p className="discovery-clock">{rows.length} shown · completed assessments are in <button onClick={onResults}>Deep analysis</button></p>
+   <div className="opportunity-toolbar">
+    <div className="opportunity-count"><strong>{rows.length} roles</strong><span>{Object.keys(selected).length?`${Object.keys(selected).length} selected across all pages`:'Select Worth checking roles to assess'}</span></div>
+    <div className="selection-actions">{Object.keys(selected).length>0&&<button className="text-action" disabled={busy} onClick={()=>setSelected({})}>Clear</button>}<button className="primary" disabled={busy||!Object.keys(selected).length} onClick={()=>void act(analyzeSelected)}>Analyze selected{Object.keys(selected).length?` (${Object.keys(selected).length})`:''}</button><button className="text-action" onClick={onResults}>View results →</button></div>
+   </div>
+   {selectionNotice&&<p role="status">{selectionNotice}</p>}
+   <div className="opportunity-pagination"><small>{rows.length?`${(currentPage-1)*25+1}–${Math.min(currentPage*25,rows.length)} of ${rows.length}`:'No matching roles'} · API usage applies when analyzing</small><div><button disabled={currentPage===1} onClick={()=>setPage(currentPage-1)}>Previous</button><span>Page {currentPage} of {pages}</span><button disabled={currentPage===pages} onClick={()=>setPage(currentPage+1)}>Next</button></div></div>
    {!rows.length?<p>{state.scan?"No saved opportunities match these filters. Try Location unclear or All locations.":"Open Discovery runs and choose Check now to collect listings."}</p>:<div className="discovery-table-scroll" tabIndex={0} role="region" aria-label="All opportunities"><table className="discovery-table opportunities-table"><thead><tr><th scope="col">Company / role</th><th scope="col">Priority / keywords</th><th scope="col">Link</th><th scope="col">Job board</th><th scope="col">Location</th><th scope="col">Posted / freshness</th><th scope="col">Analysis</th></tr></thead><tbody>
-    {rows.map(item=><tr key={item.id}><td>{item.keyword_match?.priority==='worth_checking'&&<label className="select-role"><input type="checkbox" aria-label={`Select ${item.company} · ${item.title} for deep analysis`} disabled={busy||!selectable(item)||(!selected[item.id]&&Object.keys(selected).length>=100)} checked={!!selected[item.id]} onChange={e=>{const checked=e.target.checked;setSelectionNotice('');setSelected(current=>{const next={...current};if(checked)next[item.id]=item.content_hash;else delete next[item.id];return next;});}}/>Select</label>}<strong>{item.company}</strong><div className="discovery-role">{item.title}</div>{item.role_classification && <small title={`Jev · ${item.role_classification.model} · advisory classification`}>{Object.values(item.role_classification.labels).join(" · ")}</small>}
+    {pageRows.map(item=><tr key={item.id}><td>{item.keyword_match?.priority==='worth_checking'&&<label className="select-role"><input type="checkbox" aria-label={`Select ${item.company} · ${item.title} for deep analysis`} disabled={busy||!selectable(item)||(!selected[item.id]&&Object.keys(selected).length>=100)} checked={!!selected[item.id]} onChange={e=>{const checked=e.target.checked;setSelectionNotice('');setSelected(current=>{const next={...current};if(checked)next[item.id]=item.content_hash;else delete next[item.id];return next;});}}/>Select</label>}<strong>{item.company}</strong><div className="discovery-role">{item.title}</div>{item.role_classification && <small title={`Jev · ${item.role_classification.model} · advisory classification`}>{Object.values(item.role_classification.labels).join(" · ")}</small>}
      <details className="discovery-row-details"><summary>Job details</summary><p>Funding: {item.funding||"Unknown"}</p><p>First detected: {when(item.first_seen)}<br/>Last seen: {when(item.last_seen)}<br/>Sources: {item.sources.map(s=>state.boards[s.board]||s.board).join(", ")}</p>
      {item.date_basis==="board_timestamp"&&<p>Board timestamp; original publication time not verified.</p>}{item.description_changed&&<p className="notice">Description changed after import. Existing analysis has not been overwritten.</p>}{item.description.length>=20?<pre className="retrieval-source">{item.description}</pre>:<p>Full description needed. This board supplied metadata only.</p>}</details></td>
      <td>{item.keyword_match && <div className="opportunity-priority"><span className={`preference-badge preference-${item.keyword_match.priority}`} title={item.keyword_match.reason}>{item.keyword_match.label}</span>{item.keyword_match.reason&&<details><summary>Why this priority</summary><p>{item.keyword_match.reason}</p></details>}</div>}<div className="keyword-tags">{item.keyword_match?.experience.length ? item.keyword_match.experience.map(match=><span key={match.term}>{match.term}</span>) : <span className="muted">—</span>}</div></td>

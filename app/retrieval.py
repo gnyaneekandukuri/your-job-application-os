@@ -188,6 +188,17 @@ class RetrievalService:
             row = db.execute("SELECT payload FROM cache WHERE key=?", (key,)).fetchone()
         return json.loads(row[0]) if row else None
 
+    def get_many(self, keys):
+        keys = list(dict.fromkeys(keys))
+        result = {}
+        with closing(self.connect()) as db:
+            for start in range(0, len(keys), 500):
+                group = keys[start:start+500]
+                placeholders = ','.join('?' for _ in group)
+                for key, payload in db.execute(f'SELECT key,payload FROM cache WHERE key IN ({placeholders})', group):
+                    result[key] = json.loads(payload)
+        return result
+
     def put(self, key, value):
         with closing(self.connect()) as db, db:
             db.execute("INSERT OR REPLACE INTO cache VALUES (?,?)", (key, json.dumps(value)))

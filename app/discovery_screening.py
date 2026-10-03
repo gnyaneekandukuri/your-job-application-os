@@ -74,9 +74,10 @@ def screen(engine, items, profile, stop):
 
 def annotate(engine, items, profile):
     """Read-only, including on page refresh. Stale profile results cannot drive auto analysis."""
-    for item in items:
-        _, key = inputs(item, profile)
-        saved = engine.get(key)
+    keyed = [(item, inputs(item, profile)[1]) for item in items]
+    cached = engine.get_many([key for _, key in keyed])
+    for item, key in keyed:
+        saved = cached.get(key)
         item['initial_evaluation'] = saved
         result = item['keyword_match']
         result['keyword_priority'] = result['priority']

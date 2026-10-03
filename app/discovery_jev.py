@@ -54,9 +54,11 @@ class JevClassifier:
         return json.loads(row[0]) if row else None
 
     def annotate(self, items):
+        with closing(self.db()) as db:
+            cached = {key:json.loads(payload) for key,payload in db.execute('SELECT fingerprint,payload FROM jev_classifications')}
         for item in items:
             _, _, fingerprint = self.request(item)
-            item['role_classification'] = self.cached(fingerprint)
+            item['role_classification'] = cached.get(fingerprint)
 
     def classify(self, item):
         policy, body, fingerprint = self.request(item)

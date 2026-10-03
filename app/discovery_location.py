@@ -10,21 +10,22 @@ ALIASES = {"US": ["united states", "united states of america", "usa", "u.s.", "u
            "ZA": ["south africa"], "IN": ["india"]}
 
 
+# Keep compiled patterns: the full country set exceeds re's small global cache.
+PATTERNS = tuple((country['code'],
+    tuple(re.compile(r'(?<!\w)' + re.escape(name) + r'(?!\w)', re.I)
+          for name in [country['name'], *ALIASES.get(country['code'], [])]),
+    re.compile(r'(?:^|[,;/|(]\s*)' + re.escape(country['code']) + r'\s*(?:$|[;|/)])'),
+    re.compile(r'(?<!\w)' + re.escape(country['alpha3']) + r'(?!\w)'))
+    for country in COUNTRIES)
+
+
 def location_match(location, preferences):
     target = set(preferences.get("location_filter", {}).get("countries", []))
     label = preferences.get("location_filter", {}).get("label", ", ".join(sorted(target)))
     text = (location or "").strip()
     found = set()
-    for country in COUNTRIES:
-        code = country["code"]
-        names = [country["name"], *ALIASES.get(code, [])]
-        if any(re.search(r"(?<!\w)" + re.escape(name) + r"(?!\w)", text, re.I) for name in names):
-            found.add(code)
-        # Short codes only as uppercase standalone location segments: IN/CA
-        # in ordinary prose or city names must not be interpreted as countries.
-        if re.search(r"(?:^|[,;/|(]\s*)" + re.escape(code) + r"\s*(?:$|[;|/)])", text):
-            found.add(code)
-        if re.search(r"(?<!\w)" + re.escape(country["alpha3"]) + r"(?!\w)", text):
+    for code, names, short_code, alpha3 in PATTERNS:
+        if any(pattern.search(text) for pattern in names) or short_code.search(text) or alpha3.search(text):
             found.add(code)
     # A state abbreviation paired with a city is ambiguous without country data.
     if "CA" in found and not re.search(r"\bCanada\b", text, re.I) and re.search(r",\s*CA\s*$", text):

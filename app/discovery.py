@@ -1,4 +1,5 @@
 """Persistent local discovery queue and three-times-daily scheduler."""
+from .read_snapshot import read_snapshot
 import hashlib
 import json
 import re
@@ -118,6 +119,7 @@ class Discovery:
             db.execute('UPDATE config SET payload=? WHERE id=1',(json.dumps(cfg),))
         return True
 
+    @read_snapshot
     def assessment_results(self):
         """All saved deep analyses, including roles entered without discovery."""
         with self.db() as db:
@@ -138,6 +140,7 @@ class Discovery:
             items.append({'job_id':job_id,'company':job.company,'title':job.title,'url':str(job.source_url or ''),'assessment':summary})
         return {'items':items, 'queued_count':len(self.queued_ids), 'settings':self.settings()}
 
+    @read_snapshot
     def view(self, include_analysis=True):
         preferences = load_preferences(self.analysis.library.root / "knowledge/discovery-preferences.json")
         with self.db() as db:
@@ -182,6 +185,23 @@ class Discovery:
                 'scan': {**dict(scan), 'payload': scan_summary(json.loads(scan['payload']))} if scan else None,
                 'boards': BOARDS, 'unavailable': UNAVAILABLE, 'timezone': str(datetime.now().astimezone().tzinfo),
                 'schedule': ['08:00', '13:00', '20:00']}
+
+    def table_view(self):
+        """Only data displayed by the discovery UI; full evidence stays in local storage."""
+        result = self.view()
+        for item in result['items']:
+            item.pop('description_provenance', None)
+            item.pop('initial_evaluation', None)
+            match = item.get('keyword_match')
+            if match:
+                item['keyword_match'] = {k:match.get(k) for k in ('priority','label','reason')}
+                item['keyword_match']['experience'] = [{'term':entry['term']} for entry in match.get('experience', [])]
+            classification = item.get('role_classification')
+            if classification:
+                item['role_classification'] = {k:classification.get(k) for k in ('labels','model','checked_at')}
+        if result.get('keyword_profile'):
+            result['keyword_profile'] = {'target':result['keyword_profile']['target']}
+        return result
 
     def collect_board(self, board):
         if board == 'yc':

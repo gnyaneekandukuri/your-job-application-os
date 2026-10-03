@@ -848,3 +848,23 @@ footer span {
 .selection-actions {display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:16px 0;}
 .select-role {display:flex;align-items:center;gap:6px;font-size:.85rem;margin-bottom:8px;}
 .select-role input {width:auto;}
+
+/* Compact opportunities controls, with uniform input geometry. */
+.discovery .discovery-coverage {font-size:12px;color:#66716b;margin:0 0 14px;}
+.discovery .discovery-filters {display:grid;grid-template-columns:minmax(210px,2fr) repeat(4,minmax(125px,1fr));gap:12px;align-items:end;margin:16px 0;}
+.discovery .discovery-filters label {min-width:0;margin:0;font-size:12px;}
+.discovery .discovery-filters input,.discovery .discovery-filters select {box-sizing:border-box;height:40px;width:100%;padding:8px 10px;margin-top:6px;border:1px solid #cbd4ce;border-radius:6px;background:#fff;color:#233b2c;font:inherit;font-size:13px;}
+.discovery .discovery-filters select:focus {outline:2px solid #91b09e;outline-offset:1px;}
+.opportunity-toolbar {display:flex;align-items:center;justify-content:space-between;gap:16px;border-top:1px solid #e0e4df;padding:14px 0 8px;}
+.opportunity-count {display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;}
+.opportunity-count span {font-size:12px;color:#66716b;}
+.discovery .selection-actions {margin:0;gap:10px;}
+.discovery .selection-actions button {font-size:13px;padding:9px 12px;min-height:38px;}
+.discovery .text-action {border:0;background:transparent;color:#355f4c;padding:8px;}
+.opportunity-pagination {display:flex;align-items:center;justify-content:space-between;gap:12px;margin:4px 0 10px;color:#66716b;font-size:12px;}
+.opportunity-pagination>div {display:flex;align-items:center;gap:10px;}
+.opportunity-pagination button {font-size:12px;padding:6px 9px;}
+.discovery .select-role {margin:0 0 8px;font-weight:400;}
+.discovery .select-role input {margin:0;}
+@media(max-width:1100px) {.discovery .discovery-filters {grid-template-columns:repeat(4,minmax(0,1fr));}.discovery .discovery-filters label:first-child {grid-column:1/-1;}}
+@media(max-width:700px) {.discovery .discovery-filters {grid-template-columns:repeat(2,minmax(0,1fr));}.opportunity-toolbar,.opportunity-pagination {align-items:flex-start;flex-direction:column;}.opportunity-count {gap:8px;}}

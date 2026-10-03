@@ -3,6 +3,7 @@
 All source indexes share the original SQLite usage ledger and query cache.
 The canonical resume, approved facts and coaching files are never mutated here.
 """
+from .read_snapshot import snapshot_cached
 import hashlib
 import json
 from contextlib import closing
@@ -138,6 +139,7 @@ class StoryLibrary:
                           state="Unavailable", error=str(error))
         return result
 
+    @snapshot_cached
     def status(self):
         with self.lock:
             sources = [self.describe(e) for e in self.entries()]

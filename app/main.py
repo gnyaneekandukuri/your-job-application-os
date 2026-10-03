@@ -108,7 +108,7 @@ def create_app(data_dir: Path | None = None):
 
     @api.get("/api/discovery")
     def discovery_status(request: Request):
-        return request.app.state.discovery.view()
+        return request.app.state.discovery.table_view()
 
     @api.post("/api/discovery/yc/connect")
     def yc_connect(request: Request):
