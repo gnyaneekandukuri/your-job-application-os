@@ -17,7 +17,9 @@ def test_stage_order_and_historical_rounds():
     assert a['automatic_allowed'] and b['automatic_allowed']
     assert a['sort_order'] < b['sort_order']
     assert b['stage']=='series b'
-    assert not fit(funding='Series C')['automatic_allowed']
+    assert fit(funding='Series C')['automatic_allowed']
+    assert fit(funding='Series C')['sort_order'] > b['sort_order']
+    assert fit('We are an AI startup.')['automatic_allowed']
 
 
 def test_no_stage_inference_from_board_or_candidate_requirements():

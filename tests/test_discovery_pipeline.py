@@ -191,3 +191,28 @@ def test_manual_selection_is_allowed_at_every_initial_priority(tmp_path,monkeypa
         response=client.post('/api/discovery/assess-selected',headers={'X-Local-Review':'1'},json={'roles':[{'id':oid,'content_hash':item['content_hash']}]})
         assert response.status_code==200
         assert response.json()=={'accepted':[oid],'rejected':[]}
+
+
+@pytest.mark.parametrize('location,expected',[('match',True),('unclear',True),('outside',False)])
+def test_initial_screening_location_precedes_company_preferences(location,expected):
+    for group in ('preferred','other_startup','established','unknown'):
+        assert Discovery.initial_screening_eligible({'location_match':{'status':location},
+            'company_fit':{'group':group,'automatic_allowed':False}}) is expected
+
+
+def test_both_jev_passes_exclude_foreign_jobs_before_classifying(tmp_path,monkeypatch):
+    with TestClient(create_app(tmp_path)) as client:
+        d=configure(client)
+        d.configure(Settings(enabled=False,auto_assess=False))
+        monkeypatch.setattr('app.discovery.BOARDS',{'yc':'YC'})
+        rows=[{**row('Own product strategy. '*20),'source_id':country,
+               'url':'https://example.com/jobs/'+country,'location':country}
+              for country in ('USA','India','Remote')]
+        d.collector=lambda _: (rows,'Partial coverage',[])
+        d.complete_descriptions=lambda _: {}
+        classified=[];screened=[]
+        monkeypatch.setattr(d.jev,'run',lambda items,stop: classified.extend(i['location'] for i in items) or {})
+        monkeypatch.setattr('app.discovery_screening.screen',lambda engine,items,profile,stop: screened.extend(i['location'] for i in items) or {})
+        d.scan()
+        assert set(classified)=={'USA','Remote'}
+        assert set(screened)=={'USA','Remote'}

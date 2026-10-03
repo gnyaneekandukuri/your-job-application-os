@@ -425,10 +425,10 @@ class Discovery:
             result['descriptions'] = self.complete_descriptions(pending)
             result['phase'] = 'classifying'
             with self.db() as db: db.execute('UPDATE scans SET payload=? WHERE id=?',(json.dumps(result),sid))
-            result['classification'] = self.jev.run([item for item in self.view(include_analysis=False)['items'] if item['id'] in pending and item['company_fit']['automatic_allowed']], self.stop)
+            result['classification'] = self.jev.run([item for item in self.view(include_analysis=False)['items'] if item['id'] in pending and self.initial_screening_eligible(item)], self.stop)
             from .discovery_screening import screen
             preferences = load_preferences(self.analysis.library.root / 'knowledge/discovery-preferences.json')
-            screening_items = [item for item in self.view(include_analysis=False)['items'] if item['id'] in pending and item['company_fit']['automatic_allowed']]
+            screening_items = [item for item in self.view(include_analysis=False)['items'] if item['id'] in pending and self.initial_screening_eligible(item)]
             screening_profile = self.keywords.enrich(screening_items, preferences)
             self.jev.annotate(screening_items)
             result['screening'] = screen(self.analysis.engine, screening_items, screening_profile, self.stop)
@@ -496,6 +496,13 @@ class Discovery:
         if last_job and not self.stop.is_set():
             summary = self.assessment_summary({'job_id':last_job})
             self.pause_on_provider_limit(summary.get('error','') + summary.get('recommendation_error',''))
+
+    @staticmethod
+    def initial_screening_eligible(item):
+        # Country exclusions precede both Jev passes. Company/stage preferences
+        # rank matches and route automatic deep analysis, not initial screening.
+        # Unclear location stays reviewable; deep analysis requires a match.
+        return item.get('location_match', {}).get('status') != 'outside'
 
     @staticmethod
     def auto_eligible(item):
