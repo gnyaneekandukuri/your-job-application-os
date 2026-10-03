@@ -44,11 +44,19 @@ def failure_message(response):
 
 
 class OpenAIProvider:
+    def __init__(self, allow_generation=True, allow_embeddings=True):
+        self.allow_generation = allow_generation
+        self.allow_embeddings = allow_embeddings
+
     @property
     def configured(self):
         return bool(os.environ.get("OPENAI_API_KEY", "").strip())
 
     def request(self, endpoint: str, payload: dict) -> dict:
+        if endpoint == 'embeddings' and not self.allow_embeddings:
+            raise RetrievalError('OpenAI embeddings are disabled in the Jev workflow. Prepare and search context locally; no OpenAI request was sent.', 409)
+        if endpoint == 'responses' and not self.allow_generation:
+            raise RetrievalError('OpenAI generation is disabled for assessment and review. Use the Jev assessment or edit your context directly. No OpenAI request was sent.', 409)
         if endpoint not in ("responses", "embeddings"):
             raise RetrievalError("Unsupported model endpoint.")
         try:

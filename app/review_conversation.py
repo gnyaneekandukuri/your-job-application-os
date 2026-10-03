@@ -115,13 +115,8 @@ def send(manager, job, data):
                     'question':m['judgment']['clarification']} for i,m in run['results'].items()},
                 'stories':[{k:s[k] for k in ('id','title','employer','project','path')} for s in sources]}
         try:
-            response = manager.engine.paid('evidence',{'model':MODEL,'store':False,'max_output_tokens':5000,
-                'reasoning':{'effort':'none'},'instructions':PROMPT,'input':json.dumps(body),
-                'text':{'format':{'type':'json_schema','name':'review_reply','strict':True,'schema':Reply.model_json_schema()}}})
-            if response.get('status') != 'completed': raise ValueError('Incomplete reply')
-            parts=[p for i in response['output'] if i.get('type')=='message' for p in i.get('content',[])]
-            if any(p.get('type')=='refusal' for p in parts): raise ValueError('Refusal')
-            reply=Reply.model_validate_json(''.join(p['text'] for p in parts if p.get('type')=='output_text'))
+            from .jev_review import reply as structured_reply
+            reply = structured_reply(manager, job, data, user, run, sources)
             users={m['id']:m['text'] for m in record['messages'] if m['role']=='user'}
             directory={s['id']:s for s in sources}
             if data.mode=='existing' and reply.additions: raise ValueError('Existing-source review cannot add stories')
@@ -151,7 +146,7 @@ def send(manager, job, data):
 
 
 def commit(manager, job, data):
-    from .role_analysis import AnalysisRun, VERSION
+    from .role_analysis import AnalysisRun, VERSION, MODEL
     with manager.lock, manager.library.lock:
         record=state(manager,job)
         op=record.get('operation')

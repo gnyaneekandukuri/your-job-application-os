@@ -1,0 +1,9 @@
+{
+  "version": "jev-assessment-v2",
+  "model": "jev-1.13.0",
+  "confidence_floor": 0.8,
+  "input_usd_per_million": 0.042,
+  "max_request_bytes": 180000,
+  "max_evidence_bytes": 48000,
+  "max_candidates_per_requirement": 12
+}

@@ -132,7 +132,7 @@ export function Retrieval({ initialAdd = false }: { initialAdd?: boolean }) {
           <button disabled={busy || dirty} aria-pressed={intakeMode === "paste"} onClick={() => { setIntakeMode("paste"); setAdding(true); setSelected(null); setDraft(emptyDraft); saveId.current = crypto.randomUUID(); saveFingerprint.current = ""; }}>Paste experience or transcript</button>
         </div>
         <p>Saving prepares the new context for future role analyses. Existing reports become outdated and can be reanalyzed. New details remain unapproved evidence.</p>
-        <p><small>Save and prepare sends the text to OpenAI for paid embeddings. Originals and history stay local; unchanged documents reuse their index.</small></p>
+        <p><small>Preparation runs locally without API calls. Originals and history stay local; unchanged documents reuse their index.</small></p>
         {intakeMode === "upload" && <>
           <p>Word (.docx), text-based PDF, TXT or Markdown · up to 2 MB. Upload a written transcript; audio and video transcription is not supported.</p>
         <form onSubmit={e => { e.preventDefault(); void run(upload, "Saving and preparing your document… This may take a few minutes."); }}>
@@ -174,7 +174,7 @@ export function Retrieval({ initialAdd = false }: { initialAdd?: boolean }) {
               await request(`/sources/${selected.id}/prepare`, { expected_revision: selected.revision, consent_to_send: true });
               await openSource(selected.id);
               setNotice("Story ready. You can search across all prepared stories now.");
-            }, "Preparing this document. Completed work is saved; this can take several minutes…")}>Retry preparation (paid)</button>
+            }, "Preparing this document locally…")}>Retry preparation</button>
           </>}</>}
         </section>}
 
@@ -186,11 +186,11 @@ export function Retrieval({ initialAdd = false }: { initialAdd?: boolean }) {
         void run(async () => { setResults(null); setResults(await request<Results>("/search", { query, category, consent_to_send: true })); }, "Searching your stories…");
       }}>
         <label>Your question<textarea rows={2} placeholder="e.g. Where have I influenced people without formal authority?" value={query} minLength={3} maxLength={1200} required disabled={busy} onChange={e => { setQuery(e.target.value); setResults(null); setError(""); }} /></label>
-        <label className="retrieval-simple-consent"><input type="checkbox" checked={consent} disabled={busy} onChange={e => setConsent(e.target.checked)} />Allow paid searches: send my question and original source passages to OpenAI for a relevance check.</label>
+        <label className="retrieval-simple-consent"><input type="checkbox" checked={consent} disabled={busy} onChange={e => setConsent(e.target.checked)} />Allow Jev to check the relevance of retrieved original passages. TypeSafe usage is tracked.</label>
         <button className="primary" disabled={busy || !status.ready || !consent || !status.configured || query.trim().length < 3}>{activity === "Searching your stories…" ? "Searching…" : "Find context"}</button>
       </form>
       {!status.ready && <p role="status">No stories are ready yet. Add context above, or open a saved document to retry preparation.</p>}
-      {!status.configured && <p role="alert">The backend needs your API key before paid preparation or search.</p>}
+      {!status.configured && <p role="alert">The context library is not ready yet.</p>}
       {status.ready && !results && !busy && !error && <p role="status">{query.trim() ? "Question changed. Click Find context to search." : "Ready. Ask your question above."}</p>}
       {results && <section aria-label="Matching story passages" aria-live="polite">
         <h2>Search complete</h2><p>For: “{results.query}” · Searched {results.searched_count} of {results.source_count} documents.</p>
@@ -199,7 +199,7 @@ export function Retrieval({ initialAdd = false }: { initialAdd?: boolean }) {
           : results.matches.slice(0, 3).map((chunk, i) => <Passage key={chunk.id} chunk={chunk} position={i + 1} />)}
       </section>}
       <details className="retrieval-advanced"><summary>Saved documents · view or edit</summary>
-        <p>Save and prepare automatically updates source context and embeddings (paid). Unchanged documents keep their index.</p>
+        <p>Save and prepare updates your local text index. Unchanged documents keep their index.</p>
         <p><small>Coaching stays unreviewed guidance. Neither indexing nor editing approves a resume claim.</small></p>
         <button disabled={busy || dirty} onClick={() => { setIntakeOpen(true); setIntakeMode("paste"); setAdding(true); setSelected(null); setDraft(emptyDraft); saveId.current = crypto.randomUUID(); saveFingerprint.current = ""; }}>+ Add text</button>
         <button disabled={busy} onClick={() => void run(refresh)}>Check for file updates</button>
@@ -215,7 +215,7 @@ export function Retrieval({ initialAdd = false }: { initialAdd?: boolean }) {
       </details>
       <details className="retrieval-advanced"><summary>Technical details & search comparisons</summary>
         <p>Original-text semantic search + BM25 retrieve candidates; a model then checks relevance against original passages. Small libraries check every current passage. New, changed, missing or removed sources are excluded until ready.</p>
-        <p>Earlier generated indexing summaries are quarantined from search and display after an attribution error. Existing original-text embeddings are reused; sources have not been rewritten.</p>
+        <p>Search uses original source text. Earlier generated summaries are excluded.</p>
         <p>No resume changes or approved claims. Generated context remains unapproved; raw notes may include unresolved questions.</p>
         <p><small>No local spending cap; usage is tracked. Responses use store=false; provider retention policies still apply. Local content, originals and revision history are unencrypted and may sync through OneDrive.</small></p>
         <p>${status.usage.estimated_cost_usd.toFixed(4)} estimated · ${status.usage.reserved_unknown_usd.toFixed(4)} reserved / unknown · {status.usage.calls} attempts. Not an invoice.</p>

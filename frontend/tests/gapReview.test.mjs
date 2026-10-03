@@ -36,3 +36,12 @@ test('only sourced incompatible constraints are blockers, ahead of core gaps',()
  assert.equal(gaps.find(g=>g.id==='constraint:h1b_transfer').kind,'clarification');
 });
 test('pending rows generate no invented gaps',()=>assert.deepEqual(buildGapReview([req('pending')],{},null),[]));
+
+test('tentative strong judgments need clarification, not a missing-skill label',()=>{
+ const item=match('strong');item.judgment.assessment.review_required=true;
+ const gaps=buildGapReview([req('a')],{a:item},null);
+ assert.equal(gaps.length,1);assert.equal(gaps[0].kind,'clarification');
+ assert.equal(gaps[0].label,'Tentative classification');
+ item.judgment.assessment.user_confirmed=true;
+ assert.deepEqual(buildGapReview([req('a')],{a:item},null),[]);
+});

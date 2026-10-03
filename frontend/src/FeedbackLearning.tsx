@@ -25,7 +25,7 @@ export function FeedbackLearning({jobId,version,choice,onChanged,onReviewEvidenc
     {choice&&<>
       <p>{choice.reason.trim()?`Your explanation: ${choice.reason}`:'Why did you choose this pursuit level? Add and save your reason above so we can evaluate what should change.'}</p>
       <p>We can keep this as a one-role exception or propose a reusable correction. Your choice alone does not increase your score.</p>
-      <label><input type="checkbox" checked={consent} onChange={e=>setConsent(e.target.checked)} disabled={busy}/> Send your explanation, analysis, recommendation and preferences to OpenAI to prepare a feedback proposal.</label>
+      <label><input type="checkbox" checked={consent} onChange={e=>setConsent(e.target.checked)} disabled={busy}/> Allow Jev to classify your explanation and propose explicit preference changes for approval.</label>
       <button disabled={busy||!version||!consent||choice.reason.trim().length<3||record?.state==='APPLYING'} onClick={()=>void submit()}>{busy?'Reviewing…':'Review my feedback'}</button>
     </>}
     {record&&<>

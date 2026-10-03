@@ -387,7 +387,7 @@ function App() {
                     </label>
                     <div className="form-footer">
                       <span>
-                        Saves the extracted job and starts paid OpenAI analysis using
+                        Saves the extracted job and starts Jev assessment using
                         the JD, your stories and fact/conflict rules with usage tracking. No application is submitted.
                       </span>
                       <button className="primary" type="submit">
@@ -481,7 +481,7 @@ function App() {
                   </label>
                   <div className="form-footer">
                     <span>
-                      Saves this job and starts paid OpenAI analysis using the JD, your stories
+                      Saves this job and starts Jev assessment using the JD, retrieved stories
                       and fact/conflict rules with usage tracked.
                     </span>
                     <button className="primary" type="submit">

@@ -9,6 +9,9 @@ RUBRIC_VERSION = "experience-alignment-v1"
 
 class Assessment(Strict):
     dimensions: DimensionJudgments | None = None
+    review_required: bool = False
+    user_confirmed: bool = False
+    review_reasons: list[str] = Field(default_factory=list, max_length=12)
     alignment: Literal["strong", "partial", "insufficient_evidence"]
     relationship: Literal["similar_work", "transferable", "not_established"]
     confidence: Literal["high", "medium", "low"]

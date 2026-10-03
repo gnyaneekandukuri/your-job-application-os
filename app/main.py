@@ -17,8 +17,9 @@ from .store import Conflict, Missing, Store
 from .workflow import build_graph
 from .retrieval import BuildInput, SearchInput, RetrievalService, RetrievalError, SOURCE
 from .model_provider import OpenAIProvider
-from .job_requirements import ExtractRequirements, status as requirements_status, extract as extract_requirements
-from .requirement_evidence import EvidenceInput, status as evidence_status, match as match_evidence
+from .job_requirements import ExtractRequirements
+from .jev_requirements import extract as extract_requirements, key_for as jev_requirements_key
+from .requirement_evidence import EvidenceInput
 from .role_analysis import RoleAnalysis, AnalyzeInput
 from .evidence_workflow import ReviewDecision
 from .pursuit import PursuitService, Generate as GeneratePursuit, Choose as ChoosePursuit
@@ -52,8 +53,8 @@ def create_app(data_dir: Path | None = None):
         saver = SqliteSaver(connection)
         saver.setup()
         api.state.service = ReviewService(store, build_graph(saver))
-        api.state.retrieval = RetrievalService(private_dir / "retrieval.sqlite3", workspace / SOURCE, OpenAIProvider())
-        api.state.library = StoryLibrary(workspace, private_dir, OpenAIProvider())
+        api.state.retrieval = RetrievalService(private_dir / "retrieval.sqlite3", workspace / SOURCE, OpenAIProvider(allow_generation=False, allow_embeddings=False))
+        api.state.library = StoryLibrary(workspace, private_dir, OpenAIProvider(allow_generation=False, allow_embeddings=False))
         api.state.analysis = RoleAnalysis(api.state.retrieval, api.state.library)
         api.state.discovery = Discovery(private_dir / "discovery.sqlite3", api.state.service, api.state.analysis, sources=lambda: library_sources(api.state.library))
         if data_dir is None:
@@ -285,7 +286,9 @@ def create_app(data_dir: Path | None = None):
     @api.get("/api/jobs/{job_id}/requirements")
     def get_requirements(job_id: str, request: Request):
         job = request.app.state.service.review(job_id).job
-        return requirements_status(request.app.state.retrieval, job)
+        from .job_requirements import source_hash
+        engine = request.app.state.retrieval
+        return {'source_sha256':source_hash(job), 'result':engine.get(jev_requirements_key(job)), 'usage':engine.usage()}
 
     @api.post("/api/jobs/{job_id}/requirements")
     def requirements(job_id: str, data: ExtractRequirements, request: Request):
@@ -299,7 +302,9 @@ def create_app(data_dir: Path | None = None):
     @api.get("/api/jobs/{job_id}/requirements/{requirement_id}/evidence")
     def get_evidence(job_id: str, requirement_id: str, request: Request):
         job = request.app.state.service.review(job_id).job
-        return evidence_status(request.app.state.retrieval, request.app.state.library, job, requirement_id)
+        view = request.app.state.analysis.view(job)
+        return {'context_version':view['input_version'], 'ready':view['ready'], 'unready_sources':view['unready_sources'],
+                'result':(view['run'] or {}).get('results', {}).get(requirement_id), 'usage':view['usage']}
 
     @api.get("/api/jobs/{job_id}/analysis")
     def get_analysis(job_id: str, request: Request):
@@ -310,6 +315,8 @@ def create_app(data_dir: Path | None = None):
         manager = request.app.state.analysis
         job = request.app.state.service.review(job_id).job
         manager.workflow.decide(job, data.input_version, data.action)
+        if data.action == 'accept':
+            PursuitService(manager).automatic(job)
         return manager.view(job)
 
     @api.get("/api/jobs/{job_id}/pursuit")
@@ -374,7 +381,16 @@ def create_app(data_dir: Path | None = None):
     @api.post("/api/jobs/{job_id}/requirements/{requirement_id}/evidence")
     def check_evidence(job_id: str, requirement_id: str, data: EvidenceInput, request: Request):
         job = request.app.state.service.review(job_id).job
-        return match_evidence(request.app.state.retrieval, request.app.state.library, job, requirement_id, data)
+        manager = request.app.state.analysis
+        view = manager.view(job)
+        if data.context_version != view['input_version']:
+            raise RetrievalError('The evidence changed. Reload before checking.', 409)
+        run = view['run']
+        if not run or requirement_id not in {r['id'] for r in run['requirements']}:
+            raise RetrievalError('Run the whole-role Jev assessment first.', 409)
+        if requirement_id not in run['results']:
+            raise RetrievalError('Resume the whole-role assessment to complete this requirement.', 409)
+        return get_evidence(job_id, requirement_id, request)
 
     dist = ROOT / "frontend" / "dist"
     if dist.is_dir():

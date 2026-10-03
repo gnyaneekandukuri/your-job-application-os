@@ -98,7 +98,7 @@ export function ReviewConversation({jobId,inputVersion,requirements,focus,onChan
           <blockquote>{a.text}</blockquote><p>{a.reason}</p>
           <details><summary>Requirements this may address ({a.requirement_ids.length})</summary><ul>{a.requirement_ids.map(id=><li key={id}>{requirements.find(r=>r.id===id)?.interpretation||id}</li>)}</ul></details>
         </article>)}
-      {canSave&&<><p>Saving preserves earlier content and labels additions as your reported experience. Reassessment can leave the score unchanged. Paid processing uses OpenAI; usage is tracked.</p>
+      {canSave&&<><p>Saving preserves your exact account and earlier content. Jev reassessment can leave the score unchanged; TypeSafe usage is tracked.</p>
         <button className="primary" disabled={busy} onClick={()=>void commit()}>{busy?'Working…':proposal.mode==='existing'?'Recheck existing stories':'Save additions and reassess'}</button></>}
     </section>}
     <fieldset disabled={busy||blocked}>
@@ -108,7 +108,7 @@ export function ReviewConversation({jobId,inputVersion,requirements,focus,onChan
       </select></label>
       <details><summary>Focus on requirements ({selected.length||'all'})</summary><div className="review-requirements">{requirements.map(r=><label key={r.id}><input type="checkbox" checked={selected.includes(r.id)} onChange={e=>setSelected(e.target.checked?[...selected,r.id]:selected.filter(id=>id!==r.id))}/>{r.interpretation}</label>)}</div></details>
       <label>Your context<textarea ref={composer} rows={5} maxLength={12000} value={text} onChange={e=>setText(e.target.value)} placeholder="Tell me which employer/project this belongs to, what you did, and what the current analysis missed. You can describe more than one experience."/></label>
-      <label><input type="checkbox" checked={consent} onChange={e=>setConsent(e.target.checked)}/> Send this conversation, requirement analysis and story directory to OpenAI to prepare a review proposal.</label>
+      <label><input type="checkbox" checked={consent} onChange={e=>setConsent(e.target.checked)}/> Allow Jev to classify this account and propose its employer/project. Your words are saved only after your approval.</label>
       <button disabled={!chat||!consent||text.trim().length<3} onClick={()=>void send()}>{busy?'Reviewing…':'Send for review'}</button>
       <p className="muted">Messages alone do not edit stories or change scores. You choose whether to save the proposed additions. Leaving a gap unchanged needs no action.</p>
     </fieldset>

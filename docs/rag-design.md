@@ -1,5 +1,7 @@
 # Assessment retrieval decision
 
+**Superseded later on October 2, 2026:** the user chose Jev-only assessment and local retrieval, reserving OpenAI for future tailoring. [The current design](jev-assessment.md) replaces the OpenAI steps described below. This document preserves the earlier comparison and evaluation limitations; its hybrid embedding workflow is no longer the live app path.
+
 Decision (October 2, 2026): retain a controlled retrieve-then-assess workflow. Do not introduce an autonomous tool loop or remove semantic requirement interpretation without measured quality evidence. No architecture is universally best.
 
 ## Implemented flow and cost boundaries

@@ -107,10 +107,11 @@ class Discovery:
         return self.view()
 
     def pause_on_provider_limit(self, error):
-        if '(HTTP 429)' not in error: return False
+        if 'HTTP 429' not in error: return False
         with self.lock, self.db() as db:
             cfg = self.settings()
-            cfg.update(auto_assess=False, auto_assess_pause_reason='OpenAI returned HTTP 429. Automatic analysis is paused; check API billing or rate limits before re-enabling it.')
+            provider = 'TypeSafe Jev' if 'Jev' in error or 'TypeSafe' in error else 'OpenAI'
+            cfg.update(auto_assess=False, auto_assess_pause_reason=provider+' returned HTTP 429. Automatic analysis is paused; check that provider’s access, balance or rate limits before re-enabling it.')
             db.execute('UPDATE config SET payload=? WHERE id=1',(json.dumps(cfg),))
         return True
 
@@ -123,7 +124,13 @@ class Discovery:
             job = self.service.store.read(job_id)[0]
             row = discovered.get(job_id)
             changed = bool(row and row['imported_hash'] != self.content_hash(json.loads(row['payload'])))
-            summary = self.assessment_summary({'job_id':job_id,'description_changed':changed})
+            # Results belong to the saved JD. A newer board snapshot must not
+            # hide a completed report; disclose the difference beside it.
+            summary = self.assessment_summary({'job_id':job_id})
+            if changed:
+                summary['listing_changed'] = True
+                if summary['state'] == 'NOT_STARTED':
+                    summary.update(state='JD_CHANGED', stage='Review the updated listing before assessment.')
             if summary['state'] == 'NOT_STARTED': continue
             items.append({'job_id':job_id,'company':job.company,'title':job.title,'url':str(job.source_url or ''),'assessment':summary})
         return {'items':items, 'queued_count':len(self.queued_ids), 'settings':self.settings()}
@@ -190,7 +197,10 @@ class Discovery:
             view = self.analysis.view(job, compact=True)
             run = view.get('run')
             if view.get('previous_result_outdated'):
-                return {'state':'STALE','score':None,'recommendation':None,'stage':'Context or criteria changed. Reassess when ready.'}
+                previous_score = view.get('previous_score') or {}
+                return {'state':'STALE','score':previous_score.get('percent'),'recommendation':None,
+                        'provisional':previous_score.get('provisional', True),
+                        'stage':'Previous assessment saved. Sources, criteria or assessment method changed; open it to review or reassess.'}
             state = run['state'] if run else 'NOT_STARTED'
             score = view.get('score')
             result = {'state':state,'stage':run.get('stage','') if run else '', 'error':run.get('error','') if run else '',

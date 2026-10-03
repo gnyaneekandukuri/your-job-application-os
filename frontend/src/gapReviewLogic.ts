@@ -1,6 +1,6 @@
 /** Review guidance from saved assessments only. Never changes scores or facts. */
 export type GapRequirement = {id:string;interpretation:string;quote:string;category:string};
-export type GapMatch = {judgment:{support:string;limitation:string;clarification:string;assessment?:{alignment:string;confidence:string}|null};passages:{source_title:string;quote:string;source_path:string;start_line:number}[]};
+export type GapMatch = {judgment:{support:string;limitation:string;clarification:string;assessment?:{alignment:string;confidence:string;review_required?:boolean;user_confirmed?:boolean}|null};passages:{source_title:string;quote:string;source_path:string;start_line:number}[]};
 export type PursuitEvidence = {constraints:{kind:string;finding:string;quote:string;reason:string}[];core_evidence:{requirement_id:string}[]};
 export type Gap = {id:string;requirementId:string;kind:'blocker'|'experience'|'documentation'|'clarification';label:string;title:string;reason:string;question:string;impact:string;jdQuote:string;evidence:GapMatch['passages'];priority:number};
 
@@ -29,6 +29,13 @@ export function buildGapReview(requirements:GapRequirement[],results:Record<stri
     const match=results[req.id];
     if(!match)continue;
     const a=match.judgment.assessment;
+    if(a?.review_required&&!a.user_confirmed){
+      gaps.push({id:req.id,requirementId:req.id,kind:'clarification',label:'Tentative classification',title:req.interpretation,
+        reason:match.judgment.limitation||'The classifier is uncertain about part of this assessment.',
+        question:'Do these dimension judgments reflect the quoted experience, or should we recheck the evidence?',
+        impact:'The score is provisional. Model uncertainty does not establish a missing skill.',jdQuote:req.quote,evidence:match.passages,priority:1});
+      continue;
+    }
     // Strong transferable evidence remains strong: a different domain is not a gap.
     if(a?.alignment==='strong'||(!a&&match.judgment.support==='direct'))continue;
     const ambiguous=req.category==='unclear';

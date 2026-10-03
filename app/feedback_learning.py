@@ -137,13 +137,8 @@ def analyze(service,job,data):
         record={'id':str(data.request_id),'job_id':job.id,'version':version,'choice':choice,'state':'ANALYZING','created_at':now(),'snapshots':snapshots,'proposal':None,'previews':[]}
         persist(manager,record)
         try:
-            response=manager.engine.paid('evidence',{'model':MODEL,'store':False,'max_output_tokens':6000,'reasoning':{'effort':'none'},'instructions':PROMPT,
-                'input':json.dumps({'user_decision':choice,'recommendation':view['result'],'analysis':run,'configuration':configs,'allowed_fields':PATHS}),
-                'text':{'format':{'type':'json_schema','name':'feedback_learning','strict':True,'schema':Proposal.model_json_schema()}}})
-            if response.get('status')!='completed':raise ValueError()
-            parts=[p for i in response['output'] if i.get('type')=='message' for p in i.get('content',[])]
-            if any(p.get('type')=='refusal' for p in parts):raise ValueError()
-            proposal=Proposal.model_validate_json(''.join(p['text'] for p in parts if p.get('type')=='output_text'))
+            from .jev_feedback import propose
+            proposal = propose(manager, job, reason, configs)
             previews=validate(proposal,configs,reason,run)
             if service.inputs(job)[0]!=version or service.view(job).get('choice')!=choice:
                 raise RetrievalError('Inputs changed while evaluating feedback. Review a fresh proposal.',409)

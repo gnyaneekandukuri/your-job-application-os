@@ -5,10 +5,10 @@ import { FeedbackLearning } from "./FeedbackLearning";
 import { PursuitAssessment } from "./PursuitAssessment";
 import { ReviewConversation } from "./ReviewConversation";
 type Requirement = { id: string; interpretation: string; quote: string; category: string };
-type Assessment = { alignment: "strong" | "partial" | "insufficient_evidence"; relationship: "similar_work" | "transferable" | "not_established"; confidence: "high" | "medium" | "low"; confidence_reason: string; ownership: string; scope: string; outcomes: string; transfer_reason: string; recency_reason: string };
+type Assessment = { review_required?: boolean; user_confirmed?: boolean; review_reasons?: string[]; alignment: "strong" | "partial" | "insufficient_evidence"; relationship: "similar_work" | "transferable" | "not_established"; confidence: "high" | "medium" | "low"; confidence_reason: string; ownership: string; scope: string; outcomes: string; transfer_reason: string; recency_reason: string };
 type Match = { judgment: { assessment?: Assessment | null; support: string; explanation: string; limitation: string; clarification: string }; passages: { source_title: string; quote: string; source_path: string; start_line: number; text: string }[] };
 type Dimension = {id:string;label:string;percent:number|null;weight_percent:number;contribution:number;items:{requirement_id:string;anchor:string;reason:string;earned:number;maximum:number}[]};
-type Score = { method: string; dimensions: Dimension[]; coverage_percent?:number; assessed?:number; total?:number; version: string; percent: number | null; earned: number; maximum: number; pending: number; provisional: boolean; excluded_ambiguous: number; required_attention: string[]; items: {requirement_id: string; weight: number; earned: number}[] };
+type Score = { review_required_ids?: string[]; method: string; dimensions: Dimension[]; coverage_percent?:number; assessed?:number; total?:number; version: string; percent: number | null; earned: number; maximum: number; pending: number; provisional: boolean; excluded_ambiguous: number; required_attention: string[]; items: {requirement_id: string; weight: number; earned: number}[] };
 type Update = { state: string; message: string; source_title: string };
 type State = { workflow?: {status:string;input_version:string;next:string[]}; experience_update: Update | null; previous_run: State["run"]; previous_score: Score | null; score: Score | null; input_version: string; ready: boolean; unready_sources: string[]; previous_result_outdated: boolean; usage: { cap_usd: number | null }; run: null | { state: string; stage: string; error: string; requirements: Requirement[]; results: Record<string, Match>; warnings: { explanation: string; quote: string }[]; empty_reason: string } };
 export function Requirements({ jobId }: { jobId: string }) {
@@ -101,12 +101,12 @@ export function Requirements({ jobId }: { jobId: string }) {
     {learningNotice && <p role="status">{learningNotice}</p>}
     {error && <p className="error" role="alert">{error}</p>}
     {state?.experience_update && <section aria-label="Experience update" role="status"><strong>{state.experience_update.source_title}</strong><p>{state.experience_update.message}</p>
-      {state.experience_update.state === 'PENDING' && <><p>Retry sends the saved experience for paid preparation and reassessment with usage tracked. It does not save a duplicate.</p><button disabled={busy || running} onClick={() => void retryUpdate()}>Retry saved experience update</button></>}
+      {state.experience_update.state === 'PENDING' && <><p>Retry prepares the saved experience locally and reassesses it with Jev. TypeSafe usage is tracked; no duplicate experience is saved.</p><button disabled={busy || running} onClick={() => void retryUpdate()}>Retry saved experience update</button></>}
     </section>}
     {state?.previous_result_outdated && <p className="error">Sources or analysis logic changed. The previous score and evidence below are outdated. Update the analysis for a current report.</p>}
     {state && !state.ready && <p className="error">Prepare current stories first: {state.unready_sources.join(", ") || "No stories available"}.</p>}
     {state && !running && !updating && state.experience_update?.state !== 'PENDING' && (outdated || run?.state !== "COMPLETE") && <>
-      <p className="muted">This starts paid analysis using your JD, story passages, fact/conflict rules and pursuit preferences with OpenAI, with usage tracked and no local spending cap. Completed work is reused. The pursuit recommendation follows automatically.</p>
+      <p className="muted">Jev assesses your JD against retrieved experience and saved preferences. TypeSafe usage is tracked under API costs. OpenAI is not called. Uncertain classifications stay provisional for your review.</p>
       <button disabled={busy || !state.ready} onClick={() => void start()}>{busy ? "Startingâ€¦" : run ? "Resume unfinished analysis" : "Analyze this role"}</button>
     </>}
     {run && <>
@@ -117,10 +117,10 @@ export function Requirements({ jobId }: { jobId: string }) {
       {reviewReady && <section className="review-checkpoint" aria-label="Review your analysis">
         <h3>{state?.workflow?.status === "REVIEWED" ? "Analysis kept as shown" : "Does this analysis reflect your experience?"}</h3>
         <p>{state?.workflow?.status === "REVIEWED" ? "You can revisit the evidence whenever you need to." : "Keep it as shown, or add missing context and question an assessment."}</p>
-        {state?.workflow?.status !== "REVIEWED" && <button disabled={busy} onClick={()=>void acceptAnalysis()}>{busy ? "Saving reviewâ€¦" : "Looks right"}</button>}
+        {state?.workflow?.status !== "REVIEWED" && <button disabled={busy} onClick={()=>void acceptAnalysis()}>{busy ? "Saving reviewâ€¦" : score?.provisional ? "Confirm these classifications" : "Looks right"}</button>}
         <button onClick={()=>setReviewFocus({id:"",nonce:Date.now()})}>Review or add context</button>
       </section>}
-      {reviewReady && <PursuitAssessment key={state!.input_version} jobId={jobId} reviewRequest={preferenceReview} onResult={receivePursuit} onReviewEvidence={()=>setReviewFocus({id:"",nonce:Date.now()})} onChanged={()=>{setLearningNotice("Feedback changes saved with history. Update any assessments marked outdated before making the next decision.");void refresh();}}/> }
+      {reviewReady && <PursuitAssessment key={state!.input_version+state?.workflow?.status} jobId={jobId} reviewRequest={preferenceReview} onResult={receivePursuit} onReviewEvidence={()=>setReviewFocus({id:"",nonce:Date.now()})} onChanged={()=>{setLearningNotice("Feedback changes saved with history. Update any assessments marked outdated before making the next decision.");void refresh();}}/> }
       {reviewReady && <GapReview key={`gaps-${state!.input_version}`} gaps={gaps} onPreferenceReview={()=>setPreferenceReview(Date.now())} onReview={(id,question)=>setReviewFocus({id,question,nonce:Date.now()})}/>}
       {score && done > 0 && <details className="score-breakdown"><summary>Dimension scores and scoring details</summary>
       {score && done > 0 && <section className="match-score" aria-label="Documented job fit score">
@@ -134,7 +134,7 @@ export function Requirements({ jobId }: { jobId: string }) {
             {d.items.map(i=><div key={i.requirement_id} className="dimension-item"><strong>{run.requirements.find(r=>r.id===i.requirement_id)?.interpretation}</strong><p>{i.anchor.replaceAll('_',' ')} Â· {i.earned}/{i.maximum} weighted points</p><p>{i.reason}</p>{reviewReady && <button onClick={()=>setReviewFocus({id:i.requirement_id,nonce:Date.now()})}>Clarify this requirement</button>}</div>)}
           </details>)}</div>
         </> : <p>Previous alignment-only score: {score.earned} of {score.maximum} weighted points. Reanalyze for the five-dimension breakdown.</p>}
-        {score.provisional && <p>Provisional: {score.pending} checks pending. {score.method==='dimensions'?'Pending checks are excluded from dimension averages and reported separately as coverage.':'This older score retained pending checks in its denominator.'}</p>}
+        {score.provisional && <p>Provisional: {score.pending} checks pending; {score.review_required_ids?.length??0} classifications need review. {score.method==='dimensions'?'Pending checks are excluded from dimension averages and reported separately as coverage.':'This older score retained pending checks in its denominator.'}</p>}
         {score.required_attention.length > 0 && <div className="score-attention"><strong>{score.required_attention.length} explicit qualifications are not fully supported:</strong><ul>{run.requirements.filter(r => score!.required_attention.includes(r.id)).map(r => <li key={r.id}>{r.interpretation}</li>)}</ul><p>A high overall score does not override these items.</p></div>}
         <details><summary>How this score is calculated</summary>
           <p>Each applicable dimension is anchored: demonstrated = 100%, partial = 50%, insufficient evidence = 0%. Requirements and responsibilities weigh 2; preferences weigh 1. Ambiguous wording is excluded. Not-applicable dimensions are excluded with an explanation, never used to hide missing evidence.</p>
@@ -159,6 +159,7 @@ export function Requirements({ jobId }: { jobId: string }) {
             return <tr key={item.id}>
               <th scope="row">{item.interpretation}<small className="requirement-kind">{item.category === "preference" ? "Preferred, not required" : item.category === "unclear" ? "JD wording ambiguous" : item.category === "responsibility" ? "Responsibility" : "Explicit requirement"}</small><details><summary>JD quote</summary><blockquote>{item.quote}</blockquote><small>{item.id}</small></details></th>
               <td><span className={`evidence-strength ${match?.judgment.support ?? "pending"}`}>{assessment ? alignments[assessment.alignment] : match ? "Legacy assessment" : "Pending"}</span>
+                {assessment?.review_required && !assessment.user_confirmed && <details><summary>Classification needs review</summary>{assessment.review_reasons?.map((reason,i)=><p key={i}>{reason}</p>)}</details>}
                 {assessment && <><p className="requirement-kind">{relationships[assessment.relationship]}</p><strong>Evidence confidence: {assessment.confidence}</strong><p>{assessment.confidence_reason}</p></>}
                 {points && <small className="requirement-kind">{score?.method === "dimensions" ? "Point contributions are shown in the dimension breakdown." : points.weight ? `${points.earned}/${points.weight} alignment points` : "Not scored"}</small>}</td>
               <td>{match ? <><p>{match.judgment.explanation}</p>

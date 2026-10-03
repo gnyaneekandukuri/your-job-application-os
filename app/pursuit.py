@@ -11,10 +11,11 @@ from langgraph.types import interrupt, Command
 from langgraph.checkpoint.sqlite import SqliteSaver
 
 from .job_requirements import Strict
-from .retrieval import MODEL, RetrievalError, digest, now
+from .retrieval import RetrievalError, digest, now
+from .jev_client import MODEL, VERSION as JEV_VERSION
 from .evidence_score import score_report
 
-VERSION = 'pursuit-v1'
+VERSION = 'pursuit-jev-v1:' + JEV_VERSION
 CONSTRAINTS = {'location', 'h1b_transfer', 'role_content', 'core_coding'}
 PRIORITIES = {'role_content', 'seniority', 'location', 'startup', 'investors'}
 PROMPT = '''Interpret a saved job description against the supplied personal preferences.
@@ -111,7 +112,7 @@ def validate_interpretation(parsed, job, run, profile):
 
 def recommend(run, interpreted, policy):
     score = score_report(run)
-    if not score or score.get('method') != 'dimensions' or score['percent'] is None or score['provisional']:
+    if not score or score.get('method') != 'dimensions' or score['percent'] is None or score['pending'] or run['state'] != 'COMPLETE':
         raise RetrievalError('A complete five-dimension score is required.', 409)
     blockers = [v.model_dump() for v in interpreted.constraints if v.finding == 'incompatible']
     core = [run['results'][i] for i in interpreted.core_requirement_ids]
@@ -127,6 +128,8 @@ def recommend(run, interpreted, policy):
             if re.search(r'visa|sponsor|h[ -]?1b|work authoriz', r['quote'], re.I): continue
             unresolved.append(r['id'])
     checks = [
+        {'label':'Assessment classifications reviewed', 'passed':not score.get('review_required_ids'),
+         'detail':f"{len(score.get('review_required_ids', []))} requirement classifications remain tentative."},
         {'label':'Overall documented fit', 'passed':score['percent'] >= rules['minimum_overall'], 'detail':f"{score['percent']}/100; minimum {rules['minimum_overall']}"},
         *[{'label':f'{key.title()} evidence', 'passed':dimensions.get(key) is not None and dimensions[key] >= rules['minimum_'+key],
            'detail':f"{dimensions.get(key) if dimensions.get(key) is not None else 'Not applicable'}/100; minimum {rules['minimum_'+key]}"} for key in ('actions','ownership','scope')],
@@ -199,22 +202,8 @@ class PursuitService:
         def interpret(_):
             raw = manager.engine.get(key)
             if raw is None:
-                with usage_scope(job.id, "pursuit_recommendation"):
-                    response = manager.engine.paid('evidence', {'model':MODEL,'store':False,'max_output_tokens':5000,
-                        'reasoning':{'effort':'none'},'instructions':PROMPT,
-                        'input':json.dumps({'job_description':job.description,'title':job.title,'profile':{
-                            'candidate':profile['candidate'],'target_role_families':profile['target_role_families'],
-                            'exclude_by_default':profile['exclude_by_default'],'pursuit_preferences':profile['pursuit_preferences']},
-                            'requirements':run['requirements']}),
-                        'text':{'format':{'type':'json_schema','name':'pursuit_interpretation','strict':True,'schema':Interpretation.model_json_schema()}}})
-                try:
-                    if response.get('status') != 'completed': raise ValueError()
-                    parts=[p for i in response['output'] if i.get('type')=='message' for p in i.get('content',[])]
-                    if any(p.get('type')=='refusal' for p in parts): raise ValueError()
-                    parsed=Interpretation.model_validate_json(''.join(p['text'] for p in parts if p.get('type')=='output_text'))
-                    parsed=validate_interpretation(parsed,job,run,profile)
-                except (ValueError,TypeError,KeyError):
-                    raise RetrievalError('Pursuit interpretation failed validation. Retry explicitly; no recommendation saved.',502) from None
+                from .jev_pursuit import interpret as interpret_with_jev
+                parsed = interpret_with_jev(manager.jev_client(), job, run, profile)
                 raw=parsed.model_dump()
                 manager.engine.put(key,raw)
             parsed=validate_interpretation(Interpretation.model_validate(raw),job,run,profile)

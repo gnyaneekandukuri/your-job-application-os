@@ -110,7 +110,7 @@ def test_real_batch_sends_only_retrieved_originals_and_checks_citations(invent_q
     req = SavedRequirement(id='r1', category='responsibility', interpretation='Own a launch.',
                            quote='Own a product launch.', explanation='Stated responsibility.')
     def run():
-        return manager.batch([req], passages, {'facts':{'facts':[]}}, job_id='job')
+        return manager._openai_batch([req], passages, {'facts':{'facts':[]}}, job_id='job')
     if invent_quote:
         with pytest.raises(RetrievalError, match='exact source quote'):
             run()

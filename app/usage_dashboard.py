@@ -10,6 +10,13 @@ def usage_report(directory):
     for path in directory.rglob('*.sqlite3'):
         with closing(sqlite3.connect(path)) as db:
             db.row_factory = sqlite3.Row
+            if db.execute("SELECT 1 FROM sqlite_master WHERE name='jev_assessment_calls'").fetchone():
+                for row in db.execute('SELECT * FROM jev_assessment_calls'):
+                    value = dict(row)
+                    job = jobs.get(value.get('job_id'), {})
+                    value.update(provider='Jev', company=job.get('company'), title=job.get('title'),
+                                 cost_basis='estimated_input_rate', reserved=0)
+                    calls.append(value)
             if not db.execute("SELECT 1 FROM sqlite_master WHERE name='calls'").fetchone(): continue
             for row in db.execute('SELECT * FROM calls ORDER BY created_at DESC'):
                 value = dict(row)

@@ -44,4 +44,9 @@ def alignment_score(report):
 
 def score_report(report):
     from .dimension_score import aggregate
-    return aggregate(report, alignment_score(report))
+    score = aggregate(report, alignment_score(report))
+    if score and report:
+        review = [i for i,r in report['results'].items() if (r['judgment'].get('assessment') or {}).get('review_required')
+                  and not (r['judgment'].get('assessment') or {}).get('user_confirmed')]
+        score.update(review_required_ids=review, provisional=score['provisional'] or bool(review))
+    return score

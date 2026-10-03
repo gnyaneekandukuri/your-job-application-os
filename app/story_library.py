@@ -144,8 +144,8 @@ class StoryLibrary:
             return {"sources": sources, "source_sha256": version,
                     "ready": any(e["ready"] for e in sources),
                     "ready_count": sum(e["ready"] for e in sources), "source_count": len(sources),
-                    "configured": self.provider.configured, "usage": self.engine.usage(),
-                    "model": MODEL, "embedding_model": EMBED_MODEL}
+                    "configured": True, "usage": self.engine.usage(),
+                    "model": 'jev-1.13.0', "embedding_model": 'Local text index (no embedding API)'}
 
     def detail(self, source_id):
         with self.lock:
@@ -213,10 +213,19 @@ class StoryLibrary:
                 raise RetrievalError(current["error"], 409)
             if data.expected_revision != current["revision"]:
                 raise RetrievalError("Story changed since preview. Reload and review it before sending.", 409)
-            self.service(entry).build_grounded(BuildInput(source_sha256=current["source_sha256"], consent_to_send=True))
+            service = self.service(entry)
+            _, sha, chunks, fingerprint = service.snapshot()
+            if not service.get('index:' + fingerprint):
+                service.put('index:' + fingerprint, {'created_at':now(), 'source_sha256':sha,
+                    'context_policy':'LOCAL_ORIGINAL_TEXT', 'chunks':chunks})
             return self.status()
 
     def search(self, data: SearchInput):
+        from .jev_search import search_library
+        with self.lock:
+            return search_library(self, data)
+
+    def legacy_search(self, data: SearchInput):
         with self.lock:
             before = self.status()
             chunks, used = [], []

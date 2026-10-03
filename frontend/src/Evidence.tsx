@@ -40,7 +40,7 @@ export function Evidence({ jobId, requirementId }: { jobId: string; requirementI
     {!state && !error && <p role="status">Loading current evidence…</p>}
     {state && !state.ready && <p role="alert">Prepare these stories first: {state.unready_sources?.join(", ") || "No stories available"}.</p>}
     {state && !state.result && <>
-      <label><input type="checkbox" disabled={busy} checked={consent} onChange={e => setConsent(e.target.checked)} /> Allow this paid check: send this requirement, story passages, and fact/conflict rules to OpenAI.</label>
+      <label><input type="checkbox" disabled={busy} checked={consent} onChange={e => setConsent(e.target.checked)} /> Load this requirement’s saved Jev assessment. Use the role assessment to complete unfinished checks.</label>
       <p className="muted">Up to three calls: query embedding, passage relevance, evidence interpretation. Cached steps are reused. No local spending cap; estimated spend ${state.usage.estimated_cost_usd.toFixed(2)}.</p>
       <button disabled={!consent || !state.ready || busy} onClick={() => void check()}>{busy ? "Checking evidence…" : "Check this requirement"}</button>
     </>}

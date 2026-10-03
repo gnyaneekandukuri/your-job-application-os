@@ -154,4 +154,10 @@ class EvidenceWorkflow:
                     else:
                         raise RetrievalError("A revision is pending for this report.", 409)
                 graph.invoke(Command(resume={"action": action, "input_version": version}), config)
+            if action == 'accept':
+                reviewed = AnalysisRun.model_validate(manager.engine.get(key))
+                for row in reviewed.results.values():
+                    if row.judgment.assessment and row.judgment.assessment.review_required:
+                        row.judgment.assessment.user_confirmed = True
+                manager.save(key, reviewed)
             return self.status(job, version)
