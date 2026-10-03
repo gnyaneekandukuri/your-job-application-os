@@ -155,3 +155,25 @@ def test_results_include_manual_roles_and_separate_unstarted(tmp_path, monkeypat
         result=client.get('/api/assessments')
         assert result.status_code==200
         assert {r['title'] for r in result.json()['items']}=={'Completed role','Failed role'}
+
+
+def test_empty_automatic_dispatch_does_not_recheck_every_listing(tmp_path, monkeypatch):
+    with TestClient(create_app(tmp_path)) as client:
+        d=configure(client)
+        calls=[]
+        def view():
+            calls.append(1)
+            return {'items':[{'id':str(i),'keyword_match':{'priority':'worth_checking'}} for i in range(100)]}
+        monkeypatch.setattr(d,'view',view)
+        d.assess_high_priority({str(i) for i in range(100)})
+        assert len(calls)==1
+
+
+@pytest.mark.parametrize('location,country,status',[
+    ('New York City','US','match'),('NYC Office','US','match'),('San Francisco','US','match'),
+    ('San Francisco, CA','US','match'),('San Francisco, Philippines','US','outside'),
+    ('Remote except New York City','US','unclear'),('San Francisco','ZA','outside'),
+    ('Remote','US','unclear'),('Cambridge','US','unclear')])
+def test_city_labels_do_not_override_foreign_country_or_remote_scope(location,country,status):
+    from app.discovery_location import location_match
+    assert location_match(location,{'location_filter':{'countries':[country]}})['status']==status

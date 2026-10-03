@@ -459,7 +459,7 @@ class Discovery:
 
     def assess_high_priority(self, seen_ids):
         # Current-run sightings only; publication age does not imply poor fit.
-        candidates = [item for item in self.view()['items'] if item['id'] in seen_ids]
+        candidates = [item for item in self.view()['items'] if item['id'] in seen_ids and self.auto_eligible(item)]
         candidates.sort(key=lambda item: -item.get('keyword_match',{}).get('ranking',{}).get('points',0))
         self.queued_ids = {item['id'] for item in candidates if self.auto_eligible(item)}
         last_job = None

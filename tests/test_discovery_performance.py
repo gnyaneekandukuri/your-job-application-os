@@ -8,7 +8,7 @@ from app.discovery import Discovery
 from app.retrieval import RetrievalService
 
 
-@pytest.mark.parametrize('location,status',[('New York, USA','match'),('Bengaluru, Karnataka, IN','outside'),('South Africa','outside'),('San Francisco, CA','unclear'),('Remote','unclear'),('Remote except USA','unclear'),('US','match'),('United States of America','match'),('Canada','outside')])
+@pytest.mark.parametrize('location,status',[('New York, USA','match'),('Bengaluru, Karnataka, IN','outside'),('South Africa','outside'),('San Francisco, CA','match'),('Remote','unclear'),('Remote except USA','unclear'),('US','match'),('United States of America','match'),('Canada','outside')])
 def test_location_semantics(location,status):
     assert location_match(location,{'location_filter':{'countries':['US'],'label':'USA'}})['status']==status
 
