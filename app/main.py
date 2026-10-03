@@ -53,8 +53,8 @@ def create_app(data_dir: Path | None = None):
         saver = SqliteSaver(connection)
         saver.setup()
         api.state.service = ReviewService(store, build_graph(saver))
-        api.state.retrieval = RetrievalService(private_dir / "retrieval.sqlite3", workspace / SOURCE, OpenAIProvider(allow_generation=False, allow_embeddings=False))
-        api.state.library = StoryLibrary(workspace, private_dir, OpenAIProvider(allow_generation=False, allow_embeddings=False))
+        api.state.retrieval = RetrievalService(private_dir / "retrieval.sqlite3", workspace / SOURCE, OpenAIProvider(allow_generation=False, allow_embeddings=True))
+        api.state.library = StoryLibrary(workspace, private_dir, OpenAIProvider(allow_generation=False, allow_embeddings=True))
         api.state.analysis = RoleAnalysis(api.state.retrieval, api.state.library)
         api.state.discovery = Discovery(private_dir / "discovery.sqlite3", api.state.service, api.state.analysis, sources=lambda: library_sources(api.state.library))
         if data_dir is None:

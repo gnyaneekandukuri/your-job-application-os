@@ -1,0 +1,12 @@
+{
+  "version": "candidate-screen-v2",
+  "decisive_confidence": 0.8,
+  "compatible_mass_for_keyword_high": 0.9,
+  "notes": [
+    "A decisive Jev strong judgment can promote a role without exact keyword overlap.",
+    "An existing weighted keyword High can proceed when Jev places at least 0.9 combined probability on strong or plausible alignment.",
+    "Strong versus plausible uncertainty is not the same as uncertainty about relevance. Deep assessment must verify actual evidence.",
+    "Only a decisive functional mismatch becomes Skip. Provider errors and missing descriptions remain Worth checking.",
+    "These are initial routing policies, not calibrated hiring probabilities."
+  ]
+}

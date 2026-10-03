@@ -24,12 +24,8 @@ DIMENSION_GUIDANCE = {
 }
 
 
-def candidate_excerpts(passages, query, jd=''):
-    """Broad lexical shortlist; Jev checks semantic support after retrieval.
-
-    No hidden embedding request and no full-library prompt fallback. All excerpts
-    are substrings of original passages. A shortlist can miss relevant evidence.
-    """
+def excerpt_units(passages):
+    """Exact original text used by both indexing and retrieval."""
     units = []
     for p in passages:
         for paragraph in re.split(r'\n\s*\n', p['text']):
@@ -43,13 +39,21 @@ def candidate_excerpts(passages, query, jd=''):
                 units.append({'id': f'u{len(units)+1}', 'passage_id': p['id'], 'text': text,
                               'heading': p.get('heading', ''), 'source_title': p['source_title'],
                               'source_caveats': p.get('source_caveats', [])})
+    return units
+
+
+def candidate_excerpts(passages, query, jd='', engine=None):
+    units = excerpt_units(passages)
     texts = [u['heading']+'\n'+u['text'] for u in units]
     primary = bm25(lexical_query(query), texts)
     broader = bm25(lexical_query(jd), texts) if jd else primary
     orders = [sorted(range(len(units)), key=lambda i: (-scores[i], units[i]['id'])) for scores in (primary, broader)]
+    if engine is not None:
+        from .semantic_context import rank_units
+        orders = [rank_units(engine, units, query)]
     selected, seen = [], set()
     # Most slots go to the requirement; a few whole-JD matches add context.
-    order = list(dict.fromkeys(orders[0][:9] + orders[1][:3] + orders[0][9:]))
+    order = orders[0] if engine is not None else list(dict.fromkeys(orders[0][:9] + orders[1][:3] + orders[0][9:]))
     for i in order:
         u = units[i]
         if u['text'] in seen:
@@ -67,8 +71,10 @@ def assess(client, job_id, requirements, passages, rules, jd='', feedback=None):
     by_id = {p['id']: p for p in passages}
     results = []
     for req in requirements:
-        candidates = candidate_excerpts(passages, req.quote+'\n'+req.interpretation, jd)
-        trace = {'method': 'local-bm25-broad-plus-jev', 'job_id': job_id, 'requirement_id': req.id,
+        from .cost_tracking import usage_scope
+        with usage_scope(job_id, 'requirement_embedding'):
+            candidates = candidate_excerpts(passages, req.quote, jd, engine=client.engine)
+        trace = {'method': 'api-embeddings-hybrid-plus-jev', 'job_id': job_id, 'requirement_id': req.id,
                  'candidate_ids': [u['passage_id'] for u in candidates],
                  'source_revisions': {u['passage_id']: by_id[u['passage_id']]['source_sha256'] for u in candidates},
                  'query': req.quote, 'candidate_count': len(candidates)}
@@ -85,6 +91,8 @@ def assess(client, job_id, requirements, passages, rules, jd='', feedback=None):
             answers = client.evaluate(job_id, 'evidence_relevance',
                                       {'requirement': req.model_dump(), 'excerpts': candidates, 'authority_rules': rules,
                                        'feedback_search_hint_not_evidence': feedback}, questions)
+            if any(a.get('provider_inconsistent') for a in answers.values()):
+                review_reasons.append('Jev returned near-tied inconsistent relevance labels; the result requires review.')
             # Relevance is a retrieval step, not permission to grant credit.
             # Keep promising tentative excerpts for downstream judgment and review.
             promising = [u for u in candidates if answers[u['id']]['choice'] in ('supports','transferable')]
@@ -113,6 +121,8 @@ def assess(client, job_id, requirements, passages, rules, jd='', feedback=None):
             })
             answers = client.evaluate(job_id, 'evidence_dimensions', {'requirement':req.model_dump(), 'excerpts':selected,
                 'authority_rules':rules, 'rubric':PROMPT, 'feedback_search_hint_not_evidence':feedback}, questions)
+            if any(a.get('provider_inconsistent') for a in answers.values()):
+                review_reasons.append('Jev returned near-tied inconsistent dimension labels; the result requires review.')
             for d, label in DIMENSIONS.items():
                 anchor = answers[d]['choice']
                 tentative = not confident(answers[d])

@@ -125,7 +125,9 @@ class StoryLibrary:
                     not original.is_file() or hashlib.sha256(original.read_bytes()).hexdigest() != entry.get("original_sha256")):
                     raise RetrievalError("Original coaching file changed or was removed. Re-import it before searching this source.", 409)
             text, sha, chunks, fingerprint = self.service(entry).snapshot()
-            ready = self.engine.get("index:" + fingerprint) is not None
+            index = self.engine.get("index:" + fingerprint)
+            from .semantic_context import INDEX_VERSION
+            ready = bool(index and index.get('semantic_version') == INDEX_VERSION)
             revision = digest(json.dumps(entry, sort_keys=True) + sha)
             result.update(source_sha256=sha, revision=revision, chunk_count=len(chunks),
                           ready=ready, state="Ready" if ready else "Needs preparation", error=None)
@@ -144,8 +146,8 @@ class StoryLibrary:
             return {"sources": sources, "source_sha256": version,
                     "ready": any(e["ready"] for e in sources),
                     "ready_count": sum(e["ready"] for e in sources), "source_count": len(sources),
-                    "configured": True, "usage": self.engine.usage(),
-                    "model": 'jev-1.13.0', "embedding_model": 'Local text index (no embedding API)'}
+                    "configured": self.provider.configured, "usage": self.engine.usage(),
+                    "model": 'jev-1.13.0', "embedding_model": EMBED_MODEL}
 
     def detail(self, source_id):
         with self.lock:
@@ -213,11 +215,8 @@ class StoryLibrary:
                 raise RetrievalError(current["error"], 409)
             if data.expected_revision != current["revision"]:
                 raise RetrievalError("Story changed since preview. Reload and review it before sending.", 409)
-            service = self.service(entry)
-            _, sha, chunks, fingerprint = service.snapshot()
-            if not service.get('index:' + fingerprint):
-                service.put('index:' + fingerprint, {'created_at':now(), 'source_sha256':sha,
-                    'context_policy':'LOCAL_ORIGINAL_TEXT', 'chunks':chunks})
+            from .semantic_context import prepare_source
+            prepare_source(self.service(entry))
             return self.status()
 
     def search(self, data: SearchInput):

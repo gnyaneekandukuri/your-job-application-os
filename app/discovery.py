@@ -171,6 +171,8 @@ class Discovery:
         keyword_profile = self.keywords.enrich(items, preferences) if include_analysis else None
         if include_analysis:
             self.jev.annotate(items)
+            from .discovery_screening import annotate
+            annotate(self.analysis.engine, items, keyword_profile)
         return {'jev': self.jev.status(), 'yc_connection': self.yc.status(), 'keyword_profile': keyword_profile, 'items': items, 'location_preference': preferences.get('location_filter', {}), 'settings': self.settings(), 'running': bool(self.worker and self.worker.is_alive()),
                 'scan': {**dict(scan), 'payload': scan_summary(json.loads(scan['payload']))} if scan else None,
                 'boards': BOARDS, 'unavailable': UNAVAILABLE, 'timezone': str(datetime.now().astimezone().tzinfo),
@@ -286,7 +288,7 @@ class Discovery:
         counts = {'fetched':0, 'needs_paste':0}
         for item in self.view(include_analysis=False)['items']:
             if self.stop.is_set(): break
-            if item['id'] not in seen_ids or len(item.get('description','')) >= 20 or item['location_match']['status'] == 'outside': continue
+            if item['id'] not in seen_ids or len(item.get('description','')) >= 200 or item['location_match']['status'] == 'outside': continue
             previous = item.get('description_fetch')
             if previous and freshness(previous['checked_at']) == 'within_24h':
                 counts['needs_paste'] += 1
@@ -348,6 +350,12 @@ class Discovery:
             result['phase'] = 'classifying'
             with self.db() as db: db.execute('UPDATE scans SET payload=? WHERE id=?',(json.dumps(result),sid))
             result['classification'] = self.jev.run([item for item in self.view(include_analysis=False)['items'] if item['id'] in pending], self.stop)
+            from .discovery_screening import screen
+            preferences = load_preferences(self.analysis.library.root / 'knowledge/discovery-preferences.json')
+            screening_items = [item for item in self.view(include_analysis=False)['items'] if item['id'] in pending]
+            screening_profile = self.keywords.enrich(screening_items, preferences)
+            self.jev.annotate(screening_items)
+            result['screening'] = screen(self.analysis.engine, screening_items, screening_profile, self.stop)
             if not self.stop.is_set() and self.settings()['auto_assess']:
                 result['phase'] = 'assessing'
                 with self.db() as db: db.execute('UPDATE scans SET payload=? WHERE id=?',(json.dumps(result),sid))
@@ -403,7 +411,7 @@ class Discovery:
     def auto_eligible(item):
         return (item.get('keyword_match',{}).get('priority')=='high'
                 and item.get('location_match',{}).get('status')=='match'
-                and len(item.get('description',''))>=20
+                and len(item.get('description',''))>=200
                 and not item.get('description_changed')
                 and not item.get('automatic_assessment'))
 

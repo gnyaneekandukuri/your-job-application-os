@@ -147,7 +147,7 @@ class KeywordIndex:
 
 
 def library_sources(library):
-    # Reads saved stories only, including unprepared uploads. No embedding calls.
+    # Saved stories/resume uploads plus the current master; no embeddings.
     with library.lock:
         result=[]
         for entry in library.entries():
@@ -156,4 +156,20 @@ def library_sources(library):
             path=library.service(entry).source
             if path.is_file():
                 result.append({**{k:entry[k] for k in ("id","title","employer","project","path")},"text":path.read_text(encoding="utf-8")})
+        inventory_path = library.root / 'knowledge/canonical_resume_inventory.json'
+        inventory = json.loads(inventory_path.read_text(encoding='utf-8'))
+        if inventory.get('source'):
+            from .retrieval import RetrievalError
+            from .document_text import extract_document, EXTRACTOR_VERSION
+            path = (library.root / inventory['source']).resolve()
+            if not path.is_relative_to((library.root / 'sources/master').resolve()):
+                raise RetrievalError('Current resume path is outside its allowed folder.', 409)
+            raw = path.read_bytes()
+            key = 'screening-resume-text:' + EXTRACTOR_VERSION + ':' + hashlib.sha256(raw).hexdigest()
+            text = library.engine.get(key)
+            if text is None:
+                text = extract_document(path.name, raw)
+                library.engine.put(key, text)
+            result.append({'id':'current-resume', 'title':'Current resume (claims need evidence verification)',
+                           'employer':'See original resume', 'project':'Current resume', 'path':inventory['source'], 'text':text})
         return result

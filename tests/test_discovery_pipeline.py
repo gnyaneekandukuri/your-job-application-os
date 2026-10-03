@@ -22,7 +22,7 @@ def configure(client):
 @pytest.mark.parametrize('date',['older','unknown','date_only','within_24h'])
 def test_priority_not_posting_age_controls_eligibility(date):
     item={'keyword_match':{'priority':'high'},'location_match':{'status':'match'},
-          'freshness':date,'description':'A complete description of the job responsibilities.'}
+          'freshness':date,'description':'A complete description of the job responsibilities. '*5}
     assert Discovery.auto_eligible(item)
     assert not Discovery.auto_eligible({**item,'automatic_assessment':{'state':'FAILED'}})
     assert not Discovery.auto_eligible({**item,'description_changed':True})
@@ -112,7 +112,7 @@ def test_waiting_jobs_are_explicitly_queued(tmp_path, monkeypatch):
     with TestClient(create_app(tmp_path)) as client:
         discovery=configure(client)
         discovery.configure(Settings(enabled=False,auto_assess=True))
-        base={'keyword_match':{'priority':'high'},'location_match':{'status':'match'},'description':'A full saved description of product responsibilities.'}
+        base={'keyword_match':{'priority':'high'},'location_match':{'status':'match'},'description':'A full saved description of product responsibilities. '*5}
         items=[{**base,'id':'one'},{**base,'id':'two'}]
         monkeypatch.setattr(discovery,'view',lambda:{'items':items})
         queued=[]
@@ -126,7 +126,7 @@ def test_provider_limit_pauses_queue_but_not_collection(tmp_path, monkeypatch):
     with TestClient(create_app(tmp_path)) as client:
         discovery=configure(client)
         discovery.configure(Settings(enabled=True,auto_assess=True))
-        base={'keyword_match':{'priority':'high'},'location_match':{'status':'match'},'description':'A full saved description of product responsibilities.'}
+        base={'keyword_match':{'priority':'high'},'location_match':{'status':'match'},'description':'A full saved description of product responsibilities. '*5}
         monkeypatch.setattr(discovery,'view',lambda:{'items':[{**base,'id':'one'},{**base,'id':'two'}]})
         attempts=[]
         def imported(oid,**kwargs):

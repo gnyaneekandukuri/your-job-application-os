@@ -32,6 +32,7 @@ def confident(answer):
 def validate_answers(response, questions):
     if response.get('model') != MODEL or set(response.get('answers', {})) != set(questions):
         raise JevValidationError('Unexpected model or answer identities')
+    validated = {}
     for name, question in questions.items():
         a = response['answers'][name]
         probabilities = a['probabilities']
@@ -42,9 +43,16 @@ def validate_answers(response, questions):
             raise JevValidationError('Invalid probabilities')
         if abs(sum(probabilities.values()) - 1) > .020001:
             raise JevValidationError('Probabilities do not sum to one within rounding tolerance')
-        if a['choice'] not in probabilities or probabilities[a['choice']] < max(probabilities.values()):
+        if a['choice'] not in probabilities:
             raise JevValidationError('Invalid selected choice')
-    return response['answers']
+        discrepancy = max(probabilities.values()) - probabilities[a['choice']]
+        if discrepancy > .020001:
+            raise JevValidationError('Selected choice materially contradicts its probabilities')
+        # The live provider occasionally selects one of two near-tied labels
+        # contrary to its distribution. Preserve its label and raw cached reply,
+        # but give it zero trust and make the inconsistency reviewable.
+        validated[name] = {**a, **({'confidence': 0., 'provider_inconsistent': True} if discrepancy > 0 else {})}
+    return validated
 
 
 class JevClient:

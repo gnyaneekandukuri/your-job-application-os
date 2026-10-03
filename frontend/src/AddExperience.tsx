@@ -63,7 +63,7 @@ export function AddExperience({ jobId, requirementId, inputVersion, requirementT
         placeholder="Describe the project, your actions and ownership, scope, dates if known, and what happened. Distinguish expected from achieved outcomes."
         onChange={e => setText(e.target.value)} /></label>
       <p>Your account is saved with history. It is evaluated for relevance and consistency; saving it does not guarantee score credit or approve a resume claim.</p>
-      <label><input type="checkbox" checked={consent} disabled={!!pending.current} onChange={e => setConsent(e.target.checked)} /> Update analysis after saving: send retrieved story evidence and this role to Jev with TypeSafe usage tracked.</label>
+      <label><input type="checkbox" checked={consent} disabled={!!pending.current} onChange={e => setConsent(e.target.checked)} /> Update analysis after saving: embed changed text with OpenAI, then assess retrieved evidence with Jev. Both providers’ usage is tracked.</label>
       <button disabled={!source || text.trim().length < 20} onClick={() => void save()}>{busy ? 'Saving…' : pending.current ? 'Retry save' : consent ? 'Save and reassess' : 'Save experience'}</button>
       <button onClick={() => setOpen(false)}>Cancel</button>
       {error && <p className="error" role="alert">{error}</p>}

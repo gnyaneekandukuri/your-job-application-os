@@ -107,9 +107,14 @@ def test_unknown_jev_outcome_has_no_automatic_retry(tmp_path):
 
 
 @pytest.mark.parametrize('uncertain', [False,True])
-def test_complete_workflow_makes_zero_openai_calls(tmp_path,monkeypatch,uncertain):
-    def forbidden(*args,**kwargs): pytest.fail('An OpenAI call reached the Jev workflow')
-    monkeypatch.setattr(OpenAIProvider,'request',forbidden)
+def test_complete_workflow_uses_embeddings_but_no_openai_generation(tmp_path,monkeypatch,uncertain):
+    embedding_calls=[]
+    def embeddings_only(self,endpoint,payload):
+        assert endpoint=='embeddings', 'Generative OpenAI call reached assessment'
+        embedding_calls.append(payload['input'])
+        return {'model':payload['model'],'data':[{'index':i,'embedding':[1.]+[0.]*1535} for i in range(len(payload['input']))], 'usage':{'prompt_tokens':100}}
+    monkeypatch.setenv('OPENAI_API_KEY','test-only')
+    monkeypatch.setattr(OpenAIProvider,'request',embeddings_only)
     original=JevClient.__init__
     def init(self,engine,post=None): original(self,engine,lambda body:answer_body(body,uncertain))
     monkeypatch.setattr(JevClient,'__init__',init)
@@ -139,7 +144,8 @@ def test_complete_workflow_makes_zero_openai_calls(tmp_path,monkeypatch,uncertai
         assert pursuit['result'],pursuit
         assert pursuit['result']['recommendation']==('CASUAL' if uncertain else 'ATTACK_HARD')
         usage=client.get('/api/usage').json()['calls']
-        assert usage and all(c['provider']=='Jev' for c in usage)
+        assert usage and embedding_calls
+        assert all(c['provider']=='Jev' or c['kind']=='embedding' for c in usage)
         count=len(usage)
         with client.app.state.discovery.db() as db:
             db.execute('INSERT INTO opportunities VALUES(?,?,?,?,?,?,?)',
@@ -184,7 +190,10 @@ def test_evidence_abstention_and_uncertainty_are_distinct(tmp_path,mode):
                          confidence=.4 if mode=='tentative_clear' else 1.,
                          probabilities={'clear':.7 if mode=='tentative_clear' else 0.,'unresolved':.3 if mode=='tentative_clear' else 1.})
         return result
-    result=assess(JevClient(engine_at(tmp_path),post),'job',[req],[p],{'facts':{'facts':[]}})[0][1]
+    engine=engine_at(tmp_path)
+    from app.semantic_context import embedding_key
+    for value in (text,req.quote): engine.put(embedding_key(value),[1.]+[0.]*1535)
+    result=assess(JevClient(engine,post),'job',[req],[p],{'facts':{'facts':[]}})[0][1]
     if mode in ('irrelevant','conflict'):
         assert result.assessment.dimensions.actions.anchor=='insufficient_evidence'
         if mode=='irrelevant': assert not result.evidence
@@ -192,3 +201,52 @@ def test_evidence_abstention_and_uncertainty_are_distinct(tmp_path,mode):
         assert result.assessment.dimensions.actions.anchor=='demonstrated'
         assert result.assessment.review_required
         assert result.evidence[0].quote==text
+
+def test_scan_high_priority_handoff_completes_semantic_assessment(tmp_path,monkeypatch):
+    from app.discovery import Settings
+    from app.retrieval import now
+    import threading
+    monkeypatch.setenv('OPENAI_API_KEY','test-only')
+    calls=[]
+    def embed(self,endpoint,payload):
+        assert endpoint=='embeddings'
+        calls.extend(payload['input'])
+        return {'data':[{'index':i,'embedding':[1.]+[0.]*1535} for i in range(len(payload['input']))],'usage':{'prompt_tokens':100}}
+    monkeypatch.setattr(OpenAIProvider,'request',embed)
+    original=JevClient.__init__
+    monkeypatch.setattr(JevClient,'__init__',lambda self,engine,post=None:original(self,engine,answer_body))
+    headers={'X-Local-Review':'1'}
+    with TestClient(create_app(tmp_path)) as c:
+        c.post('/api/setup',headers=headers,json={'target_roles':['Product Manager'],'countries':['US']})
+        story=c.post('/api/library/sources',headers=headers,json={'request_id':str(uuid4()),'title':'Product','employer':'Example','project':'Platform',
+            'text':'I owned product management for our AI platform and prioritized the roadmap with customer discovery.'}).json()
+        c.post(f"/api/library/sources/{story['id']}/prepare",headers=headers,json={'expected_revision':story['revision'],'consent_to_send':True})
+        d=c.app.state.discovery
+        d.configure(Settings(enabled=False,auto_assess=True))
+        rows=[{'source_id':'high','title':'Product Manager','company':'Example','url':'https://example.com/pm','location':'New York, USA',
+            'description':'Own product discovery and the AI platform roadmap. '*5,'posted_at':now()}]
+        d.collector=lambda board:(rows,'Complete for test',[])
+        monkeypatch.setattr(d.jev,'run',lambda items,stop:{'state':'complete'})
+        # The saved candidate-aware Jev screening, not a forced priority flag,
+        # determines whether this enters the automatic worker.
+        d.scan(['yc'])
+        if d.analysis.worker:d.analysis.worker.join(15)
+        jobs=c.app.state.service.store.ids()
+        assert len(jobs)==1
+        report=c.get(f'/api/jobs/{jobs[0]}/analysis').json()
+        assert report['run']['state']=='COMPLETE',report['run']
+        assert calls  # Context and requirement embeddings, no generative calls.
+        count=len(calls)
+        d.scan(['yc'])
+        assert len(calls)==count  # A later scan does not re-embed or re-assess it.
+
+def test_near_tied_provider_disagreement_is_review_only_and_material_disagreement_fails():
+    from app.jev_client import validate_answers,JevValidationError
+    questions={'q':choice('Classify',{'supports':'Direct','transferable':'Related','unclear':'Unknown','irrelevant':'None'})}
+    response={'model':MODEL,'answers':{'q':{'type':'choice','choice':'supports','confidence':.29,
+        'probabilities':{'supports':.46,'transferable':.47,'unclear':.04,'irrelevant':.03}}}}
+    answer=validate_answers(response,questions)['q']
+    assert answer['provider_inconsistent'] and answer['confidence']==0
+    assert response['answers']['q']['confidence']==.29  # Raw provider reply preserved.
+    response['answers']['q']['probabilities']={'supports':.1,'transferable':.9,'unclear':0,'irrelevant':0}
+    with pytest.raises(JevValidationError):validate_answers(response,questions)

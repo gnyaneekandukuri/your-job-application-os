@@ -101,12 +101,12 @@ export function Requirements({ jobId }: { jobId: string }) {
     {learningNotice && <p role="status">{learningNotice}</p>}
     {error && <p className="error" role="alert">{error}</p>}
     {state?.experience_update && <section aria-label="Experience update" role="status"><strong>{state.experience_update.source_title}</strong><p>{state.experience_update.message}</p>
-      {state.experience_update.state === 'PENDING' && <><p>Retry prepares the saved experience locally and reassesses it with Jev. TypeSafe usage is tracked; no duplicate experience is saved.</p><button disabled={busy || running} onClick={() => void retryUpdate()}>Retry saved experience update</button></>}
+      {state.experience_update.state === 'PENDING' && <><p>Retry updates embeddings for the saved experience and reassesses it with Jev. TypeSafe usage is tracked; no duplicate experience is saved.</p><button disabled={busy || running} onClick={() => void retryUpdate()}>Retry saved experience update</button></>}
     </section>}
     {state?.previous_result_outdated && <p className="error">Sources or analysis logic changed. The previous score and evidence below are outdated. Update the analysis for a current report.</p>}
     {state && !state.ready && <p className="error">Prepare current stories first: {state.unready_sources.join(", ") || "No stories available"}.</p>}
     {state && !running && !updating && state.experience_update?.state !== 'PENDING' && (outdated || run?.state !== "COMPLETE") && <>
-      <p className="muted">Jev assesses your JD against retrieved experience and saved preferences. TypeSafe usage is tracked under API costs. OpenAI is not called. Uncertain classifications stay provisional for your review.</p>
+      <p className="muted">Jev assesses your JD against retrieved experience and saved preferences. TypeSafe usage is tracked under API costs. OpenAI is used only for search embeddings; Jev evaluates the evidence. Uncertain classifications stay provisional for your review.</p>
       <button disabled={busy || !state.ready} onClick={() => void start()}>{busy ? "Startingâ€¦" : run ? "Resume unfinished analysis" : "Analyze this role"}</button>
     </>}
     {run && <>

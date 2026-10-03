@@ -98,7 +98,7 @@ export function ReviewConversation({jobId,inputVersion,requirements,focus,onChan
           <blockquote>{a.text}</blockquote><p>{a.reason}</p>
           <details><summary>Requirements this may address ({a.requirement_ids.length})</summary><ul>{a.requirement_ids.map(id=><li key={id}>{requirements.find(r=>r.id===id)?.interpretation||id}</li>)}</ul></details>
         </article>)}
-      {canSave&&<><p>Saving preserves your exact account and earlier content. Jev reassessment can leave the score unchanged; TypeSafe usage is tracked.</p>
+      {canSave&&<><p>Saving preserves your exact account, updates embeddings with OpenAI, and reassesses with Jev. The score may stay unchanged; usage is tracked.</p>
         <button className="primary" disabled={busy} onClick={()=>void commit()}>{busy?'Working…':proposal.mode==='existing'?'Recheck existing stories':'Save additions and reassess'}</button></>}
     </section>}
     <fieldset disabled={busy||blocked}>

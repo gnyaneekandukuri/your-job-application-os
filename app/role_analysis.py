@@ -23,7 +23,7 @@ from .jev_requirements import extract, key_for
 from .evidence_score import score_report, ENABLED as SCORING_ENABLED
 from .evidence_rubric import Assessment, ScoredAssessment, PROMPT, RUBRIC_VERSION
 
-VERSION = "whole-role-jev-v2:" + RUBRIC_VERSION + ':' + JEV_VERSION
+VERSION = "whole-role-jev-semantic-v1:" + RUBRIC_VERSION + ':' + JEV_VERSION
 BATCH_SIZE = 4
 
 
