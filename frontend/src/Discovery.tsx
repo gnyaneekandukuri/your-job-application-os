@@ -121,7 +121,7 @@ export function Discovery({onOpen,onResults,initialReviewId,view="opportunities"
      <button onClick={()=>onResults()}><strong>{state.pipeline?.complete??0}</strong> Completed →</button>
      <button onClick={()=>onResults("attention")}><strong>{(state.pipeline?.attention??0)+(state.pipeline?.previous??0)}</strong> Needs attention</button>
     </div>
-    <small>Priority counts reflect the filtered list below. Assessment counts cover all saved roles; {state.pipeline?.previous??0} outdated results are under My next steps → Needs attention.</small>
+    <small>Priority counts reflect the filtered list below. Assessment counts cover all saved roles; {state.pipeline?.previous??0} outdated results are under Your jobs → Other activity.</small>
     <details><summary>Recent scans</summary>{state.recent_scans?.map(scan=><p key={scan.started}>{when(scan.started)} · {statusLabel(scan.state)} · {scan.new_count===undefined?'New-listing count unavailable':`${scan.new_count} newly discovered`}</p>)}<small>Scan counts are newly saved listings, before preference filtering. Historical assessment movement was not recorded per scan; current totals are shown above.</small></details>
    </div>
    <div className="opportunity-filters discovery-filters">
@@ -135,7 +135,7 @@ export function Discovery({onOpen,onResults,initialReviewId,view="opportunities"
    {companyFilter==='focus'&&companyFocus!=='any'&&<p className="discovery-clock">Showing your company focus. <button className="text-action" onClick={()=>setCompanyFilter('unknown')}>Review unknown companies</button> · <button className="text-action" onClick={()=>setCompanyFilter('all')}>Show all companies</button></p>}
    <div className="opportunity-toolbar">
     <div className="opportunity-count"><strong>{rows.length} roles</strong><span>{Object.keys(selected).length?`${Object.keys(selected).length} selected across all pages`:'Select roles to assess'}</span></div>
-    <div className="selection-actions">{Object.keys(selected).length>0&&<button className="text-action" disabled={busy} onClick={()=>setSelected({})}>Clear</button>}<button className="primary" disabled={busy||!Object.keys(selected).length} onClick={()=>void act(analyzeSelected)}>Analyze selected{Object.keys(selected).length?` (${Object.keys(selected).length})`:''}</button><button className="text-action" onClick={()=>onResults()}>My next steps →</button></div>
+    <div className="selection-actions">{Object.keys(selected).length>0&&<button className="text-action" disabled={busy} onClick={()=>setSelected({})}>Clear</button>}<button className="primary" disabled={busy||!Object.keys(selected).length} onClick={()=>void act(analyzeSelected)}>Analyze selected{Object.keys(selected).length?` (${Object.keys(selected).length})`:''}</button><button className="text-action" onClick={()=>onResults()}>Your jobs →</button></div>
    </div>
    {selectionNotice&&<p role="status">{selectionNotice}</p>}
    <div className="opportunity-pagination"><small>{rows.length?`${(currentPage-1)*25+1}–${Math.min(currentPage*25,rows.length)} of ${rows.length}`:'No matching roles'} · API usage applies when analyzing</small><div><button disabled={currentPage===1} onClick={()=>setPage(currentPage-1)}>Previous</button><span>Page {currentPage} of {pages}</span><button disabled={currentPage===pages} onClick={()=>setPage(currentPage+1)}>Next</button></div></div>
@@ -155,7 +155,7 @@ export function Discovery({onOpen,onResults,initialReviewId,view="opportunities"
       {item.queued_for_assessment && <strong role="status">Queued for automatic analysis</strong>}
       {item.assessment?.state==="RUNNING" && <strong role="status">Analyzing</strong>}
       {["ERROR","INTERRUPTED","NEEDS_ATTENTION"].includes(item.assessment?.state??"") && <strong>Needs attention</strong>}
-      {["ERROR","INTERRUPTED","STALE","NEEDS_ATTENTION"].includes(item.assessment?.state??"") && <button onClick={()=>onResults()}>View in My next steps</button>}
+      {["ERROR","INTERRUPTED","STALE","NEEDS_ATTENTION"].includes(item.assessment?.state??"") && <button onClick={()=>onResults()}>View in Your jobs</button>}
       {item.description.length<200 || item.description_changed ? <button disabled={busy} onClick={()=>openJD(item)}>{item.description_changed ? "Review updated JD" : "Get full JD"}</button> : <>
        {!queueActive(item) && !item.queued_for_assessment && ["NOT_STARTED", ""].includes(item.assessment?.state ?? "") && <button disabled={busy} onClick={()=>void act(()=>assess(item))}>{item.job_id ? "Resume / reassess (paid)" : "Save & analyze (paid)"}</button>}
       </>}

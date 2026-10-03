@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { FeedbackLearning } from './FeedbackLearning';
 
 type Choice = 'SKIP'|'CASUAL'|'ATTACK_HARD';
-const labels:Record<Choice,string>={SKIP:'Skip',CASUAL:'Apply normally',ATTACK_HARD:'Attack Hard'};
+const labels:Record<Choice,string>={SKIP:'Pass',CASUAL:'I want to apply',ATTACK_HARD:'Prioritize this application'};
 type Signal={kind:string;finding:string;quote:string;reason:string};
 type Result={recommendation:Choice;rationale:string;score:number;created_at:string;
   input_versions:Record<string,string>;source_url:string|null;
@@ -41,11 +41,11 @@ export function PursuitAssessment({jobId,onChanged=()=>{},onReviewEvidence=()=>{
     }
     void load();return()=>{cancelled=true;};
   },[jobId,view?.version]);
-  async function act(decide=false){
+  async function act(decide=false,selectedChoice:Choice=choice){
     if(busy||!view?.version)return;setBusy(true);setError('');
     try{
       const r=await fetch(`/api/jobs/${jobId}/pursuit${decide?'/decision':''}`,{method:'POST',headers:{'Content-Type':'application/json','X-Local-Review':'1'},
-        body:JSON.stringify(decide?{version:view.version,choice,reason}:{version:view.version,consent_to_send:true})});
+        body:JSON.stringify(decide?{version:view.version,choice:selectedChoice,reason}:{version:view.version,consent_to_send:true})});
       const data=await r.json();if(!r.ok)throw new Error(typeof data.detail==='string'?data.detail:'Pursuit assessment failed.');receive(data);
     }catch(e){setError(String(e));const r=await fetch(`/api/jobs/${jobId}/pursuit`).catch(()=>null);if(r?.ok)receive(await r.json());}
     finally{setBusy(false);}
@@ -53,7 +53,7 @@ export function PursuitAssessment({jobId,onChanged=()=>{},onReviewEvidence=()=>{
   const result=view?.result;
   return <section className="pursuit-assessment" aria-label="Pursuit recommendation">
     <div className="eyebrow">CHOOSE YOUR NEXT STEP</div>
-    <h3>Pursuit recommendation</h3>
+    <h3>Do you want to apply?</h3>
     {!view&&!error&&<p role="status">Loading…</p>}
     {view&&!view.ready&&<p>{view.reason}</p>}
     {view?.ready&&!result&&<>
@@ -61,7 +61,7 @@ export function PursuitAssessment({jobId,onChanged=()=>{},onReviewEvidence=()=>{
       {!busy&&view.automatic&&<button onClick={()=>void act()}>Retry recommendation</button>}
     </>}
     {result&&<>
-      <h4>Recommendation: {labels[result.recommendation]}</h4><p>{result.rationale}</p>
+      <h4>Recommendation: {{SKIP:'Consider passing',CASUAL:'Worth considering',ATTACK_HARD:'Prioritize this role'}[result.recommendation]}</h4><p>{result.rationale}</p>
       <p>Documented fit: <strong>{result.score}/100</strong>. Personal preferences do not change this score.</p>
       <details><summary>Why this recommendation?</summary>
         <h4>Criteria for extra effort</h4><ul>{result.checks.map(c=><li key={c.label}><strong>{c.passed?'Meets':'Not yet met'} — {c.label}:</strong> {c.detail}</li>)}</ul>
@@ -75,12 +75,14 @@ export function PursuitAssessment({jobId,onChanged=()=>{},onReviewEvidence=()=>{
         {e.fact_ids.length>0&&<small>Fact references: {e.fact_ids.join(', ')}</small>}</article>)}</details>
       {result.what_would_change_it.length>0&&<details><summary>What could change the recommendation?</summary><ul>{result.what_would_change_it.map((v,i)=><li key={i}>{v}</li>)}</ul><p>You can revisit the evidence through Review or add context above.</p></details>}
       <details><summary>Limits and assessment versions</summary><ul>{result.limitations.map(v=><li key={v}>{v}</li>)}</ul><p>Initial product defaults; not validated hiring predictions.</p>{Object.entries(result.input_versions).map(([k,v])=><p key={k}><strong>{k}:</strong> <small>{v}</small></p>)}</details>
-      <details ref={decision}><summary>Choose or change my pursuit decision</summary><fieldset disabled={busy}><legend>Your decision</legend>
+      <div className="application-choice"><button className="primary" disabled={busy} onClick={()=>void act(true,choice==='ATTACK_HARD'?'ATTACK_HARD':'CASUAL')}>{busy?'Saving…':'I want to apply'}</button><button disabled={busy} onClick={()=>void act(true,'SKIP')}>Pass</button></div>
+      <p><small>This saves your choice. It does not submit an application.</small></p>
+      <details ref={decision}><summary>Add feedback or set application priority (optional)</summary><fieldset disabled={busy}><legend>Your decision</legend>
         <label>Pursuit level<select value={choice} onChange={e=>setChoice(e.target.value as Choice)}>{Object.entries(labels).map(([v,l])=><option key={v} value={v}>{l}</option>)}</select></label>
         <label>{choice!==result.recommendation?'Why do you prefer this pursuit level?':'Reason or feedback (optional)'}<textarea rows={2} maxLength={2000} value={reason} onChange={e=>setReason(e.target.value)}/></label>
         <button onClick={()=>void act(true)}>{busy?'Saving…':view?.choice?'Update my decision':'Save my decision'}</button>
       </fieldset></details>
-      {view?.choice&&<p role="status">Your saved decision: <strong>{labels[view.choice.choice]}</strong>. This records your plan; it does not edit your resume or submit an application.</p>}
+      {view?.choice&&<p role="status">{view.choice.choice==='SKIP'?'Saved in Passed over.':'Saved to My application list. Open Your jobs to see it.'}</p>}
     </>}
     <details><summary>Feedback and criteria improvements</summary><FeedbackLearning jobId={jobId} version={view?.version??null} choice={view?.choice??null} onReviewEvidence={onReviewEvidence} onChanged={()=>{onChanged();void fetch(`/api/jobs/${jobId}/pursuit`).then(r=>r.json()).then(receive).catch(e=>setError(String(e)));}}/></details>
     {error&&<p className="error" role="alert">{error}</p>}

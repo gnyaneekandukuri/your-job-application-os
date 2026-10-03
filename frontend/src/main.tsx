@@ -249,13 +249,13 @@ function App() {
           <p>
             Discover → assess → decide.
             <br />
-            Your shortlist is your next stop.
+            Choose jobs, then prepare and apply.
           </p>
         </div>
       </aside>
       <main>
         <nav className="filters" aria-label="Workspace views">
-          <button aria-pressed={page === "assessments"} onClick={() => {setAssessmentTab("decision");setPage("assessments");}}>My next steps</button>
+          <button aria-pressed={page === "assessments"} onClick={() => {setAssessmentTab("decision");setPage("assessments");}}>Your jobs</button>
           <button aria-pressed={page === "queue"} onClick={() => { setPage("queue"); setRoleOpen(false); setCreating(false); }}>Saved roles</button>
           <button aria-pressed={page === "discovery"} onClick={() => {setOpportunityToReview(null);setPage("discovery");}}>Discover more</button>
           <button aria-pressed={page === "usage"} onClick={() => setPage("usage")}>API costs</button>
@@ -268,7 +268,7 @@ function App() {
           <div>
             <div className="eyebrow">YOUR JOB SEARCH, ONE STEP AT A TIME</div>
             <h1>{creating ? "Add a role" : roleOpen ? "Role workspace" : "Saved roles"}</h1>
-            <p>{roleOpen && !creating ? "Review the evidence, then choose Attack hard or Casual to add this role to My shortlist; choose Skip to pass." : "Choose a saved role to open its analysis, or add a new link."}</p>
+            <p>{roleOpen && !creating ? "Read the assessment, then choose “I want to apply” or “Pass”. Your chosen jobs go into My application list." : "Choose a saved role to open its analysis, or add a new link."}</p>
           </div>
           <button
             className="primary"

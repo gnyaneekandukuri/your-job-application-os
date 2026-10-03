@@ -17,5 +17,5 @@ export function nextAction(r:Result):string {
  if(a.listing_changed)return 'Review changed job description';
  if(a.choice==='SKIP')return 'Revisit decision';
  if(a.choice)return 'Review application plan';
- return 'Review & choose pursuit';
+ return 'Review job';
 }

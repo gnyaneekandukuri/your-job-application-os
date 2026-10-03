@@ -880,3 +880,7 @@ footer span {
 .decision-tabs { display: flex; flex-wrap: wrap; gap: .5rem; }
 .decision-tabs button[aria-pressed=true] { background: #245b47; color: white; }
 .decision-empty { padding: 2rem 1rem; background: #f7f8f5; border-radius: 10px; }
+
+.secondary-work { margin-top: 2rem; border-top: 1px solid #dce4dc; padding-top: 1rem; }
+.secondary-work > summary { color: #607264; margin-bottom: 1rem; }
+.application-choice { display: flex; gap: .75rem; margin-top: 1rem; flex-wrap: wrap; }

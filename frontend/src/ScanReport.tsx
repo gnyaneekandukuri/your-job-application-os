@@ -1,8 +1,9 @@
+const scanLabel=(state:string)=>({incomplete:"Finished · partial coverage",complete:"Finished",interrupted:"Stopped before finishing",running:"Running",error:"Stopped with an error",failed:"No boards returned results"}[state]??state.replaceAll("_"," "));
 type ScanRole={id:string;company:string;title:string;priority?:string;reason?:string;stage:string;assessment_requested?:boolean;job_id?:string;error?:string;assessment?:{state:string;recommendation?:string|null}};
 export type ScanReportData={id:number;started:string;finished:string|null;state:string;new_count?:number|null;tracked:boolean;error?:string;sources:Record<string,{state:string;count?:number}>;roles:ScanRole[]};
 export function ScanReport({scans,onOpen}:{scans:ScanReportData[];onOpen:(id:string)=>Promise<void>}) {
- return <details className="scan-report"><summary>Scan activity · {scans[0]?`${new Date(scans[0].started).toLocaleString()} · ${scans[0].state.replaceAll('_',' ')}`:'No scans yet'}</summary>
- {scans.map(scan=><details key={scan.id}><summary>{new Date(scan.started).toLocaleString()} · {scan.state.replaceAll('_',' ')} · {scan.new_count??'Unknown'} new listings</summary>
+ return <details className="scan-report"><summary>Scan activity · {scans[0]?`${new Date(scans[0].started).toLocaleString()} · ${scanLabel(scans[0].state)}`:'No scans yet'}</summary>
+ {scans.map(scan=><details key={scan.id}><summary>{new Date(scan.started).toLocaleString()} · {scanLabel(scan.state)} · {scan.new_count??'Unknown'} new listings</summary>
  <p>{scan.state==='interrupted'?'This scan did not finish. Saved work remains available.':scan.state==='incomplete'?'The run ended with incomplete board coverage.':'Status reflects this run only.'} {scan.error}</p>
  <p>{Object.entries(scan.sources).map(([board,source])=>`${board}: ${source.state} (${source.count??'—'} found)`).join(' · ')}</p>
  {!scan.tracked?<p>Detailed movement was not recorded for this older scan. Current assessments are shown in the queues below.</p>:<>
