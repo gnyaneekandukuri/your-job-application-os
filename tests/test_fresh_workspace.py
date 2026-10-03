@@ -13,7 +13,7 @@ def test_fresh_install_and_restart(tmp_path):
         assert client.get('/api/setup').json()['complete'] is False
         assert client.get('/api/library').json()['sources'] == []
         assert client.get('/api/jobs').json() == []
-        assert client.get('/api/usage').json() == {'calls': []}
+        assert client.get('/api/usage').json() == {'calls': [], 'scans': []}
         discovery = client.get('/api/discovery').json()
         assert discovery['items'] == []
         assert discovery['settings']['enabled'] is False

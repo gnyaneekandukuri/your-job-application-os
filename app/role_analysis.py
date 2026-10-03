@@ -1,5 +1,6 @@
 from .user_workspace import control_documents
 from .cost_tracking import usage_scope
+from contextvars import copy_context
 from .analysis_context import retrieve_evidence, VERSION as CONTEXT_VERSION
 """One explicit action drives a resumable whole-role evidence report.
 
@@ -201,7 +202,7 @@ class RoleAnalysis:
             self.engine.put("role-analysis-latest:" + job.id, key)
             self.active_key = key
             self.jev = JevClient(self.engine)
-            self.worker = Thread(target=self.execute, args=(job, key, run), daemon=True)
+            self.worker = Thread(target=copy_context().run, args=(self.execute, job, key, run), daemon=True)
             self.worker.start()
             current_record = run.model_dump()
             return {**preview, "run": current_record, "score": score_report(current_record) if SCORING_ENABLED else None}

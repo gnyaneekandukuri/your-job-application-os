@@ -59,7 +59,7 @@ const labels = {
 
 function App() {
   const [addContext, setAddContext] = useState(false);
-  const [page, setPage] = useState<"queue" | "retrieval" | "discovery" | "discovery-runs" | "assessments" | "usage">("queue");
+  const [page, setPage] = useState<"queue" | "retrieval" | "discovery" | "discovery-runs" | "assessments" | "usage">(window.location.hash === "#usage" ? "usage" : "queue");
   const [jobs, setJobs] = useState<Review[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);

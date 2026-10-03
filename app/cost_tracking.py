@@ -3,6 +3,17 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 
 scope = ContextVar('api_usage_scope', default=(None, None))
+scan_id = ContextVar('api_scan_id', default=None)
+opportunity_id = ContextVar('api_opportunity_id', default=None)
+
+
+@contextmanager
+def opportunity_scope(value):
+    token = opportunity_id.set(value)
+    try:
+        yield
+    finally:
+        opportunity_id.reset(token)
 
 
 @contextmanager

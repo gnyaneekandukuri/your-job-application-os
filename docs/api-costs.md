@@ -1,11 +1,19 @@
 # Local API costs
 
-The API costs page reads local ledgers; viewing it makes no provider calls and needs no LangSmith subscription. Filter by date and provider. Unknown usage stays unknown, not zero. It is an estimate of this app's recorded calls, not a provider invoice or other apps' spending.
+The API costs page reads local ledgers; viewing it makes no provider calls and needs no LangSmith subscription. Filter by date, provider and scan. The page refreshes local records every 15 seconds while open. Open directly at `http://127.0.0.1:8000/#usage`. Unknown usage stays unknown, not zero. It is an estimate of this app's recorded calls, not a provider invoice or other apps' spending.
 
 OpenAI is used only for embeddings in the active workflow. Context preparation embeds changed original excerpts; deeper assessment embeds requirement queries. Exact text/model/dimensions keys reuse vectors across jobs and document revisions. `text-embedding-3-small` is estimated at $0.02 per million input tokens. Local vector comparisons have no provider charge. Jev handles discovery screening and evidence judgments. Generative OpenAI endpoints remain blocked. The ledger distinguishes `context_embedding`, `requirement_embedding`, `discovery_screening`, and Jev assessment stages. See [the current design](jev-assessment.md).
 
-New Jev assessment calls record job, stage, input/output tokens, latency, state and estimated cost. Current configured input rate is $0.042 per million tokens, with no output-token charge; it is versioned in `criteria/jev-assessment.json`, not fetched dynamically. Successful discovery classifications also contribute their cached usage. Failed requests without reported usage and standalone scripts outside the ledger cannot be fully reconciled here.
+New Jev assessment calls record job, stage, input/output tokens, latency, state and estimated cost. Current configured input rate is $0.042 per million tokens, with no output-token charge; it is versioned in `criteria/jev-assessment.json`, not fetched dynamically. Discovery classification now records every dispatched attempt before the provider call, including failures. Reported usage is saved even if result validation fails. Legacy cached classifications remain visible without double-counting new ledger entries. Failed requests without reported usage and standalone scripts outside the ledger cannot be fully reconciled here.
 
 Historical OpenAI costs remain visible. GPT-6 Sol estimates use reported input, output, cache-read and cache-write counts at $2/$10/$0.20/$2.50 per million respectively. Unknown model overrides carry an unverified estimate label. Existing historical estimates are retained. No new spending cap has been introduced.
 
 Successful Jev results are cached against their complete input and policy. Changes to sources or questions invalidate that cache. Errors are recorded without automatic retries; the user must explicitly resume. Selected evidence is bounded; the full library is never a fallback. Previous completed reports remain available without automatic rescoring. TypeSafe and OpenAI billing accounts are separate.
+
+## Scan attribution
+
+New scan requests carry the scan ID and opportunity ID through classification, candidate screening, requirement embeddings and background deep assessment. A copied context carries attribution into the assessment thread; unrelated concurrent manual requests do not inherit it. Scan selection includes all its requests across midnight. The period filter selects scan start dates for the scan table, and request dates for All activity. Historical scans have no reconstructed totals: timestamps alone are not proof of attribution.
+
+Shared context preparation is outside individual scans. Cache reuse makes no new provider request and adds no new ledger charge. The scan table shows reused classification/screening counts; these are not counts of all embedding cache hits. Requests without reported cost remain explicitly unknown. Totals are estimated recorded costs only, never provider balance or an invoice.
+
+No LangSmith account, external telemetry, subscription, or additional service is required. This extends the existing local SQLite ledgers and dashboard.

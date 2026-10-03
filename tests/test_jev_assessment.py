@@ -236,9 +236,25 @@ def test_scan_high_priority_handoff_completes_semantic_assessment(tmp_path,monke
         report=c.get(f'/api/jobs/{jobs[0]}/analysis').json()
         assert report['run']['state']=='COMPLETE',report['run']
         assert calls  # Context and requirement embeddings, no generative calls.
+        usage=c.get('/api/usage').json()
+        scoped=[v for v in usage['calls'] if v.get('scan_id')==1]
+        assert scoped and all(v.get('opportunity_id') for v in scoped)
+        assert any(v['stage']=='discovery_screening' for v in scoped)
+        assert any(v['stage']=='requirement_embedding' for v in scoped)
+        assert any(v.get('job_id')==jobs[0] and v['provider']=='Jev' for v in scoped)
+        assert all(v.get('scan_id') is None for v in usage['calls'] if v.get('stage')=='context_embedding')
+        assert usage['scans'][0]['tracked']
         count=len(calls)
+        request_count=len(usage['calls'])
         d.scan(['yc'])
         assert len(calls)==count  # A later scan does not re-embed or re-assess it.
+        later=c.get('/api/usage').json()
+        assert len(later['calls'])==request_count
+        assert later['scans'][0]['id']==2 and later['scans'][0]['cached_screenings']==1
+        assert not any(v.get('scan_id')==2 for v in later['calls'])
+        from app.cost_tracking import scan_id, opportunity_id
+        assert scan_id.get() is None and opportunity_id.get() is None
+
 
 def test_near_tied_provider_disagreement_is_review_only_and_material_disagreement_fails():
     from app.jev_client import validate_answers,JevValidationError

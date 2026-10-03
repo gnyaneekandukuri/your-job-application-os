@@ -43,6 +43,7 @@ export function Discovery({onOpen,onResults,view="opportunities"}:{onResults:()=
   {error&&<p className="error" role="alert">{error}</p>}{connectionError&&<p className="error" role="alert">Connection interrupted. Retrying... {connectionError}</p>}
   {state && !state.running && ["failed","incomplete"].includes(state.scan?.payload.state??"") && <p role="status">{state.scan?.payload.state==="failed"?"The last scan could not check any boards. Saved listings are retained.":"The last scan has incomplete coverage. Saved listings do not represent every new job."} {view==="opportunities" && "See Discovery runs for board status."}</p>}
   {!state?<p>Loading discovery...</p>:view==="runs"?<>
+   <p><a href="/#usage">View scan costs</a></p>
    <div className="discovery-run" aria-label="Last discovery run">
     <div><span>Last run started</span><strong>{state.scan?when(state.scan.started):"Not run yet"}</strong></div>
     <div><span>Finished</span><strong>{state.scan?.finished?when(state.scan.finished):state.running?"In progress":"—"}</strong></div>

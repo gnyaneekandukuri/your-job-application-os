@@ -19,6 +19,7 @@ from .discovery_jev import JevClassifier
 from .models import JobInput
 from .role_analysis import AnalyzeInput
 from .store import Missing, Conflict
+from .cost_tracking import scan_id, opportunity_scope
 
 
 def now(): return datetime.now(timezone.utc).isoformat()
@@ -324,10 +325,11 @@ class Discovery:
         boards = list(boards) if boards is not None else list(BOARDS)
         if not boards or any(board not in BOARDS for board in boards):
             raise ValueError("Unknown discovery source")
-        result = {'state': 'running', 'phase':'collecting', 'boards': boards, 'sources': {}, 'new_count': 0}
+        result = {'state': 'running', 'phase':'collecting', 'boards': boards, 'sources': {}, 'new_count': 0, 'cost_tracking_version': 1}
         with self.db() as db:
             sid = db.execute('INSERT INTO scans(started,payload) VALUES(?,?)', (now(), json.dumps(result))).lastrowid
         pending = set()
+        scan_token = scan_id.set(sid)
         try:
             for board in boards:
                 if self.stop.is_set(): break
@@ -370,6 +372,7 @@ class Discovery:
         except Exception:
             result.update(state='error', phase='error', error='Discovery pipeline stopped. Saved results are retained.')
         finally:
+            scan_id.reset(scan_token)
             self.queued_ids.clear()
             with self.db() as db: db.execute('UPDATE scans SET finished=?,payload=? WHERE id=?', (now(), json.dumps(result), sid))
 
@@ -391,7 +394,8 @@ class Discovery:
             self.queued_ids.discard(item['id'])
             if not current or not self.auto_eligible(current): continue
             try:
-                imported = self.import_role(item['id'], analyze=True, automatic=True)
+                with opportunity_scope(item['id']):
+                    imported = self.import_role(item['id'], analyze=True, automatic=True)
                 last_job = imported.get('job_id') if imported else None
             except Exception as exc:
                 from .retrieval import RetrievalError

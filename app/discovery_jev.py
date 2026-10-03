@@ -10,6 +10,7 @@ from pathlib import Path
 
 import httpx
 from pydantic import BaseModel, Field, ConfigDict
+from .cost_tracking import scan_id
 
 POLICY = Path(__file__).resolve().parents[1] / 'criteria/discovery-role-classification.json'
 
@@ -28,6 +29,10 @@ class JevClassifier:
         self.post = post or httpx.post
         with closing(self.db()) as db, db:
             db.execute('CREATE TABLE IF NOT EXISTS jev_classifications (fingerprint TEXT PRIMARY KEY, payload TEXT NOT NULL)')
+            db.execute('''CREATE TABLE IF NOT EXISTS jev_classification_calls (
+                id INTEGER PRIMARY KEY, fingerprint TEXT, created_at TEXT, scan_id INTEGER,
+                opportunity_id TEXT, model TEXT, state TEXT, input_tokens INTEGER,
+                output_tokens INTEGER, cost REAL, error TEXT, latency_ms INTEGER)''')
 
     def db(self):
         return sqlite3.connect(self.path, timeout=20)
@@ -67,10 +72,25 @@ class JevClassifier:
         if len(json.dumps(body)) > 60000:
             return {'state': 'too_long'}  # Never silently classify a truncated JD.
         started = time.monotonic()
+        with closing(self.db()) as db, db:
+            call_id = db.execute('''INSERT INTO jev_classification_calls
+                (fingerprint,created_at,scan_id,opportunity_id,model,state) VALUES(?,?,?,?,?,?)''',
+                (fingerprint, datetime.now(timezone.utc).isoformat(), scan_id.get(), item.get('id'), policy['model'], 'DISPATCHING')).lastrowid
+        error = 'Jev request interrupted; billing is unknown.'
         try:
             response = self.post('https://api.typesafe.ai/v1/systemone', headers={'Authorization': f'Bearer {key}'}, json=body, timeout=25)
             response.raise_for_status()
             payload = response.json()
+            # Preserve reported usage even when the classification is invalid.
+            tokens = payload['usage']['input_tokens']
+            outgoing = payload['usage'].get('output_tokens')
+            if not isinstance(tokens, int) or isinstance(tokens, bool) or tokens < 0:
+                raise ValueError('Invalid usage')
+            if outgoing is not None and (isinstance(outgoing, bool) or not isinstance(outgoing, int) or outgoing < 0):
+                raise ValueError('Invalid usage')
+            with closing(self.db()) as db, db:
+                db.execute('UPDATE jev_classification_calls SET input_tokens=?,output_tokens=?,cost=? WHERE id=?',
+                           (tokens, outgoing, tokens*policy['input_usd_per_million']/1e6, call_id))
             if payload.get('model') != policy['model']:
                 raise ValueError('Unexpected model version')
             answers = {}
@@ -92,13 +112,21 @@ class JevClassifier:
                                  for name, a in answers.items()}}
             with closing(self.db()) as db, db:
                 db.execute('INSERT OR REPLACE INTO jev_classifications VALUES (?,?)', (fingerprint, json.dumps(result)))
+            error = None
             return result
         except httpx.HTTPStatusError as exc:
-            return {'state': 'error', 'error': f'Jev returned HTTP {exc.response.status_code}. No automatic retry was made.'}
+            error = f'Jev returned HTTP {exc.response.status_code}. No automatic retry was made.'
+            return {'state': 'error', 'error': error}
         except httpx.RequestError:
-            return {'state': 'error', 'error': 'Jev connection failed. No automatic retry was made.'}
+            error = 'Jev connection failed. No automatic retry was made.'
+            return {'state': 'error', 'error': error}
         except (ValueError, KeyError, TypeError):
-            return {'state': 'error', 'error': 'Jev returned an invalid classification. Local matching remains active.'}
+            error = 'Jev returned an invalid classification. Local matching remains active.'
+            return {'state': 'error', 'error': error}
+        finally:
+            with closing(self.db()) as db, db:
+                db.execute('UPDATE jev_classification_calls SET state=?,error=?,latency_ms=? WHERE id=?',
+                           ('RECEIVED' if error is None else 'FAILED_OR_UNKNOWN', error, round((time.monotonic()-started)*1000), call_id))
 
     def run(self, items, stop):
         counts = {'classified': 0, 'cached': 0, 'skipped': 0, 'state': 'complete'}

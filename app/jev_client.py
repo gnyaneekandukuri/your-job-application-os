@@ -10,6 +10,7 @@ from uuid import uuid4
 import httpx
 
 from .retrieval import RetrievalError, digest, now
+from .cost_tracking import scan_id, opportunity_id
 
 POLICY = json.loads((Path(__file__).resolve().parents[1] / 'criteria/jev-assessment.json').read_text())
 MODEL = POLICY['model']
@@ -66,6 +67,10 @@ class JevClient:
                 id INTEGER PRIMARY KEY, created_at TEXT, job_id TEXT, stage TEXT,
                 model TEXT, state TEXT, input_tokens INTEGER, output_tokens INTEGER,
                 cost REAL, latency_ms INTEGER, error TEXT)''')
+            columns = {r[1] for r in db.execute('PRAGMA table_info(jev_assessment_calls)')}
+            for name, kind in {'scan_id':'INTEGER', 'opportunity_id':'TEXT'}.items():
+                if name not in columns:
+                    db.execute(f'ALTER TABLE jev_assessment_calls ADD COLUMN {name} {kind}')
 
     def evaluate(self, job_id, stage, state, questions):
         if not questions:
@@ -88,8 +93,8 @@ class JevClient:
                 raise RetrievalError('Connect your TypeSafe key to run Jev assessment. No OpenAI fallback is used.', 503)
             self.engine.put(key, {'attempt_id': self.attempt_id, 'state': 'DISPATCHING'})
             with closing(self.engine.connect()) as db, db:
-                call_id = db.execute('INSERT INTO jev_assessment_calls(created_at,job_id,stage,model,state) VALUES(?,?,?,?,?)',
-                                     (now(), job_id, stage, MODEL, 'DISPATCHING')).lastrowid
+                call_id = db.execute('INSERT INTO jev_assessment_calls(created_at,job_id,stage,model,state,scan_id,opportunity_id) VALUES(?,?,?,?,?,?,?)',
+                                     (now(), job_id, stage, MODEL, 'DISPATCHING', scan_id.get(), opportunity_id.get())).lastrowid
             started = time.monotonic()
             try:
                 if self.post:

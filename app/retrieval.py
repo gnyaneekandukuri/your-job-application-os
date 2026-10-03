@@ -176,7 +176,7 @@ class RetrievalService:
     def migrate_usage(self):
         with closing(self.connect()) as db, db:
             columns = {r[1] for r in db.execute("PRAGMA table_info(calls)")}
-            for name, kind in {"job_id":"TEXT", "stage":"TEXT", "cached_tokens":"INTEGER", "cache_write_tokens":"INTEGER", "cost_basis":"TEXT", "latency_ms":"INTEGER", "error":"TEXT"}.items():
+            for name, kind in {"scan_id":"INTEGER", "opportunity_id":"TEXT", "job_id":"TEXT", "stage":"TEXT", "cached_tokens":"INTEGER", "cache_write_tokens":"INTEGER", "cost_basis":"TEXT", "latency_ms":"INTEGER", "error":"TEXT"}.items():
                 if name not in columns:
                     db.execute(f"ALTER TABLE calls ADD COLUMN {name} {kind}")
 
@@ -220,7 +220,8 @@ class RetrievalService:
         job_id, stage = scope.get()
         started = time.monotonic()
         with closing(self.connect()) as db, db:
-            db.execute("UPDATE calls SET job_id=?,stage=? WHERE id=?", (job_id, stage or kind, call_id))
+            from .cost_tracking import scan_id, opportunity_id
+            db.execute("UPDATE calls SET job_id=?,stage=?,scan_id=?,opportunity_id=? WHERE id=?", (job_id, stage or kind, scan_id.get(), opportunity_id.get(), call_id))
         try:
             response = self.provider.request("responses" if generation else "embeddings", payload)
             usage = response["usage"]
