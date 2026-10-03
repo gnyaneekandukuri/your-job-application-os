@@ -1,5 +1,6 @@
 """Persistent local discovery queue and three-times-daily scheduler."""
 from .read_snapshot import read_snapshot
+from .company_preferences import preferences as company_preferences, company_fit, apply_company_priority
 import hashlib
 import json
 import re
@@ -83,7 +84,10 @@ class Discovery:
                 PRIMARY KEY(opportunity_id,content_hash));''')
             db.execute('INSERT OR IGNORE INTO config VALUES (1,?)', (json.dumps({'enabled': False, 'auto_assess': False, 'last_slot': slot_at(datetime.now().astimezone())}),))
             # A terminated process cannot still be scanning in this single-server application.
-            db.execute("UPDATE scans SET finished=?, payload=? WHERE finished IS NULL", (now(), json.dumps({'state': 'interrupted', 'sources': {}, 'error': 'Server stopped during this scan; saved listings were retained.'})))
+            for interrupted in db.execute('SELECT id,payload FROM scans WHERE finished IS NULL').fetchall():
+                payload = json.loads(interrupted['payload'])
+                payload.update(state='interrupted', error='Server stopped during this scan; saved listings were retained.')
+                db.execute('UPDATE scans SET finished=?,payload=? WHERE id=?', (now(),json.dumps(payload),interrupted['id']))
 
         self.keywords = KeywordIndex(path, sources)
         self.jev = JevClassifier(path)
@@ -138,11 +142,21 @@ class Discovery:
                     summary.update(state='JD_CHANGED', stage='Review the updated listing before assessment.')
             if summary['state'] == 'NOT_STARTED': continue
             items.append({'job_id':job_id,'company':job.company,'title':job.title,'url':str(job.source_url or ''),'assessment':summary})
-        return {'items':items, 'queued_count':len(self.queued_ids), 'settings':self.settings()}
+        with self.db() as db:
+            manual = {r[0] for r in db.execute("SELECT opportunity_id FROM selected_assessments WHERE state='QUEUED'")}
+        counts = dict(complete=0, running=0, attention=0, previous=0)
+        for item in items:
+            summary = item['assessment']
+            group = ('previous' if summary['state'] == 'STALE' else
+                     'complete' if summary['state'] == 'COMPLETE' and summary.get('recommendation') else
+                     'running' if summary['state'] == 'RUNNING' else 'attention')
+            counts[group] += 1
+        return {'items':items, 'counts':counts, 'queued_count':len(self.queued_ids | manual), 'settings':self.settings()}
 
     @read_snapshot
     def view(self, include_analysis=True):
         preferences = load_preferences(self.analysis.library.root / "knowledge/discovery-preferences.json")
+        company_policy = company_preferences(self.analysis.library.root, preferences)
         with self.db() as db:
             items = []
             for row in db.execute('SELECT * FROM opportunities ORDER BY first_seen DESC'):
@@ -153,6 +167,7 @@ class Discovery:
                             description_changed=bool(row['imported_hash'] and row['imported_hash'] != self.content_hash(item)),
                             sources=[{'board': s['board'], 'seen_at': s['seen_at'], 'posted_at': json.loads(s['payload']).get('posted_at')} for s in sources])
                 item["location_match"] = location_match(item.get("location"), preferences)
+                item["company_fit"] = company_fit(item, company_policy)
                 us_state = (item.get('search_country') == 'US' and re.search(
                     r',\s*(AL|AK|AZ|AR|CA|CO|CT|DE|DC|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|MA|MI|MN|MS|MO|MT|NE|NV|NH|NJ|NM|NY|NC|ND|OH|OK|OR|PA|RI|SC|SD|TN|TX|UT|VT|VA|WA|WV|WI|WY)\s*$', item.get('location', '')))
                 if ((item['location_match']['status'] == 'unclear' or us_state) and item.get('search_country')
@@ -181,7 +196,8 @@ class Discovery:
             self.jev.annotate(items)
             from .discovery_screening import annotate
             annotate(self.analysis.engine, items, keyword_profile)
-        return {'jev': self.jev.status(), 'yc_connection': self.yc.status(), 'keyword_profile': keyword_profile, 'items': items, 'location_preference': preferences.get('location_filter', {}), 'settings': self.settings(), 'running': bool(self.worker and self.worker.is_alive()),
+            apply_company_priority(items)
+        return {'company_preference':company_policy, 'jev': self.jev.status(), 'yc_connection': self.yc.status(), 'keyword_profile': keyword_profile, 'items': items, 'location_preference': preferences.get('location_filter', {}), 'settings': self.settings(), 'running': bool(self.worker and self.worker.is_alive()),
                 'scan': {**dict(scan), 'payload': scan_summary(json.loads(scan['payload']))} if scan else None,
                 'boards': BOARDS, 'unavailable': UNAVAILABLE, 'timezone': str(datetime.now().astimezone().tzinfo),
                 'schedule': ['08:00', '13:00', '20:00']}
@@ -189,6 +205,12 @@ class Discovery:
     def table_view(self):
         """Only data displayed by the discovery UI; full evidence stays in local storage."""
         result = self.view()
+        assessments = self.assessment_results()
+        result['pipeline'] = {**assessments['counts'], 'queued':assessments['queued_count']}
+        with self.db() as db:
+            result['recent_scans'] = [{'started':r['started'], 'finished':r['finished'],
+                                      **{k:v for k,v in scan_summary(json.loads(r['payload'])).items() if k in ('state','new_count')}}
+                                     for r in db.execute('SELECT * FROM scans ORDER BY id DESC LIMIT 5')]
         for item in result['items']:
             item.pop('description_provenance', None)
             item.pop('initial_evaluation', None)
@@ -377,10 +399,10 @@ class Discovery:
             result['descriptions'] = self.complete_descriptions(pending)
             result['phase'] = 'classifying'
             with self.db() as db: db.execute('UPDATE scans SET payload=? WHERE id=?',(json.dumps(result),sid))
-            result['classification'] = self.jev.run([item for item in self.view(include_analysis=False)['items'] if item['id'] in pending], self.stop)
+            result['classification'] = self.jev.run([item for item in self.view(include_analysis=False)['items'] if item['id'] in pending and item['company_fit']['automatic_allowed']], self.stop)
             from .discovery_screening import screen
             preferences = load_preferences(self.analysis.library.root / 'knowledge/discovery-preferences.json')
-            screening_items = [item for item in self.view(include_analysis=False)['items'] if item['id'] in pending]
+            screening_items = [item for item in self.view(include_analysis=False)['items'] if item['id'] in pending and item['company_fit']['automatic_allowed']]
             screening_profile = self.keywords.enrich(screening_items, preferences)
             self.jev.annotate(screening_items)
             result['screening'] = screen(self.analysis.engine, screening_items, screening_profile, self.stop)
@@ -441,6 +463,7 @@ class Discovery:
     def auto_eligible(item):
         return (item.get('keyword_match',{}).get('priority')=='high'
                 and item.get('location_match',{}).get('status')=='match'
+                and item.get('company_fit',{}).get('automatic_allowed',True)
                 and len(item.get('description',''))>=200
                 and not item.get('description_changed')
                 and not item.get('automatic_assessment'))

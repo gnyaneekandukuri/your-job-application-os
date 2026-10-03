@@ -47,12 +47,16 @@ def test_read_snapshot_expires_and_retains_argument_identity():
     assert reader.get(value)=='after';assert reader.calls==5
 
 
-def test_table_payload_preserves_role_actions_without_repeating_evidence():
+def test_table_payload_preserves_role_actions_without_repeating_evidence(tmp_path):
     raw={'items':[{'id':'x','content_hash':'hash','description':'Full JD','selected_assessment':{'state':'QUEUED'},
                   'keyword_match':{'priority':'worth_checking','label':'Worth checking','reason':'why','experience':[{'term':'AI','sources':[{'text':'private source'*1000}]}]},
                   'description_provenance':{'draft':'duplicate JD'},'initial_evaluation':{'unused':'values'}}],
          'keyword_profile':{'target':{'roles':['PM']},'experience':['large source data']}}
     d=Discovery.__new__(Discovery);d.view=lambda:raw
+    import sqlite3
+    d.path=tmp_path/"discovery.sqlite3"
+    with sqlite3.connect(d.path) as db: db.execute("CREATE TABLE scans (id INTEGER,started TEXT,finished TEXT,payload TEXT)")
+    d.assessment_results=lambda:{"counts":{"complete":1},"queued_count":2}
     result=d.table_view()
     item=result['items'][0]
     assert item['keyword_match']['experience']==[{'term':'AI'}]

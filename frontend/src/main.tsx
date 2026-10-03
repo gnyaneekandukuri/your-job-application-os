@@ -59,6 +59,7 @@ const labels = {
 
 function App() {
   const [addContext, setAddContext] = useState(false);
+  const [assessmentTab,setAssessmentTab]=useState("complete");
   const [page, setPage] = useState<"queue" | "retrieval" | "discovery" | "discovery-runs" | "assessments" | "usage">(window.location.hash === "#usage" ? "usage" : "queue");
   const [jobs, setJobs] = useState<Review[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
@@ -260,7 +261,7 @@ function App() {
           <button aria-pressed={page === "discovery-runs"} onClick={() => setPage("discovery-runs")}>Discovery runs</button>
           <button aria-pressed={page === "retrieval"} onClick={() => { setAddContext(false); setPage("retrieval"); }}>Your context</button>
         </nav>
-        {page === "usage" ? <Usage /> : page === "assessments" ? <AssessmentResults onOpen={async (id) => { await refresh(); setSelected(id); setPage("queue"); setRoleOpen(true); setCreating(false); }} /> : page === "discovery" || page === "discovery-runs" ? <Discovery onResults={() => setPage("assessments")} view={page === "discovery-runs" ? "runs" : "opportunities"} onOpen={async (id) => { await refresh(); setSelected(id); setPage("queue"); setRoleOpen(true); setCreating(false); }} /> : page === "retrieval" ? <Retrieval initialAdd={addContext} /> : <>
+        {page === "usage" ? <Usage /> : page === "assessments" ? <AssessmentResults initialTab={assessmentTab} onOpen={async (id) => { await refresh(); setSelected(id); setPage("queue"); setRoleOpen(true); setCreating(false); }} /> : page === "discovery" || page === "discovery-runs" ? <Discovery onResults={(tab="complete") => {setAssessmentTab(tab);setPage("assessments");}} view={page === "discovery-runs" ? "runs" : "opportunities"} onOpen={async (id) => { await refresh(); setSelected(id); setPage("queue"); setRoleOpen(true); setCreating(false); }} /> : page === "retrieval" ? <Retrieval initialAdd={addContext} /> : <>
         <header>
           <div>
             <div className="eyebrow">YOUR JOB SEARCH, ONE STEP AT A TIME</div>

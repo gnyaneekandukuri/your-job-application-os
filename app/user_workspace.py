@@ -3,6 +3,7 @@ import json
 import os
 from pathlib import Path
 from uuid import uuid4
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -31,6 +32,9 @@ class SetupInput(BaseModel):
     countries: list[str] = Field(min_length=1, max_length=30)
     preferred_cities: list[str] = Field(default_factory=list, max_length=30)
     requires_h1b_transfer: bool | None = None
+    company_focus: Literal["any", "startups", "established"] | None = None
+    preferred_funding_stages: list[str] | None = Field(default=None, max_length=15)
+    strong_investor_backing_preferred: bool | None = None
 
 
 def write_json(path, value):
@@ -79,7 +83,10 @@ def setup_view(root):
             "name": profile["candidate"]["name"], "target_roles": profile["target_role_families"],
             "countries": prefs["location_filter"]["countries"],
             "preferred_cities": profile["candidate"]["location_preference"],
-            "requires_h1b_transfer": profile["candidate"]["work_authorization"].get("requires_h1b_transfer")}
+            "requires_h1b_transfer": profile["candidate"]["work_authorization"].get("requires_h1b_transfer"),
+            "company_focus": profile.get('pursuit_preferences',{}).get('company',{}).get('focus') or ('startups' if profile.get('pursuit_preferences',{}).get('company',{}).get('startup_preference') else 'any'),
+            "preferred_funding_stages": prefs.get('preferred_funding_terms',[]),
+            "strong_investor_backing_preferred": profile.get('pursuit_preferences',{}).get('company',{}).get('strong_investor_backing_preferred',False)}
 
 
 def save_setup(root, data):
@@ -97,6 +104,18 @@ def save_setup(root, data):
     prefs = json.loads((root / "knowledge/discovery-preferences.json").read_text())
     prefs.update(target_roles=data.target_roles, product_role_terms=data.target_roles, preferred_location_terms=data.preferred_cities,
                  location_filter={"countries": countries, "label": ", ".join(countries)})
+    company=profile.setdefault('pursuit_preferences',{}).setdefault('company',{})
+    if data.company_focus is not None:
+        company.update(focus=data.company_focus,startup_preference=data.company_focus=='startups')
+    if data.strong_investor_backing_preferred is not None:
+        company['strong_investor_backing_preferred']=data.strong_investor_backing_preferred
+    if data.preferred_funding_stages is not None:
+        stages=list(dict.fromkeys(s.strip().lower() for s in data.preferred_funding_stages if s.strip()))
+        allowed_stages={'pre-seed','seed','growth','early stage','late stage',*('series '+c for c in 'abcdefgh')}
+        if any(s not in allowed_stages for s in stages):
+            from .retrieval import RetrievalError
+            raise RetrievalError('Use funding stages such as Seed, Series A, Series B or Growth.',422)
+        prefs['preferred_funding_terms']=stages
     write_json(root / "knowledge/profile.json", profile)
     write_json(root / "knowledge/discovery-preferences.json", prefs)
     return setup_view(root)

@@ -1,0 +1,8 @@
+{
+  "version": "1",
+  "purpose": "Public company facts with exact-name aliases. No candidate data or inferred startup stages. Extend with sourced records, not name-based rules.",
+  "companies": [
+    {"names": ["Capital One", "Capital One Financial", "Capital One Financial Corporation"], "type": "established", "fact": "Capital One reports that its common stock trades on the NYSE as COF.", "url": "https://investor.capitalone.com/resources/", "checked_at": "2026-10-03"},
+    {"names": ["JPMorganChase", "JPMorgan Chase", "JPMorgan Chase & Co.", "J.P. Morgan"], "type": "established", "fact": "JPMorganChase identifies itself as NYSE: JPM in its 2026 company update.", "url": "https://www.jpmorganchase.com/ir/news/2026/jpmc-company-update-2026", "checked_at": "2026-10-03"}
+  ]
+}

@@ -8,6 +8,9 @@ export function Setup({ children }: { children: ReactNode }) {
   const [roles, setRoles] = useState("");
   const [countries, setCountries] = useState("");
   const [cities, setCities] = useState("");
+  const [companyFocus,setCompanyFocus]=useState("any");
+  const [fundingStages,setFundingStages]=useState("");
+  const [backing,setBacking]=useState(false);
   const [transfer, setTransfer] = useState("unknown");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -18,6 +21,7 @@ export function Setup({ children }: { children: ReactNode }) {
       setComplete(d.complete); setName(d.name); setRoles(d.target_roles.join(", "));
       setCountries(d.countries.join(", ")); setCities(d.preferred_cities.join(", "));
       setTransfer(d.requires_h1b_transfer === null ? "unknown" : String(d.requires_h1b_transfer));
+      setCompanyFocus(d.company_focus??"any");setFundingStages((d.preferred_funding_stages??[]).join(", "));setBacking(d.strong_investor_backing_preferred??false);
       setLoaded(true);
     }).catch(e => setError(e.message));
   }, []);
@@ -30,7 +34,7 @@ export function Setup({ children }: { children: ReactNode }) {
     <form onSubmit={async e => {
       e.preventDefault(); setBusy(true); setError("");
       try {
-        const r = await fetch("/api/setup", { method: "POST", headers: { "Content-Type": "application/json", "X-Local-Review": "1" }, body: JSON.stringify({ name, target_roles: split(roles), countries: split(countries), preferred_cities: split(cities), requires_h1b_transfer: transfer === "unknown" ? null : transfer === "true" }) });
+        const r = await fetch("/api/setup", { method: "POST", headers: { "Content-Type": "application/json", "X-Local-Review": "1" }, body: JSON.stringify({ company_focus:companyFocus,preferred_funding_stages:split(fundingStages),strong_investor_backing_preferred:backing,name, target_roles: split(roles), countries: split(countries), preferred_cities: split(cities), requires_h1b_transfer: transfer === "unknown" ? null : transfer === "true" }) });
         if (!r.ok) { const d = await r.json(); throw new Error(typeof d.detail === "string" ? d.detail : "Check your preference fields."); }
         setComplete(true); setEditing(false);
       } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
@@ -40,8 +44,11 @@ export function Setup({ children }: { children: ReactNode }) {
         <label>Target roles, separated by commas<input required value={roles} onChange={e => setRoles(e.target.value)} placeholder="Product Manager, Data Product Manager" /></label>
         <label>Country codes, separated by commas<input required value={countries} onChange={e => setCountries(e.target.value)} placeholder="US, GB, ZA" /></label>
         <label>Preferred cities (optional)<input value={cities} onChange={e => setCities(e.target.value)} /></label>
+        <label>Company focus<select value={companyFocus} onChange={e=>setCompanyFocus(e.target.value)}><option value="any">Any company type</option><option value="startups">Startups</option><option value="established">Established companies</option></select></label>
+        {companyFocus==="startups"&&<label>Preferred funding stages, in priority order<input value={fundingStages} onChange={e=>setFundingStages(e.target.value)} placeholder="Series A, Series B — leave blank for any stage" /></label>}
+        <label style={{display:'flex',gap:8}}><input style={{width:'auto',margin:0}} type="checkbox" checked={backing} onChange={e=>setBacking(e.target.checked)}/>Prefer reported investor backing</label>
         <label>Do you require an H-1B transfer?<select value={transfer} onChange={e => setTransfer(e.target.value)}><option value="unknown">Not specified</option><option value="true">Yes</option><option value="false">No</option></select></label>
-        <p>Paid analysis uses your own OPENAI_API_KEY environment variable. Nothing is sent for analysis during setup.</p>
+        <p>Analysis uses your connected OpenAI and TypeSafe accounts. Nothing is sent for analysis during setup.</p>
         {error && <p role="alert">{error}</p>}
         <button type="submit">{busy ? "Saving…" : "Save preferences"}</button>
         {complete && <button type="button" onClick={() => setEditing(false)}>Cancel</button>}

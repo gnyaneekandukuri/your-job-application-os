@@ -851,7 +851,7 @@ footer span {
 
 /* Compact opportunities controls, with uniform input geometry. */
 .discovery .discovery-coverage {font-size:12px;color:#66716b;margin:0 0 14px;}
-.discovery .discovery-filters {display:grid;grid-template-columns:minmax(210px,2fr) repeat(4,minmax(125px,1fr));gap:12px;align-items:end;margin:16px 0;}
+.discovery .discovery-filters {display:grid;grid-template-columns:minmax(180px,2fr) repeat(5,minmax(110px,1fr));gap:12px;align-items:end;margin:16px 0;}
 .discovery .discovery-filters label {min-width:0;margin:0;font-size:12px;}
 .discovery .discovery-filters input,.discovery .discovery-filters select {box-sizing:border-box;height:40px;width:100%;padding:8px 10px;margin-top:6px;border:1px solid #cbd4ce;border-radius:6px;background:#fff;color:#233b2c;font:inherit;font-size:13px;}
 .discovery .discovery-filters select:focus {outline:2px solid #91b09e;outline-offset:1px;}
@@ -868,3 +868,9 @@ footer span {
 .discovery .select-role input {margin:0;}
 @media(max-width:1100px) {.discovery .discovery-filters {grid-template-columns:repeat(4,minmax(0,1fr));}.discovery .discovery-filters label:first-child {grid-column:1/-1;}}
 @media(max-width:700px) {.discovery .discovery-filters {grid-template-columns:repeat(2,minmax(0,1fr));}.opportunity-toolbar,.opportunity-pagination {align-items:flex-start;flex-direction:column;}.opportunity-count {gap:8px;}}
+
+.pipeline-summary { margin: 1rem 0; padding: 1rem; background: #f4f7f3; border: 1px solid #dce4dc; border-radius: 10px; }
+.pipeline-summary p { margin: 0 0 .75rem; }
+.pipeline-counts { display: flex; flex-wrap: wrap; gap: .5rem 1rem; margin-bottom: .6rem; }
+.pipeline-counts button, .pipeline-counts > span { display: flex; flex-direction: column; align-items: flex-start; gap: .2rem; padding: .5rem .7rem; font-size: .85rem; }
+.pipeline-counts strong { font-size: 1.2rem; }

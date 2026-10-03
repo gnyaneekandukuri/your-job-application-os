@@ -86,4 +86,4 @@ def annotate(engine, items, profile):
             saved.get('error', 'First-pass evaluation failed.') if saved else
             'Full JD needed before first-pass evaluation.' if len(item.get('description', '').strip()) < 200 else
             'First-pass evaluation is pending the next scan; keyword matches remain visible.')
-        result.update(priority=priority, label={'high': 'High priority', 'worth_checking': 'Worth checking', 'low': 'Skip'}[priority], reason=reason)
+        result.update(priority=priority, label=({'high': 'High priority', 'worth_checking': 'Worth checking', 'low': 'Skip'}[priority] if saved and saved['state']=='classified' else 'Not screened'), reason=reason)
