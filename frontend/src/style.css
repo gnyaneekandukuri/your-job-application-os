@@ -874,3 +874,9 @@ footer span {
 .pipeline-counts { display: flex; flex-wrap: wrap; gap: .5rem 1rem; margin-bottom: .6rem; }
 .pipeline-counts button, .pipeline-counts > span { display: flex; flex-direction: column; align-items: flex-start; gap: .2rem; padding: .5rem .7rem; font-size: .85rem; }
 .pipeline-counts strong { font-size: 1.2rem; }
+
+.scan-report { margin: 1rem 0 1.5rem; padding: 1rem; border: 1px solid #dce4dc; border-radius: 10px; background: #f4f7f3; }
+.scan-report details { margin-top: .8rem; padding-top: .8rem; border-top: 1px solid #dce4dc; }
+.decision-tabs { display: flex; flex-wrap: wrap; gap: .5rem; }
+.decision-tabs button[aria-pressed=true] { background: #245b47; color: white; }
+.decision-empty { padding: 2rem 1rem; background: #f7f8f5; border-radius: 10px; }

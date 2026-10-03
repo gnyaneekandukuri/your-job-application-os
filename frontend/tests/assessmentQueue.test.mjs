@@ -1,0 +1,10 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {readFile} from 'node:fs/promises';
+const compiled=await readFile(new URL('../../.local/queue-tests/assessmentQueue.js',import.meta.url),'utf8');
+const {queueGroup,nextAction}=await import('data:text/javascript;base64,'+Buffer.from(compiled).toString('base64'));
+const role=(assessment)=>({job_id:'1',company:'Example',title:'PM',url:'',assessment:{state:'COMPLETE',score:76,recommendation:'CASUAL',...assessment}});
+test('recommendations never count as candidate choices',()=>{assert.equal(queueGroup(role({})),'decision');assert.equal(queueGroup(role({recommendation:'ATTACK_HARD'})),'decision');});
+test('only current chosen pursuits enter shortlist',()=>{assert.equal(queueGroup(role({choice:'CASUAL'})),'shortlist');assert.equal(queueGroup(role({choice:'ATTACK_HARD'})),'shortlist');assert.equal(queueGroup(role({choice:'SKIP'})),'skipped');});
+test('outdated and failed work cannot enter shortlist',()=>{for(const state of ['STALE','ERROR','INTERRUPTED','NOT_STARTED'])assert.equal(queueGroup(role({state,choice:'ATTACK_HARD'})),'attention');assert.equal(queueGroup(role({choice:'CASUAL',listing_changed:true})),'decision');});
+test('next action explains changed and unfinished work',()=>{assert.equal(nextAction(role({listing_changed:true})),'Review changed job description');assert.equal(nextAction(role({state:'STALE'})),'Review outdated assessment');assert.equal(queueGroup(role({state:'RUNNING'})),'running');});

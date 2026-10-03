@@ -17,7 +17,7 @@ async function request<T>(path="",body?:unknown,signal?:AbortSignal):Promise<T> 
 const statusLabel=(state:string):string=>({complete:"Completed",incomplete:"Incomplete coverage",failed:"Failed",blocked:"Access denied / limited",partial:"Partial coverage",checked:"Checked",login_required:"Sign in to YC",busy:"YC browser busy"} as Record<string,string>)[state]??state;
 const when=(date:string)=>new Date(date).toLocaleString();
 const freshnessLabel=(item:Item)=>item.freshness==="within_24h"?"Source reports <24h":item.freshness==="older"?"Older than 24h":item.freshness==="date_only"?"Date only - age uncertain":"Date unknown";
-export function Discovery({onOpen,onResults,view="opportunities"}:{onResults:(tab?:string)=>void;view?:"runs"|"opportunities";onOpen:(jobId:string)=>Promise<void>}) {
+export function Discovery({onOpen,onResults,initialReviewId,view="opportunities"}:{initialReviewId?:string|null;onResults:(tab?:string)=>void;view?:"runs"|"opportunities";onOpen:(jobId:string)=>Promise<void>}) {
  const [state,setState]=useState<State|null>(null);
  const [selected,setSelected]=useState<Record<string,string>>({});
  const [selectionNotice,setSelectionNotice]=useState("");
@@ -37,6 +37,8 @@ export function Discovery({onOpen,onResults,view="opportunities"}:{onResults:(ta
  const [targetVersion,setTargetVersion]=useState("");
  const [jd,setJD]=useState<JDDraft|null>(null);
  const jdDialog=useRef<HTMLDialogElement>(null);
+ const openedReview=useRef<string|null>(null);
+ useEffect(()=>{if(initialReviewId&&state&&openedReview.current!==initialReviewId){const item=state.items.find(i=>i.id===initialReviewId);if(item){openedReview.current=initialReviewId;openJD(item);}}},[initialReviewId,state]);
  useEffect(()=>{if(jd)jdDialog.current?.showModal();else jdDialog.current?.close();},[jd?.id]);
  useEffect(()=>{let live=true;let timer:ReturnType<typeof setTimeout>;const controller=new AbortController();const load=async()=>{let interval=30000;try{const value=await request<State>("",undefined,controller.signal);if(live){setState(value);setConnectionError("");if(value.running||value.items.some(i=>i.assessment?.state==="RUNNING"||["QUEUED","RUNNING"].includes(i.selected_assessment?.state??"")))interval=4000;}}catch(e){if(live){setConnectionError(String(e));interval=5000;}}finally{if(live)timer=setTimeout(()=>void load(),document.hidden?60000:interval);}};void load();return()=>{live=false;controller.abort();clearTimeout(timer);};},[]);
  useEffect(()=>setPage(1),[query,priorityFilter,locationFilter,boardFilter,filter,companyFilter]);
@@ -117,9 +119,9 @@ export function Discovery({onOpen,onResults,view="opportunities"}:{onResults:(ta
      <button onClick={()=>setPriorityFilter("not_screened")}><strong>{rows.filter(i=>i.keyword_match?.label==='Not screened').length}</strong> Not screened</button>
      <button onClick={()=>onResults("running")}><strong>{state.pipeline?.queued??0} / {state.pipeline?.running??0}</strong> Queued / running</button>
      <button onClick={()=>onResults()}><strong>{state.pipeline?.complete??0}</strong> Completed →</button>
-     <button onClick={()=>onResults("attention")}><strong>{state.pipeline?.attention??0}</strong> Needs attention</button>
+     <button onClick={()=>onResults("attention")}><strong>{(state.pipeline?.attention??0)+(state.pipeline?.previous??0)}</strong> Needs attention</button>
     </div>
-    <small>Priority counts reflect the filtered list below. Assessment counts cover all saved roles; {state.pipeline?.previous??0} previous results are saved in Deep analysis.</small>
+    <small>Priority counts reflect the filtered list below. Assessment counts cover all saved roles; {state.pipeline?.previous??0} outdated results are under My next steps → Needs attention.</small>
     <details><summary>Recent scans</summary>{state.recent_scans?.map(scan=><p key={scan.started}>{when(scan.started)} · {statusLabel(scan.state)} · {scan.new_count===undefined?'New-listing count unavailable':`${scan.new_count} newly discovered`}</p>)}<small>Scan counts are newly saved listings, before preference filtering. Historical assessment movement was not recorded per scan; current totals are shown above.</small></details>
    </div>
    <div className="opportunity-filters discovery-filters">
@@ -133,7 +135,7 @@ export function Discovery({onOpen,onResults,view="opportunities"}:{onResults:(ta
    {companyFilter==='focus'&&companyFocus!=='any'&&<p className="discovery-clock">Showing your company focus. <button className="text-action" onClick={()=>setCompanyFilter('unknown')}>Review unknown companies</button> · <button className="text-action" onClick={()=>setCompanyFilter('all')}>Show all companies</button></p>}
    <div className="opportunity-toolbar">
     <div className="opportunity-count"><strong>{rows.length} roles</strong><span>{Object.keys(selected).length?`${Object.keys(selected).length} selected across all pages`:'Select roles to assess'}</span></div>
-    <div className="selection-actions">{Object.keys(selected).length>0&&<button className="text-action" disabled={busy} onClick={()=>setSelected({})}>Clear</button>}<button className="primary" disabled={busy||!Object.keys(selected).length} onClick={()=>void act(analyzeSelected)}>Analyze selected{Object.keys(selected).length?` (${Object.keys(selected).length})`:''}</button><button className="text-action" onClick={()=>onResults()}>View results →</button></div>
+    <div className="selection-actions">{Object.keys(selected).length>0&&<button className="text-action" disabled={busy} onClick={()=>setSelected({})}>Clear</button>}<button className="primary" disabled={busy||!Object.keys(selected).length} onClick={()=>void act(analyzeSelected)}>Analyze selected{Object.keys(selected).length?` (${Object.keys(selected).length})`:''}</button><button className="text-action" onClick={()=>onResults()}>My next steps →</button></div>
    </div>
    {selectionNotice&&<p role="status">{selectionNotice}</p>}
    <div className="opportunity-pagination"><small>{rows.length?`${(currentPage-1)*25+1}–${Math.min(currentPage*25,rows.length)} of ${rows.length}`:'No matching roles'} · API usage applies when analyzing</small><div><button disabled={currentPage===1} onClick={()=>setPage(currentPage-1)}>Previous</button><span>Page {currentPage} of {pages}</span><button disabled={currentPage===pages} onClick={()=>setPage(currentPage+1)}>Next</button></div></div>
@@ -153,7 +155,7 @@ export function Discovery({onOpen,onResults,view="opportunities"}:{onResults:(ta
       {item.queued_for_assessment && <strong role="status">Queued for automatic analysis</strong>}
       {item.assessment?.state==="RUNNING" && <strong role="status">Analyzing</strong>}
       {["ERROR","INTERRUPTED","NEEDS_ATTENTION"].includes(item.assessment?.state??"") && <strong>Needs attention</strong>}
-      {["ERROR","INTERRUPTED","STALE","NEEDS_ATTENTION"].includes(item.assessment?.state??"") && <button onClick={()=>onResults()}>View in Deep analysis</button>}
+      {["ERROR","INTERRUPTED","STALE","NEEDS_ATTENTION"].includes(item.assessment?.state??"") && <button onClick={()=>onResults()}>View in My next steps</button>}
       {item.description.length<200 || item.description_changed ? <button disabled={busy} onClick={()=>openJD(item)}>{item.description_changed ? "Review updated JD" : "Get full JD"}</button> : <>
        {!queueActive(item) && !item.queued_for_assessment && ["NOT_STARTED", ""].includes(item.assessment?.state ?? "") && <button disabled={busy} onClick={()=>void act(()=>assess(item))}>{item.job_id ? "Resume / reassess (paid)" : "Save & analyze (paid)"}</button>}
       </>}

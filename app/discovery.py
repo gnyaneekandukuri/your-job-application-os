@@ -75,6 +75,8 @@ class Discovery:
                 CREATE TABLE IF NOT EXISTS sightings (board TEXT, source_id TEXT, opportunity_id TEXT,
                 payload TEXT NOT NULL, seen_at TEXT NOT NULL, PRIMARY KEY(board,source_id));
                 CREATE TABLE IF NOT EXISTS scans (id INTEGER PRIMARY KEY, started TEXT, finished TEXT, payload TEXT);
+                CREATE TABLE IF NOT EXISTS scan_roles (scan_id INTEGER, opportunity_id TEXT, payload TEXT,
+                PRIMARY KEY(scan_id,opportunity_id));
                 CREATE TABLE IF NOT EXISTS config (id INTEGER PRIMARY KEY CHECK(id=1), payload TEXT);
                 CREATE TABLE IF NOT EXISTS import_intents (id TEXT PRIMARY KEY, payload TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS automatic_assessments (opportunity_id TEXT PRIMARY KEY, state TEXT, attempted_at TEXT, error TEXT);
@@ -141,7 +143,7 @@ class Discovery:
                 if summary['state'] == 'NOT_STARTED':
                     summary.update(state='JD_CHANGED', stage='Review the updated listing before assessment.')
             if summary['state'] == 'NOT_STARTED': continue
-            items.append({'job_id':job_id,'company':job.company,'title':job.title,'url':str(job.source_url or ''),'assessment':summary})
+            items.append({'job_id':job_id,'opportunity_id':row['id'] if row else None,'company':job.company,'title':job.title,'url':str(job.source_url or ''),'assessment':summary})
         with self.db() as db:
             manual = {r[0] for r in db.execute("SELECT opportunity_id FROM selected_assessments WHERE state='QUEUED'")}
         counts = dict(complete=0, running=0, attention=0, previous=0)
@@ -151,7 +153,28 @@ class Discovery:
                      'complete' if summary['state'] == 'COMPLETE' and summary.get('recommendation') else
                      'running' if summary['state'] == 'RUNNING' else 'attention')
             counts[group] += 1
-        return {'items':items, 'counts':counts, 'queued_count':len(self.queued_ids | manual), 'settings':self.settings()}
+        return {'items':items, 'counts':counts, 'queued_count':len(self.queued_ids | manual), 'settings':self.settings(), 'scans':self.run_reports()}
+
+    def run_reports(self):
+        with self.db() as db:
+            reports=[]
+            for row in db.execute('SELECT * FROM scans ORDER BY id DESC LIMIT 5').fetchall():
+                payload=scan_summary(json.loads(row['payload']))
+                roles=[json.loads(r[0]) for r in db.execute('SELECT payload FROM scan_roles WHERE scan_id=?',(row['id'],))]
+                reports.append({'id':row['id'],'started':row['started'],'finished':row['finished'],
+                                'state':payload.get('state'),'new_count':payload.get('new_count'),
+                                'error':payload.get('error'),'sources':payload.get('sources',{}),
+                                'tracked':payload.get('tracking_version')==1,'roles':roles})
+            return reports
+
+    def record_scan_role(self, item, **updates):
+        sid=scan_id.get()
+        if sid is None: return
+        with self.db() as db:
+            row=db.execute('SELECT payload FROM scan_roles WHERE scan_id=? AND opportunity_id=?',(sid,item['id'])).fetchone()
+            payload=json.loads(row[0]) if row else {'id':item['id'],'company':item.get('company',''),'title':item.get('title','')}
+            payload.update(updates, updated_at=now())
+            db.execute('INSERT OR REPLACE INTO scan_roles VALUES(?,?,?)',(sid,item['id'],json.dumps(payload)))
 
     @read_snapshot
     def view(self, include_analysis=True):
@@ -373,7 +396,7 @@ class Discovery:
         boards = list(boards) if boards is not None else list(BOARDS)
         if not boards or any(board not in BOARDS for board in boards):
             raise ValueError("Unknown discovery source")
-        result = {'state': 'running', 'phase':'collecting', 'boards': boards, 'sources': {}, 'new_count': 0, 'cost_tracking_version': 1}
+        result = {'state': 'running', 'phase':'collecting', 'boards': boards, 'sources': {}, 'new_count': 0, 'cost_tracking_version': 1, 'tracking_version':1}
         with self.db() as db:
             sid = db.execute('INSERT INTO scans(started,payload) VALUES(?,?)', (now(), json.dumps(result))).lastrowid
         pending = set()
@@ -387,6 +410,7 @@ class Discovery:
                     for row in rows:
                         oid, new = self.save(board, row)
                         pending.add(oid)
+                        self.record_scan_role({**row,'id':oid}, stage='Discovered', newly_saved=new)
                         if new:
                             result['new_count'] += 1
                     result['sources'][board] = {'state': 'partial' if warnings or 'partial' in coverage.lower() or 'not established' in coverage.lower() else 'checked', 'count': len(rows), 'coverage': coverage, 'warnings': warnings, 'checked_at': now()}
@@ -406,10 +430,19 @@ class Discovery:
             screening_profile = self.keywords.enrich(screening_items, preferences)
             self.jev.annotate(screening_items)
             result['screening'] = screen(self.analysis.engine, screening_items, screening_profile, self.stop)
+            for item in self.view()['items']:
+                if item['id'] in pending:
+                    match=item.get('keyword_match',{})
+                    self.record_scan_role(item,stage='Screening finished',priority=match.get('label','Not screened'),
+                                          reason=match.get('reason',''),job_id=item.get('job_id'),
+                                          assessment=item.get('assessment'),automatic_eligible=self.auto_eligible(item))
             if not self.stop.is_set() and self.settings()['auto_assess']:
                 result['phase'] = 'assessing'
                 with self.db() as db: db.execute('UPDATE scans SET payload=? WHERE id=?',(json.dumps(result),sid))
                 self.assess_high_priority(pending)
+            for item in self.view()['items']:
+                if item['id'] in pending:
+                    self.record_scan_role(item, job_id=item.get('job_id'), assessment=item.get('assessment'))
             states = [source['state'] for source in result['sources'].values()]
             successful = sum(state in ('checked', 'partial') for state in states)
             result['state'] = ('interrupted' if self.stop.is_set() else
@@ -442,12 +475,15 @@ class Discovery:
             self.queued_ids.discard(item['id'])
             if not current or not self.auto_eligible(current): continue
             try:
+                self.record_scan_role(current,stage='Assessment requested',assessment_requested=True)
                 with opportunity_scope(item['id']):
                     imported = self.import_role(item['id'], analyze=True, automatic=True)
                 last_job = imported.get('job_id') if imported else None
+                self.record_scan_role(current,stage='Assessment started',job_id=last_job)
             except Exception as exc:
                 from .retrieval import RetrievalError
                 error = str(exc) if isinstance(exc,(RetrievalError,Conflict,Missing)) else 'Automatic assessment stopped. Retry explicitly from the role.'
+                self.record_scan_role(current,stage='Assessment blocked',error=error)
                 with self.db() as db:
                     db.execute("UPDATE automatic_assessments SET state='FAILED',error=? WHERE opportunity_id=?",(error,item['id']))
                     db.execute('UPDATE opportunities SET assessment_state=? WHERE id=?',(error,item['id']))
