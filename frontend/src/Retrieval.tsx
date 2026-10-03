@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { ContextKeywords } from "./ContextKeywords";
+import { CandidateSkills } from "./CandidateSkills";
 
 type Usage = { cap_usd: number | null; estimated_cost_usd: number; reserved_unknown_usd: number; calls: number };
 type Source = { id: string; title: string; employer: string; project: string; source_class: string; category: "story" | "coaching"; revision: string | null; ready: boolean; state: string; error: string | null; preparation_error?: string; text?: string };
@@ -117,7 +118,8 @@ export function Retrieval({ initialAdd = false }: { initialAdd?: boolean }) {
 
   return <section className="retrieval panel" aria-labelledby="retrieval-title">
     <h1 id="retrieval-title">Your context library</h1>
-    {status && <ContextKeywords revision={status.source_sha256}/> }
+    <CandidateSkills />
+    {status && <details><summary>Current discovery keywords (legacy matcher)</summary><ContextKeywords revision={status.source_sha256}/></details> }
     <p>Experience evidence and coaching guidance, kept separate.</p>
     {error && <div role="alert" className="error"><strong>The action did not complete.</strong><p>{error}</p></div>}
     {notice && <p role="status" className="notice">{notice}</p>}

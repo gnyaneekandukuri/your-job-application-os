@@ -35,6 +35,8 @@ from .selected_assessments import SelectedAssessments
 from .discovery import Discovery, Settings as DiscoverySettings, DescriptionInput
 from .discovery_keywords import TargetInput, library_sources
 from .discovery_preferences import load_preferences
+from .skills_profile import SkillsProfile, BuildSkills, ResumeInput, LinkedInInput, SkillEdit
+from threading import Thread
 from .user_workspace import initialize, SetupInput, save_setup, setup_view, default_data_directory
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -56,6 +58,9 @@ def create_app(data_dir: Path | None = None):
         api.state.service = ReviewService(store, build_graph(saver))
         api.state.retrieval = RetrievalService(private_dir / "retrieval.sqlite3", workspace / SOURCE, OpenAIProvider(allow_generation=False, allow_embeddings=True))
         api.state.library = StoryLibrary(workspace, private_dir, OpenAIProvider(allow_generation=False, allow_embeddings=True))
+        api.state.skills = SkillsProfile(api.state.library, OpenAIProvider(allow_generation=True, allow_embeddings=False))
+        if data_dir is None:
+            Thread(target=api.state.skills.watch, daemon=True).start()
         api.state.analysis = RoleAnalysis(api.state.retrieval, api.state.library)
         api.state.discovery = Discovery(private_dir / "discovery.sqlite3", api.state.service, api.state.analysis, sources=lambda: library_sources(api.state.library))
         if data_dir is None:
@@ -65,6 +70,7 @@ def create_app(data_dir: Path | None = None):
         try:
             yield
         finally:
+            api.state.skills.close()
             api.state.discovery.close()
             api.state.analysis.close()
             connection.close()
@@ -81,7 +87,7 @@ def create_app(data_dir: Path | None = None):
             origin = request.headers.get("origin")
             if origin and origin != str(request.base_url).rstrip("/"):
                 return JSONResponse({"detail": "Cross-origin writes are not allowed."}, status_code=403)
-            limit = 2_800_000 if request.url.path == "/api/library/upload" else 300000
+            limit = 2_800_000 if request.url.path in ("/api/library/upload", "/api/library/skills/resume") else 300000
             if len(await request.body()) > limit:
                 return JSONResponse({"detail": "Request too large."}, status_code=413)
         response = await call_next(request)
@@ -129,6 +135,30 @@ def create_app(data_dir: Path | None = None):
     @api.get("/api/assessments")
     def assessment_results(request: Request):
         return request.app.state.discovery.assessment_results()
+
+    @api.get("/api/library/skills")
+    def skills_status(request: Request):
+        return request.app.state.skills.view()
+
+    @api.post("/api/library/skills/build")
+    def skills_build(data: BuildSkills, request: Request):
+        return request.app.state.skills.start()
+
+    @api.post("/api/library/skills/resume")
+    def skills_resume(data: ResumeInput, request: Request):
+        return request.app.state.skills.upload_resume(data)
+
+    @api.post("/api/library/skills/resume/remove")
+    def skills_remove_resume(request: Request):
+        return request.app.state.skills.remove_resume()
+
+    @api.post("/api/library/skills/linkedin")
+    def skills_linkedin(data: LinkedInInput, request: Request):
+        return request.app.state.skills.linkedin(data)
+
+    @api.post("/api/library/skills/edit")
+    def skills_edit(data: SkillEdit, request: Request):
+        return request.app.state.skills.edit(data)
 
     @api.get("/api/library/keywords")
     def library_keywords(request: Request):

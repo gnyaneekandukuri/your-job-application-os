@@ -53,3 +53,29 @@ The profile is saved under the active private data directory, `yc-browser/profil
 The collector scrolls the directory and reads linked job descriptions. Coverage remains partial because company cards can omit roles; the scan reports loaded startups, warnings, and missing descriptions. No posting dates are inferred from sort order or first discovery. YC's sponsorship labels are retained as source claims, not proof of H-1B transfer eligibility. Existing YC IDs retain their history across the public-site to authenticated-directory transition.
 
 Worth checking roles in New opportunities can be selected with checkboxes and submitted together using **Analyze selected**. The local durable queue runs them one at a time after any active scan. Full JDs are required; changed listings must be selected again. Pending selections survive a restart; interrupted or failed paid attempts require an explicit retry. Costs appear by role under API costs (outside automatic scans).
+
+
+### Reusable candidate skills profile
+
+Your context library includes a separate skills profile. Prepare it once to enable
+incremental updates while the local server is running. It reads current firsthand
+stories/raw evidence and the current master resume; coaching guidance is excluded.
+A resume uploaded in this panel replaces the profile's resume input only, not the
+master resume. LinkedIn links can import explicit public skills metadata when
+available; login-only pages need pasted skills or an uploaded profile export.
+Pasted LinkedIn skills and manual additions are listed claims and make no model call.
+
+OpenAI extracts unrestricted skill names, equivalent names, work descriptions and
+exact source quotes from bounded passages. A separate cached consolidation pass
+merges equivalent labels. Extraction does not certify competence or approve resume
+claims. Changed passages are processed incrementally; removed/replaced source
+passages disappear from the active view. Corrections and hidden skills persist.
+
+Requests use the existing Responses provider and shared usage ledger under
+`candidate_skills`, with `store=false`. Assessment generation remains disabled.
+Errors stop automatic preparation until the user resumes; completed passages are
+reused. A server interruption requires explicit resume, avoiding silent repeated
+billing. The profile can be inspected without triggering paid requests. Local
+profile state, uploaded resume text and model outputs live in the private workspace,
+not Git. This profile is not connected to discovery ranking yet: the legacy matcher
+continues until the replacement matching rules are reviewed.

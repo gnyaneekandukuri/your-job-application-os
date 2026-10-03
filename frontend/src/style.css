@@ -891,3 +891,8 @@ footer span {
 .analysis-toolbar label { min-width: 240px; }
 .analysis-toolbar select { display: block; padding: .65rem; width: 100%; }
 .analyzed-jobs td:last-child button { margin-bottom: .5rem; }
+
+.candidate-skills { border-bottom: 1px solid var(--line, #d6ded7); padding-bottom: 24px; margin-bottom: 24px; }
+.skills-inputs { display:grid; grid-template-columns:1fr 1fr; gap:24px; }
+.candidate-skills blockquote { margin:12px 0; padding-left:16px; border-left:2px solid #c4d2c8; white-space:pre-wrap; }
+@media(max-width:800px){.skills-inputs{grid-template-columns:1fr}}
