@@ -896,3 +896,26 @@ footer span {
 .skills-inputs { display:grid; grid-template-columns:1fr 1fr; gap:24px; }
 .candidate-skills blockquote { margin:12px 0; padding-left:16px; border-left:2px solid #c4d2c8; white-space:pre-wrap; }
 @media(max-width:800px){.skills-inputs{grid-template-columns:1fr}}
+
+/* Keep skills intake separate from browsing and give each region its own space. */
+.skills-toolbar { display:flex; flex-wrap:wrap; align-items:center; gap:16px; margin:24px 0; }
+.candidate-skills .skills-search { display:flex; flex-direction:column; gap:8px; margin:24px 0 20px; }
+.candidate-skills .skills-search input { width:100%; min-width:0; box-sizing:border-box; margin:0; }
+.candidate-skills .skills-tags { gap:10px; margin:0 0 20px; min-width:0; }
+.candidate-skills .skills-tags button { max-width:100%; white-space:normal; overflow-wrap:anywhere; text-align:left; margin:0; }
+.skills-show-all { margin:0 0 24px; }
+.candidate-skills > details { margin-top:20px; }
+.skills-dialog { width:min(620px,calc(100vw - 32px)); max-height:calc(100dvh - 48px); overflow:auto; box-sizing:border-box; padding:28px; border:1px solid #c4d2c8; border-radius:14px; color:#20382d; background:#fff; }
+.skills-dialog::backdrop { background:#11291b80; }
+.skills-dialog-heading { display:flex; align-items:flex-start; gap:20px; justify-content:space-between; }
+.skills-dialog-heading h2 { margin:0 0 8px; }
+.skills-dialog-heading p { margin:0; }
+.skills-dialog-heading button { flex-shrink:0; }
+.skills-source-tabs { display:flex; gap:10px; margin:24px 0; }
+.skills-source-tabs button[aria-pressed="true"] { background:#285b48; color:#fff; border-color:#285b48; }
+.skills-dialog fieldset { border:0; padding:0; margin:0; min-width:0; }
+.skills-dialog label { display:flex; flex-direction:column; gap:8px; margin:16px 0; }
+.skills-dialog input,.skills-dialog textarea { width:100%; min-width:0; box-sizing:border-box; margin:0; }
+.skills-dialog .skills-help { font-size:13px; line-height:1.6; color:#65736a; }
+.skills-dialog-actions { display:flex; justify-content:flex-end; gap:12px; margin-top:24px; padding-top:20px; border-top:1px solid #dce5dc; }
+@media(max-width:600px){ .skills-dialog{padding:20px;} .skills-dialog-actions button{flex:1;} }
