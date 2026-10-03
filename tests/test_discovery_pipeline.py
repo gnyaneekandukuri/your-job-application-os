@@ -177,3 +177,17 @@ def test_empty_automatic_dispatch_does_not_recheck_every_listing(tmp_path, monke
 def test_city_labels_do_not_override_foreign_country_or_remote_scope(location,country,status):
     from app.discovery_location import location_match
     assert location_match(location,{'location_filter':{'countries':[country]}})['status']==status
+
+
+@pytest.mark.parametrize('priority',['low','high','worth_checking',None])
+def test_manual_selection_is_allowed_at_every_initial_priority(tmp_path,monkeypatch,priority):
+    with TestClient(create_app(tmp_path)) as client:
+        d=configure(client)
+        oid,_=d.save('yc',row('Own product strategy and delivery. '*10))
+        item=d.view()['items'][0]
+        item['keyword_match']={'priority':priority}
+        monkeypatch.setattr(d,'view',lambda:{'items':[item]})
+        monkeypatch.setattr(d.selected,'start',lambda:None)
+        response=client.post('/api/discovery/assess-selected',headers={'X-Local-Review':'1'},json={'roles':[{'id':oid,'content_hash':item['content_hash']}]})
+        assert response.status_code==200
+        assert response.json()=={'accepted':[oid],'rejected':[]}

@@ -229,6 +229,7 @@ class Discovery:
         """Only data displayed by the discovery UI; full evidence stays in local storage."""
         result = self.view()
         assessments = self.assessment_results()
+        result['run_reports'] = assessments.get('scans', [])
         result['pipeline'] = {**assessments['counts'], 'queued':assessments['queued_count']}
         with self.db() as db:
             result['recent_scans'] = [{'started':r['started'], 'finished':r['finished'],
@@ -281,6 +282,7 @@ class Discovery:
             if state == 'COMPLETE':
                 pursuit = PursuitService(self.analysis).view(job)
                 result['recommendation'] = (pursuit.get('result') or {}).get('recommendation')
+                result['rationale'] = (pursuit.get('result') or {}).get('rationale','')
                 result['choice'] = (pursuit.get('choice') or {}).get('choice')
                 automatic = pursuit.get('automatic') or {}
                 result['recommendation_state'] = automatic.get('state','PENDING')

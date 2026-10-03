@@ -33,7 +33,6 @@ class SelectedQueue:
                 item = items.get(selected.id)
                 reason = ('Role no longer exists.' if not item else
                           'Listing changed. Review it before selecting again.' if selected.content_hash != item['content_hash'] or item['description_changed'] else
-                          'Only Worth checking roles can be selected here.' if item.get('keyword_match',{}).get('priority') != 'worth_checking' else
                           'Add the full JD first.' if len(item.get('description','')) < 200 else
                           'Already being assessed or complete.' if item.get('assessment',{}).get('state') in ('COMPLETE','RUNNING') or item.get('queued_for_assessment') else None)
                 if reason:

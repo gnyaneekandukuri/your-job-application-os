@@ -60,8 +60,8 @@ const labels = {
 function App() {
   const [addContext, setAddContext] = useState(false);
   const [opportunityToReview,setOpportunityToReview]=useState<string|null>(null);
-  const [assessmentTab,setAssessmentTab]=useState("decision");
-  const [page, setPage] = useState<"queue" | "retrieval" | "discovery" | "discovery-runs" | "assessments" | "usage">(window.location.hash === "#usage" ? "usage" : "assessments");
+  const [assessmentTab,setAssessmentTab]=useState("worth");
+  const [page, setPage] = useState<"queue" | "retrieval" | "discovery" | "discovery-runs" | "assessments" | "usage">(window.location.hash === "#usage" ? "usage" : "discovery");
   const [jobs, setJobs] = useState<Review[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
@@ -255,20 +255,20 @@ function App() {
       </aside>
       <main>
         <nav className="filters" aria-label="Workspace views">
-          <button aria-pressed={page === "assessments"} onClick={() => {setAssessmentTab("decision");setPage("assessments");}}>Your jobs</button>
+          <button aria-pressed={page === "assessments" || page === "discovery"} onClick={() => {setOpportunityToReview(null);setPage("discovery");}}>Your jobs</button>
           <button aria-pressed={page === "queue"} onClick={() => { setPage("queue"); setRoleOpen(false); setCreating(false); }}>Saved roles</button>
-          <button aria-pressed={page === "discovery"} onClick={() => {setOpportunityToReview(null);setPage("discovery");}}>Discover more</button>
           <button aria-pressed={page === "usage"} onClick={() => setPage("usage")}>API costs</button>
           <button aria-pressed={page === "discovery-runs"} onClick={() => setPage("discovery-runs")}>Discovery runs</button>
           <button aria-pressed={page === "retrieval"} onClick={() => { setAddContext(false); setPage("retrieval"); }}>Your context</button>
         </nav>
-        {page === "usage" ? <Usage /> : page === "assessments" ? <AssessmentResults onUpdatedJD={id=>{setOpportunityToReview(id);setPage("discovery");}} key={assessmentTab} onDiscover={()=>{setOpportunityToReview(null);setPage("discovery");}} initialTab={assessmentTab} onOpen={async (id) => { await refresh(); setSelected(id); setPage("queue"); setRoleOpen(true); setCreating(false); }} /> : page === "discovery" || page === "discovery-runs" ? <Discovery initialReviewId={opportunityToReview} onResults={(tab="decision") => {setAssessmentTab(tab);setPage("assessments");}} view={page === "discovery-runs" ? "runs" : "opportunities"} onOpen={async (id) => { await refresh(); setSelected(id); setPage("queue"); setRoleOpen(true); setCreating(false); }} /> : page === "retrieval" ? <Retrieval initialAdd={addContext} /> : <>
-        {roleOpen && <button className="text-action" onClick={()=>{setAssessmentTab("decision");setPage("assessments");}}>← Back to my next steps</button>}
+        {(page==='discovery'||page==='assessments')&&<header className="jobs-heading"><h1>Your jobs</h1><p>Find a job → Understand the fit → Decide whether to tailor.</p><nav className="decision-tabs" aria-label="Job stages"><button aria-pressed={page==='discovery'} onClick={()=>{setOpportunityToReview(null);setPage('discovery');}}>New jobs</button><button aria-pressed={page==='assessments'} onClick={()=>{setAssessmentTab('worth');setPage('assessments');}}>Analyzed jobs</button></nav></header>}
+        {page === "usage" ? <Usage /> : page === "assessments" ? <AssessmentResults onUpdatedJD={id=>{setOpportunityToReview(id);setPage("discovery");}} key={assessmentTab} onDiscover={()=>{setOpportunityToReview(null);setPage("discovery");}} initialTab={assessmentTab} onOpen={async (id) => { await refresh(); setSelected(id); setPage("queue"); setRoleOpen(true); setCreating(false); }} /> : page === "discovery" || page === "discovery-runs" ? <Discovery initialReviewId={opportunityToReview} onResults={(tab="worth") => {setAssessmentTab(tab);setPage("assessments");}} view={page === "discovery-runs" ? "runs" : "opportunities"} onOpen={async (id) => { await refresh(); setSelected(id); setPage("queue"); setRoleOpen(true); setCreating(false); }} /> : page === "retrieval" ? <Retrieval initialAdd={addContext} /> : <>
+        {roleOpen && <button className="text-action" onClick={()=>{setAssessmentTab("worth");setPage("assessments");}}>← Back to analyzed jobs</button>}
         <header>
           <div>
             <div className="eyebrow">YOUR JOB SEARCH, ONE STEP AT A TIME</div>
             <h1>{creating ? "Add a role" : roleOpen ? "Role workspace" : "Saved roles"}</h1>
-            <p>{roleOpen && !creating ? "Read the assessment, then choose “I want to apply” or “Pass”. Your chosen jobs go into My application list." : "Choose a saved role to open its analysis, or add a new link."}</p>
+            <p>{roleOpen && !creating ? "Review the evidence and recommendation, then decide whether to prepare an application or pass." : "Choose a saved role to open its analysis, or add a new link."}</p>
           </div>
           <button
             className="primary"

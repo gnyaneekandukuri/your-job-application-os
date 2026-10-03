@@ -884,3 +884,10 @@ footer span {
 .secondary-work { margin-top: 2rem; border-top: 1px solid #dce4dc; padding-top: 1rem; }
 .secondary-work > summary { color: #607264; margin-bottom: 1rem; }
 .application-choice { display: flex; gap: .75rem; margin-top: 1rem; flex-wrap: wrap; }
+
+.jobs-heading { display: block; margin-bottom: 1.25rem; }
+.jobs-heading .decision-tabs { margin-top: 1rem; }
+.analysis-toolbar { display: flex; flex-wrap: wrap; align-items: end; gap: 1rem; }
+.analysis-toolbar label { min-width: 240px; }
+.analysis-toolbar select { display: block; padding: .65rem; width: 100%; }
+.analyzed-jobs td:last-child button { margin-bottom: .5rem; }

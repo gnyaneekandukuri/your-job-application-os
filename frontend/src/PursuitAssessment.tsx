@@ -82,7 +82,7 @@ export function PursuitAssessment({jobId,onChanged=()=>{},onReviewEvidence=()=>{
         <label>{choice!==result.recommendation?'Why do you prefer this pursuit level?':'Reason or feedback (optional)'}<textarea rows={2} maxLength={2000} value={reason} onChange={e=>setReason(e.target.value)}/></label>
         <button onClick={()=>void act(true)}>{busy?'Saving…':view?.choice?'Update my decision':'Save my decision'}</button>
       </fieldset></details>
-      {view?.choice&&<p role="status">{view.choice.choice==='SKIP'?'Saved in Passed over.':'Saved to My application list. Open Your jobs to see it.'}</p>}
+      {view?.choice&&<p role="status">{view.choice.choice==='SKIP'?'Saved in Analyzed jobs → Passed by me.':'Saved as a role to pursue. Find it in Your jobs → Analyzed jobs.'}</p>}
     </>}
     <details><summary>Feedback and criteria improvements</summary><FeedbackLearning jobId={jobId} version={view?.version??null} choice={view?.choice??null} onReviewEvidence={onReviewEvidence} onChanged={()=>{onChanged();void fetch(`/api/jobs/${jobId}/pursuit`).then(r=>r.json()).then(receive).catch(e=>setError(String(e)));}}/></details>
     {error&&<p className="error" role="alert">{error}</p>}
