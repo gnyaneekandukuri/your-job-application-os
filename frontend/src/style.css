@@ -844,3 +844,7 @@ footer span {
 .gap-blocker > .requirement-kind { color: #923d2f; font-weight: 700; }
 .gap-review-kept { padding: .75rem 0; }
 .review-focus-question { border-left: 3px solid #527052; padding: .7rem 1rem; background: #f2f5ed; margin-bottom: 1rem; }
+
+.selection-actions {display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:16px 0;}
+.select-role {display:flex;align-items:center;gap:6px;font-size:.85rem;margin-bottom:8px;}
+.select-role input {width:auto;}

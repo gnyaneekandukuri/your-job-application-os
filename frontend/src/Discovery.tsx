@@ -4,7 +4,7 @@ type KeywordProfile = {experience:{term:string;sources:KeywordSource[]}[];target
 type KeywordMatch = {reason?:string;priority:"high"|"worth_checking"|"low";label:string;experience:{term:string;sources:KeywordSource[];listing:{field:string;excerpt:string}}[];target:{term:string;field:string;excerpt:string}[];different_focus:string[]};
 type Assessment = {state:string;stage?:string;error?:string;score:number|null;provisional?:boolean;recommendation:string|null;choice?:string|null;recommendation_state?:string;recommendation_error?:string};
 type JDDraft = {url:string;id:string;expected_hash:string;title:string;company:string;description:string;extraction_id?:string;warnings?:string[]};
-type Item = {role_classification?:{labels:Record<string,string>;model:string;checked_at:string}|null;queued_for_assessment?:boolean;description_fetch?:{state:string;error:string}|null;automatic_assessment?:{state:string;error:string}|null;assessment?:Assessment;content_hash:string;keyword_match?:KeywordMatch;location_match?:{status:"match"|"outside"|"unclear";reason:string};id:string;title:string;company:string;location:string;url:string;description:string;posted_at:string|null;date_label:string;date_basis:string;funding:string;freshness:string;first_seen:string;last_seen:string;job_id:string|null;description_changed:boolean;assessment_state:string|null;sources:{board:string}[]};
+type Item = {selected_assessment?:{state:string;error:string}|null;role_classification?:{labels:Record<string,string>;model:string;checked_at:string}|null;queued_for_assessment?:boolean;description_fetch?:{state:string;error:string}|null;automatic_assessment?:{state:string;error:string}|null;assessment?:Assessment;content_hash:string;keyword_match?:KeywordMatch;location_match?:{status:"match"|"outside"|"unclear";reason:string};id:string;title:string;company:string;location:string;url:string;description:string;posted_at:string|null;date_label:string;date_basis:string;funding:string;freshness:string;first_seen:string;last_seen:string;job_id:string|null;description_changed:boolean;assessment_state:string|null;sources:{board:string}[]};
 type Diagnostic = {reason:string;kind:string;http_status?:number;host:string;path:string;attempts:number;causes:string[]};
 type Source = {checked_at?:string;state:string;count?:number;error?:string;coverage?:string;warnings?:(string | (Diagnostic & {listing:string}))[];diagnostic?:Diagnostic};
 type YCConnection = {state:string;message:string;busy:boolean;checked_at?:string};
@@ -18,6 +18,9 @@ const when=(date:string)=>new Date(date).toLocaleString();
 const freshnessLabel=(item:Item)=>item.freshness==="within_24h"?"Source reports <24h":item.freshness==="older"?"Older than 24h":item.freshness==="date_only"?"Date only - age uncertain":"Date unknown";
 export function Discovery({onOpen,onResults,view="opportunities"}:{onResults:()=>void;view?:"runs"|"opportunities";onOpen:(jobId:string)=>Promise<void>}) {
  const [state,setState]=useState<State|null>(null);
+ const [selected,setSelected]=useState<Record<string,string>>({});
+ const [selectionNotice,setSelectionNotice]=useState("");
+ const [priorityFilter,setPriorityFilter]=useState("all");
  const [error,setError]=useState("");
  const [busy,setBusy]=useState(false);
  const [filter,setFilter]=useState("all");
@@ -36,7 +39,15 @@ export function Discovery({onOpen,onResults,view="opportunities"}:{onResults:()=
  async function act(work:()=>Promise<void>){setBusy(true);setError("");try{await work();}catch(e){setError(e instanceof Error?e.message:"Action failed");}finally{setBusy(false);}}
  function openJD(item:Item){setError("");setJD({url:item.url,id:item.id,expected_hash:item.content_hash,title:item.title,company:item.company,description:item.description});}
  async function assess(item:Item){await request<{job_id:string}>(`/${item.id}/assess`,{});setState(await request<State>());}
- const rows=(state?.items??[]).filter(item=>item.assessment?.state!=="COMPLETE").filter(item=>(locationFilter==="all"||(item.location_match?.status??"unclear")===locationFilter)&&(boardFilter==="all"||item.sources.some(s=>s.board===boardFilter))&&(filter==="all"||(filter==="recent"?item.freshness==="within_24h":filter==="discovered"?Date.now()-Date.parse(item.first_seen)<86400000:filter==="uncertain"?["date_only","unknown"].includes(item.freshness):item.description.length<200))&&`${item.title} ${item.company} ${item.location}`.toLowerCase().includes(query.toLowerCase()));
+ async function analyzeSelected(){
+  const result=await request<{accepted:string[];rejected:{id:string;reason:string}[]}>("/assess-selected",{roles:Object.entries(selected).map(([id,content_hash])=>({id,content_hash}))});
+  setSelected(current=>Object.fromEntries(Object.entries(current).filter(([id])=>!result.accepted.includes(id))));
+  setSelectionNotice(`${result.accepted.length} roles queued. ${result.rejected.map(r=>`${state?.items.find(i=>i.id===r.id)?.company??'Role'}: ${r.reason}`).join(' ')}`);
+  setState(await request<State>());
+ }
+ const queueActive=(item:Item)=>['QUEUED','RUNNING'].includes(item.selected_assessment?.state??'');
+ const selectable=(item:Item)=>item.keyword_match?.priority==='worth_checking'&&item.description.length>=200&&!item.description_changed&&!item.queued_for_assessment&&!queueActive(item)&&!['RUNNING','COMPLETE'].includes(item.assessment?.state??'');
+ const rows=(state?.items??[]).filter(item=>item.assessment?.state!=="COMPLETE").filter(item=>priorityFilter==="all"||item.keyword_match?.priority===priorityFilter).filter(item=>(locationFilter==="all"||(item.location_match?.status??"unclear")===locationFilter)&&(boardFilter==="all"||item.sources.some(s=>s.board===boardFilter))&&(filter==="all"||(filter==="recent"?item.freshness==="within_24h":filter==="discovered"?Date.now()-Date.parse(item.first_seen)<86400000:filter==="uncertain"?["date_only","unknown"].includes(item.freshness):item.description.length<200))&&`${item.title} ${item.company} ${item.location}`.toLowerCase().includes(query.toLowerCase()));
  return <section className="panel discovery">
   <div className="section-heading"><div><div className="eyebrow">LOCAL JOB DISCOVERY</div><h1>{view==="runs"?"Discovery runs":"New opportunities"}</h1><p>{view==="runs"?"Check job boards and review the latest run.":"Find roles that overlap with your experience and what you want to do next."}</p></div>
   {view==="runs"&&<button className="primary" disabled={busy||state?.running} onClick={()=>void act(async()=>setState(await request<State>("/check",{})))}>{state?.running?(state.scan?.payload.phase==="assessing"?"Assessing High priority jobs...":"Checking boards..."):"Check now"}</button>}</div>
@@ -88,14 +99,17 @@ export function Discovery({onOpen,onResults,view="opportunities"}:{onResults:()=
 
    </details>}
    <div className="opportunity-filters">
+    <label>Priority<select value={priorityFilter} onChange={e=>setPriorityFilter(e.target.value)}><option value="all">All priorities</option><option value="worth_checking">Worth checking</option><option value="high">High priority</option><option value="low">Skip</option></select></label>
     <label>Search<input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Company, role or location"/></label>
     <label>Location<select value={locationFilter} onChange={e=>setLocationFilter(e.target.value)}><option value="match">{state.location_preference?.label || "Preferred country"} matches</option><option value="unclear">Location unclear</option><option value="all">All locations</option></select></label>
     <label>Job board<select value={boardFilter} onChange={e=>setBoardFilter(e.target.value)}><option value="all">All boards</option>{Object.entries(state.boards).map(([id,name])=><option key={id} value={id}>{name}</option>)}</select></label>
     <label>Show<select value={filter} onChange={e=>setFilter(e.target.value)}>{[["all","All saved"],["recent","Source reports <24h"],["discovered","Discovered in last 24h"],["uncertain","Date uncertain"],["missing","Description needed"]].map(([id,label])=><option key={id} value={id}>{label}</option>)}</select></label>
    </div>
+   <div className="selection-actions"><button className="primary" disabled={busy||!Object.keys(selected).length} onClick={()=>void act(analyzeSelected)}>Analyze selected ({Object.keys(selected).length})</button>{Object.keys(selected).length>0&&<button disabled={busy} onClick={()=>setSelected({})}>Clear selection</button>}<small>Choose Worth checking roles · API usage applies</small></div>
+   {selectionNotice&&<p role="status">{selectionNotice} <button onClick={onResults}>View Deep analysis</button></p>}
    <p className="discovery-clock">{rows.length} shown · completed assessments are in <button onClick={onResults}>Deep analysis</button></p>
    {!rows.length?<p>{state.scan?"No saved opportunities match these filters. Try Location unclear or All locations.":"Open Discovery runs and choose Check now to collect listings."}</p>:<div className="discovery-table-scroll" tabIndex={0} role="region" aria-label="All opportunities"><table className="discovery-table opportunities-table"><thead><tr><th scope="col">Company / role</th><th scope="col">Priority / keywords</th><th scope="col">Link</th><th scope="col">Job board</th><th scope="col">Location</th><th scope="col">Posted / freshness</th><th scope="col">Analysis</th></tr></thead><tbody>
-    {rows.map(item=><tr key={item.id}><td><strong>{item.company}</strong><div className="discovery-role">{item.title}</div>{item.role_classification && <small title={`Jev · ${item.role_classification.model} · advisory classification`}>{Object.values(item.role_classification.labels).join(" · ")}</small>}
+    {rows.map(item=><tr key={item.id}><td>{item.keyword_match?.priority==='worth_checking'&&<label className="select-role"><input type="checkbox" aria-label={`Select ${item.company} · ${item.title} for deep analysis`} disabled={busy||!selectable(item)||(!selected[item.id]&&Object.keys(selected).length>=100)} checked={!!selected[item.id]} onChange={e=>{const checked=e.target.checked;setSelectionNotice('');setSelected(current=>{const next={...current};if(checked)next[item.id]=item.content_hash;else delete next[item.id];return next;});}}/>Select</label>}<strong>{item.company}</strong><div className="discovery-role">{item.title}</div>{item.role_classification && <small title={`Jev · ${item.role_classification.model} · advisory classification`}>{Object.values(item.role_classification.labels).join(" · ")}</small>}
      <details className="discovery-row-details"><summary>Job details</summary><p>Funding: {item.funding||"Unknown"}</p><p>First detected: {when(item.first_seen)}<br/>Last seen: {when(item.last_seen)}<br/>Sources: {item.sources.map(s=>state.boards[s.board]||s.board).join(", ")}</p>
      {item.date_basis==="board_timestamp"&&<p>Board timestamp; original publication time not verified.</p>}{item.description_changed&&<p className="notice">Description changed after import. Existing analysis has not been overwritten.</p>}{item.description.length>=20?<pre className="retrieval-source">{item.description}</pre>:<p>Full description needed. This board supplied metadata only.</p>}</details></td>
      <td>{item.keyword_match && <div className="opportunity-priority"><span className={`preference-badge preference-${item.keyword_match.priority}`} title={item.keyword_match.reason}>{item.keyword_match.label}</span>{item.keyword_match.reason&&<details><summary>Why this priority</summary><p>{item.keyword_match.reason}</p></details>}</div>}<div className="keyword-tags">{item.keyword_match?.experience.length ? item.keyword_match.experience.map(match=><span key={match.term}>{match.term}</span>) : <span className="muted">—</span>}</div></td>
@@ -104,12 +118,15 @@ export function Discovery({onOpen,onResults,view="opportunities"}:{onResults:()=
      <td><span className="discovery-status">{freshnessLabel(item)}</span><small>{item.posted_at?(/^\d{4}-\d{2}-\d{2}$/.test(item.posted_at)?item.posted_at:when(item.posted_at)):"Not provided"}</small>{item.date_label&&<small>{item.date_label}</small>}<small>Discovered: {when(item.first_seen)}</small></td>
      <td>
       {item.description.length<200 && item.description_fetch?.state==="NEEDS_PASTE" && <small>Open the listing and paste its full JD.</small>}
+      {item.selected_assessment?.state==="QUEUED"&&<strong role="status">Queued for deep analysis</strong>}
+      {item.selected_assessment?.state==="RUNNING"&&item.assessment?.state!=="RUNNING"&&<strong role="status">Starting analysis</strong>}
+      {item.selected_assessment?.state==="NEEDS_ATTENTION"&&item.selected_assessment.error&&<small role="status">{item.selected_assessment.error}</small>}
       {item.queued_for_assessment && <strong role="status">Queued for automatic analysis</strong>}
       {item.assessment?.state==="RUNNING" && <strong role="status">Analyzing</strong>}
       {["ERROR","INTERRUPTED","NEEDS_ATTENTION"].includes(item.assessment?.state??"") && <strong>Needs attention</strong>}
       {["ERROR","INTERRUPTED","STALE","NEEDS_ATTENTION"].includes(item.assessment?.state??"") && <button onClick={onResults}>View in Deep analysis</button>}
       {item.description.length<200 || item.description_changed ? <button disabled={busy} onClick={()=>openJD(item)}>{item.description_changed ? "Review updated JD" : "Get full JD"}</button> : <>
-       {!item.queued_for_assessment && ["NOT_STARTED", ""].includes(item.assessment?.state ?? "") && <button disabled={busy} onClick={()=>void act(()=>assess(item))}>{item.job_id ? "Resume / reassess (paid)" : "Save & analyze (paid)"}</button>}
+       {!queueActive(item) && !item.queued_for_assessment && ["NOT_STARTED", ""].includes(item.assessment?.state ?? "") && <button disabled={busy} onClick={()=>void act(()=>assess(item))}>{item.job_id ? "Resume / reassess (paid)" : "Save & analyze (paid)"}</button>}
       </>}
       {item.job_id && item.assessment?.state==="NOT_STARTED" && <button disabled={busy} onClick={()=>void act(()=>onOpen(item.job_id!))}>Open role &amp; analysis</button>}
      </td>

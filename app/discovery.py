@@ -86,6 +86,8 @@ class Discovery:
 
         self.keywords = KeywordIndex(path, sources)
         self.jev = JevClassifier(path)
+        from .selected_assessments import SelectedQueue
+        self.selected = SelectedQueue(self)
 
     @contextmanager
     def db(self):
@@ -161,6 +163,8 @@ class Discovery:
                 attempt = db.execute('SELECT state,attempted_at,error FROM automatic_assessments WHERE opportunity_id=?',(row['id'],)).fetchone()
                 item['automatic_assessment'] = dict(attempt) if attempt else None
                 item['queued_for_assessment'] = row['id'] in self.queued_ids
+                selected = db.execute('SELECT state,error FROM selected_assessments WHERE opportunity_id=?',(row['id'],)).fetchone()
+                item['selected_assessment'] = dict(selected) if selected else None
                 fetched = db.execute('SELECT state,checked_at,error FROM description_fetches WHERE opportunity_id=?',(row['id'],)).fetchone()
                 item['description_fetch'] = dict(fetched) if fetched else None
                 items.append(item)
@@ -316,6 +320,8 @@ class Discovery:
 
     def start(self, boards=None):
         with self.lock:
+            if self.selected.worker and self.selected.worker.is_alive():
+                raise Conflict('Selected assessments are running. Wait for them to finish before starting another scan.')
             if self.worker and self.worker.is_alive(): return self.view()
             self.worker = Thread(target=self.scan, args=(boards,), daemon=True)
             self.worker.start()
@@ -459,12 +465,14 @@ class Discovery:
             return {'job_id': job_id}
 
     def begin_scheduler(self):
+        self.selected.start()
         def loop():
             while not self.stop.wait(20):
                 try:
+                    self.selected.start()
                     with self.lock:
                         cfg = self.settings(); slot = slot_at(datetime.now().astimezone())
-                        if cfg['enabled'] and slot and slot != cfg.get('last_slot') and not (self.worker and self.worker.is_alive()):
+                        if cfg['enabled'] and slot and slot != cfg.get('last_slot') and not (self.worker and self.worker.is_alive()) and not (self.selected.worker and self.selected.worker.is_alive()):
                             self.start(); cfg['last_slot'] = slot
                             with self.db() as db: db.execute('UPDATE config SET payload=? WHERE id=1', (json.dumps(cfg),))
                 except Exception:
@@ -477,3 +485,4 @@ class Discovery:
         self.yc.close()
         if self.scheduler: self.scheduler.join(timeout=2)
         if self.worker: self.worker.join(timeout=25)
+        if self.selected.worker: self.selected.worker.join(timeout=2)

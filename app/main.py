@@ -31,6 +31,7 @@ from .experience_additions import ExperienceAddition, save_addition, retry as re
 
 from . import review_conversation as review_chat
 from . import feedback_learning as learning
+from .selected_assessments import SelectedAssessments
 from .discovery import Discovery, Settings as DiscoverySettings, DescriptionInput
 from .discovery_keywords import TargetInput, library_sources
 from .discovery_preferences import load_preferences
@@ -163,6 +164,10 @@ def create_app(data_dir: Path | None = None):
     @api.post("/api/discovery/{opportunity_id}/description")
     def discovery_save_description(opportunity_id: str, data: DescriptionInput, request: Request):
         return request.app.state.discovery.save_description(opportunity_id, data)
+
+    @api.post("/api/discovery/assess-selected")
+    def discovery_assess_selected(data: SelectedAssessments, request: Request):
+        return request.app.state.discovery.selected.enqueue(data)
 
     @api.post("/api/discovery/{opportunity_id}/assess")
     def discovery_assess(opportunity_id: str, request: Request):

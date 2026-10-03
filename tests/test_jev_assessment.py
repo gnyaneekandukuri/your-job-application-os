@@ -266,3 +266,79 @@ def test_near_tied_provider_disagreement_is_review_only_and_material_disagreemen
     assert response['answers']['q']['confidence']==.29  # Raw provider reply preserved.
     response['answers']['q']['probabilities']={'supports':.1,'transferable':.9,'unclear':0,'irrelevant':0}
     with pytest.raises(JevValidationError):validate_answers(response,questions)
+
+def test_selected_worth_checking_roles_run_once_and_reject_changed_or_short_jds(tmp_path,monkeypatch):
+    monkeypatch.setenv('OPENAI_API_KEY','test-only')
+    def embed(self,endpoint,payload):
+        assert endpoint=='embeddings'
+        return {'data':[{'index':i,'embedding':[1.]+[0.]*1535} for i in range(len(payload['input']))],'usage':{'prompt_tokens':100}}
+    monkeypatch.setattr(OpenAIProvider,'request',embed)
+    original=JevClient.__init__
+    monkeypatch.setattr(JevClient,'__init__',lambda self,engine,post=None:original(self,engine,answer_body))
+    headers={'X-Local-Review':'1'}
+    with TestClient(create_app(tmp_path)) as c:
+        c.post('/api/setup',headers=headers,json={'target_roles':['Product Manager'],'countries':['US']})
+        story=c.post('/api/library/sources',headers=headers,json={'request_id':str(uuid4()),'title':'Product','employer':'Example','project':'Platform',
+            'text':'I owned product management for our AI platform and prioritized the roadmap with customer discovery.'}).json()
+        c.post(f"/api/library/sources/{story['id']}/prepare",headers=headers,json={'expected_revision':story['revision'],'consent_to_send':True})
+        d=c.app.state.discovery
+        ids=[]
+        for n in range(4):
+            item={'source_id':str(n),'title':f'Product Manager {n}','company':f'Example {n}','url':f'https://example.com/{n}',
+                  'location':'New York, USA','description':('Own product discovery and the AI platform roadmap. '*5 if n<3 else 'Short JD'),'posted_at':None}
+            ids.append(d.save('yc',item)[0])
+        items={v['id']:v for v in d.view()['items']}
+        assert all(v['keyword_match']['priority']=='worth_checking' for v in items.values())
+        body={'roles':[{'id':oid,'content_hash':items[oid]['content_hash']} for oid in ids]}
+        start=d.selected.start
+        monkeypatch.setattr(d.selected,'start',lambda:None)
+        response=c.post('/api/discovery/assess-selected',headers=headers,json=body)
+        assert response.status_code==200
+        assert response.json()['accepted']==ids[:3]
+        assert response.json()['rejected'][0]['id']==ids[3]
+        c.post('/api/discovery/assess-selected',headers=headers,json=body)  # Duplicate submission cannot duplicate jobs.
+        with d.db() as db:
+            assert db.execute("SELECT COUNT(*) FROM selected_assessments WHERE state='QUEUED'").fetchone()[0]==3
+            row=db.execute('SELECT payload FROM opportunities WHERE id=?',(ids[2],)).fetchone()
+            changed=json.loads(row[0]);changed['description']+='Changed after selection.'
+            db.execute('UPDATE opportunities SET payload=? WHERE id=?',(json.dumps(changed),ids[2]))
+        start();d.selected.worker.join(20)
+        assert not d.selected.worker.is_alive()
+        with d.db() as db:
+            states={r[0]:r[1] for r in db.execute('SELECT opportunity_id,state FROM selected_assessments')}
+        assert states=={ids[0]:'COMPLETE',ids[1]:'COMPLETE',ids[2]:'NEEDS_ATTENTION'}
+        assert len(c.app.state.service.store.ids())==2
+        usage=c.get('/api/usage').json()['calls']
+        assert all(v.get('scan_id') is None for v in usage)
+        assert any(v.get('opportunity_id')==ids[0] for v in usage)
+        # Identical JDs reuse all successful judgments/vectors for the second role.
+        assert not any(v.get('opportunity_id')==ids[1] for v in usage)
+        result=c.post('/api/discovery/assess-selected',headers=headers,json=body).json()
+        assert not result['accepted']  # Complete and changed jobs cannot dispatch again.
+        assert len(c.get('/api/usage').json()['calls'])==len(usage)
+
+
+def test_selected_queue_stops_remaining_work_on_provider_limit_and_marks_interrupted(tmp_path,monkeypatch):
+    from app.selected_assessments import SelectedQueue
+    with TestClient(create_app(tmp_path)) as c:
+        d=c.app.state.discovery
+        ids=[]
+        for n in range(2):
+            item={'source_id':str(n),'title':'PM','company':'Example','url':f'https://example.com/{n}',
+                  'description':'Responsibilities '*30,'location':'USA','posted_at':None}
+            oid=d.save('yc',item)[0];ids.append(oid)
+            with d.db() as db:db.execute('INSERT INTO selected_assessments VALUES(?,?,?,?)',(oid,d.content_hash(item),'QUEUED',''))
+        attempts=[]
+        def fail(oid):
+            attempts.append(oid)
+            raise RetrievalError('TypeSafe returned HTTP 429')
+        monkeypatch.setattr(d,'import_role',fail)
+        d.selected.start();d.selected.worker.join(5)
+        assert attempts==ids[:1]
+        with d.db() as db:
+            assert all(r[0]=='NEEDS_ATTENTION' for r in db.execute('SELECT state FROM selected_assessments'))
+            db.execute("UPDATE selected_assessments SET state='RUNNING' WHERE opportunity_id=?",(ids[0],))
+        SelectedQueue(d)
+        with d.db() as db:
+            state,error=db.execute('SELECT state,error FROM selected_assessments WHERE opportunity_id=?',(ids[0],)).fetchone()
+            assert state=='NEEDS_ATTENTION' and 'Server stopped' in error
