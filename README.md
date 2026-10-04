@@ -80,7 +80,25 @@ profile state, uploaded resume text and model outputs live in the private worksp
 not Git. Discovery now uses this profile for Jev matching against JD responsibilities.
 Role preferences are checked separately; exact keywords and legacy weights do not
 decide priority. High priority requires confident role and skills alignment with a
-named relevant skill. Hidden skills are excluded; profile edits invalidate cached
+specific skills-fit judgment. Individual skills are classified independently for
+explanation; their ranking or selection confidence cannot block High priority. Hidden skills are excluded; profile edits invalidate cached
 initial verdicts. Refreshing the page never makes paid calls. Existing listings are
 rechecked when included in a subsequent scan. Preferences remain in Your preferences,
 separate from the skills and experience library.
+
+### Evidence-based pursuit decisions
+
+The initial screening policy is in `criteria/discovery-screening.json`. All active
+skills participate, in request-size-bounded batches. Role fit and overall skills
+fit decide priority; independent direct/transferable skill matches explain it.
+
+`criteria/pursuit-policy.json` defines application-effort rules. Casual requires
+at least 50/100 documented fit, a non-provisional score, no more than 50% of core
+requirements with insufficient evidence, and established target-work alignment.
+Otherwise the report says **Review evidence**, rather than automatically endorsing
+an application or rejecting the candidate. Explicit constraint conflicts still
+recommend Skip. Attack Hard retains its stricter dimension and core-evidence rules.
+These are editable, uncalibrated product defaults, not hiring probabilities.
+Existing workspace migrations add the baseline gates while preserving custom
+Attack Hard thresholds. Reports requiring review appear under Analyzed jobs >
+Unfinished / needs review and All analyzed; candidates retain their apply/pass choice.

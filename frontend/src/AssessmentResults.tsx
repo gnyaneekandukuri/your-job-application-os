@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { analysisFilter, type Result } from "./assessmentQueue";
 type State={items:Result[];queued_count:number;settings:{auto_assess:boolean;auto_assess_pause_reason?:string}};
 const filters=[["worth","Worth applying"],["consider_passing","Consider passing"],["all","All analyzed"],["passed","Passed by me"],["issues","Unfinished / needs review"]];
-const recommendation=(r:Result)=>r.assessment.listing_changed?'Review updated JD':r.assessment.state!=='COMPLETE'?'Not finished':r.assessment.recommendation==='SKIP'?'Consider passing':r.assessment.recommendation==='ATTACK_HARD'?'Worth applying · prioritize':'Worth applying';
+const recommendation=(r:Result)=>r.assessment.listing_changed?'Review updated JD':r.assessment.state!=='COMPLETE'?'Not finished':r.assessment.recommendation==='REVIEW'?'Review evidence':r.assessment.recommendation==='SKIP'?'Consider passing':r.assessment.recommendation==='ATTACK_HARD'?'Worth applying · prioritize':'Worth applying';
 export function AssessmentResults({onOpen,onDiscover,onUpdatedJD,initialTab="worth"}:{initialTab?:string;onUpdatedJD:(id:string)=>void;onDiscover:()=>void;onOpen:(id:string)=>Promise<void>}) {
  const [data,setData]=useState<State|null>(null),[filter,setFilter]=useState(filters.some(([id])=>id===initialTab)?initialTab:'worth'),[error,setError]=useState(''),[saving,setSaving]=useState<string|null>(null),[notice,setNotice]=useState('');
  useEffect(()=>{let live=true;let timer:ReturnType<typeof setTimeout>;const controller=new AbortController();

@@ -137,10 +137,19 @@ def recommend(run, interpreted, policy):
         {'label':'Responsibilities match target work', 'passed':not rules['requires_role_content_match'] or any(p.kind=='role_content' and p.finding=='match' for p in interpreted.priorities), 'detail':'Compared with personal target roles, including adjacent product work.'},
         {'label':'Required non-capability checks resolved', 'passed':not rules['requires_no_unresolved_noncapability_requirements'] or not unresolved, 'detail':f'{len(unresolved)} non-capability requirements need confirmation.'},
     ]
-    choice = 'SKIP' if blockers else 'ATTACK_HARD' if all(c['passed'] for c in checks) else 'CASUAL'
+    casual = policy['decision_rules']['casual']
+    casual_checks = [
+        {'label':'Evidence score for applying', 'passed':score['percent'] >= casual['minimum_overall'], 'detail':f"{score['percent']}/100; minimum {casual['minimum_overall']}"},
+        {'label':'Evidence certainty', 'passed':not casual['requires_nonprovisional_score'] or not score.get('provisional'), 'detail':'Provisional evidence needs review before recommending application effort.'},
+        {'label':'Core evidence coverage', 'passed':insufficient <= casual['maximum_core_insufficient_percent'], 'detail':f"{insufficient:.1f}% insufficient; maximum {casual['maximum_core_insufficient_percent']}%"},
+        {'label':'Target work alignment', 'passed':not casual['requires_role_content_match'] or any(p.kind=='role_content' and p.finding=='match' for p in interpreted.priorities), 'detail':'Actual responsibilities must match desired work.'},
+    ]
+    choice = 'SKIP' if blockers else 'REVIEW' if not all(c['passed'] for c in casual_checks) else 'ATTACK_HARD' if all(c['passed'] for c in checks) else 'CASUAL'
+    checks = casual_checks + checks
     rationale = ('The saved JD indicates a conflict with a personal constraint. Review the cited interpretation before deciding.' if blockers else
                  'The documented evidence meets the configured higher-effort criteria and the responsibilities match your target work.' if choice=='ATTACK_HARD' else
-                 'No sourced deal-breaker was identified. Consider applying normally; the evidence does not yet meet every higher-effort criterion.')
+                 'The evidence meets the baseline for applying, but not every higher-effort criterion.' if choice=='CASUAL' else
+                 'Review the evidence before deciding to apply: '+ '; '.join(c['label']+': '+c['detail'] for c in casual_checks if not c['passed'])+' Missing evidence is not proof of missing ability.')
     requirements = {r['id']:r for r in run['requirements']}
     evidence = [{'requirement_id':i, 'requirement':requirements[i]['interpretation'],
                  'alignment':run['results'][i]['judgment']['assessment']['alignment'],
@@ -184,6 +193,11 @@ class PursuitService:
             rules = policy['decision_rules']['attack_hard']
             for name in ('minimum_overall','minimum_actions','minimum_ownership','minimum_scope','maximum_core_insufficient_percent'):
                 if not 0 <= rules[name] <= 100: raise ValueError()
+            casual = policy['decision_rules']['casual']
+            for name in ('minimum_overall', 'maximum_core_insufficient_percent'):
+                if not 0 <= casual[name] <= 100: raise ValueError()
+            for name in ('requires_nonprovisional_score', 'requires_role_content_match'):
+                if not isinstance(casual[name], bool): raise ValueError()
             profile['candidate']['work_authorization']
         except (OSError, ValueError, KeyError, TypeError):
             raise RetrievalError('Personal preferences or pursuit criteria are missing or invalid.',409) from None

@@ -1,13 +1,14 @@
 {
-  "version": "candidate-skills-screen-v3.1",
+  "version": "candidate-skills-screen-v4",
   "decisive_confidence": 0.8,
   "notes": [
     "Preferences determine target role fit separately from experience fit.",
-    "High requires confident role alignment, specific skills alignment and a named matching skill.",
+    "High requires confident role alignment and confident specific skills fit. Skill explanation confidence is not a routing gate.",
     "Equivalent and transferable skills count; lexical weights do not decide priority.",
     "All active skills participate in batches bounded by choice count and complete request size.",
     "Missing evidence, stale profiles and provider failures cannot trigger automatic deep assessment.",
-    "Confidence is a routing threshold, not a calibrated hiring probability."
+    "Confidence is a routing threshold, not a calibrated hiring probability.",
+    "Each skill is assessed independently; relevant skills never compete for a ranked choice."
   ],
   "screen_request_bytes": 48000
 }

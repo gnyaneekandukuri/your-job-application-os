@@ -4,7 +4,7 @@ import { FeedbackLearning } from './FeedbackLearning';
 type Choice = 'SKIP'|'CASUAL'|'ATTACK_HARD';
 const labels:Record<Choice,string>={SKIP:'Pass',CASUAL:'I want to apply',ATTACK_HARD:'Prioritize this application'};
 type Signal={kind:string;finding:string;quote:string;reason:string};
-type Result={recommendation:Choice;rationale:string;score:number;created_at:string;
+type Result={recommendation:Choice|'REVIEW';rationale:string;score:number;created_at:string;
   input_versions:Record<string,string>;source_url:string|null;
   constraints:Signal[];priorities:Signal[];limitations:string[];what_would_change_it:string[];
   checks:{label:string;passed:boolean;detail:string}[];
@@ -20,7 +20,7 @@ export function PursuitAssessment({jobId,onChanged=()=>{},onReviewEvidence=()=>{
   const decision=useRef<HTMLDetailsElement>(null);
   useEffect(()=>{if(reviewRequest&&decision.current){decision.current.open=true;decision.current.scrollIntoView({block:'center',behavior:'smooth'});decision.current.querySelector('textarea')?.focus({preventScroll:true});}},[reviewRequest]);
   useEffect(()=>{onResult?.(view?.result??null);},[view?.result,onResult]);
-  function receive(data:View){setView(data);setChoice(data.choice?.choice??data.result?.recommendation??'CASUAL');setReason(data.choice?.reason??'');}
+  function receive(data:View){setView(data);setChoice(data.choice?.choice??(data.result?.recommendation==='REVIEW'?'CASUAL':data.result?.recommendation)??'CASUAL');setReason(data.choice?.reason??'');}
   useEffect(()=>{
     let cancelled=false;
     async function load(){
@@ -61,10 +61,10 @@ export function PursuitAssessment({jobId,onChanged=()=>{},onReviewEvidence=()=>{
       {!busy&&view.automatic&&<button onClick={()=>void act()}>Retry recommendation</button>}
     </>}
     {result&&<>
-      <h4>Recommendation: {{SKIP:'Consider passing',CASUAL:'Worth considering',ATTACK_HARD:'Prioritize this role'}[result.recommendation]}</h4><p>{result.rationale}</p>
+      <h4>Recommendation: {{REVIEW:'Review evidence before applying',SKIP:'Consider passing',CASUAL:'Worth considering',ATTACK_HARD:'Prioritize this role'}[result.recommendation]}</h4><p>{result.rationale}</p>
       <p>Documented fit: <strong>{result.score}/100</strong>. Personal preferences do not change this score.</p>
       <details><summary>Why this recommendation?</summary>
-        <h4>Criteria for extra effort</h4><ul>{result.checks.map(c=><li key={c.label}><strong>{c.passed?'Meets':'Not yet met'} — {c.label}:</strong> {c.detail}</li>)}</ul>
+        <h4>Application and extra-effort criteria</h4><ul>{result.checks.map(c=><li key={c.label}><strong>{c.passed?'Meets':'Not yet met'} — {c.label}:</strong> {c.detail}</li>)}</ul>
         <h4>Constraints and uncertainties</h4>{result.constraints.map(s=><article key={s.kind}><strong>{s.kind.replaceAll('_',' ')} · {s.finding}</strong><p>{s.reason}</p>{s.quote&&<blockquote>{s.quote}</blockquote>}</article>)}
         <h4>Personal priorities</h4>{result.priorities.map(s=><article key={s.kind}><strong>{s.kind.replaceAll('_',' ')} · {s.finding.replaceAll('_',' ')}</strong><p>{s.reason}</p>{s.quote&&<blockquote>{s.quote}</blockquote>}</article>)}
         {result.source_url&&<a href={result.source_url} target="_blank" rel="noreferrer">Original job posting</a>}

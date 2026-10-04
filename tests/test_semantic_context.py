@@ -63,7 +63,7 @@ def test_first_pass_never_embeds_and_only_high_routes_automatically(tmp_path,mon
         def evaluate(self,job,stage,state,questions):
             calls.append(state)
             label={'Aligned':'strong','Adjacent':'plausible','Other':'mismatch'}[state['job']['title']]
-            return {'fit':{'choice':label,'confidence':1.}, 'role':{'choice':'mismatch' if label=='mismatch' else 'aligned','confidence':1.}, **{'match'+str(n):{'choice':'0' if n==0 else 'none','confidence':1.} for n in range(3)}}
+            return {'fit':{'choice':label,'confidence':1.}, 'role':{'choice':'mismatch' if label=='mismatch' else 'aligned','confidence':1.}, **{'skill_'+str(n):{'choice':'direct','confidence':1.} for n in range(len(state['skills']))}}
     monkeypatch.setattr('app.discovery_screening.JevClient',Classifier)
     profile={'current':True,'target':{'roles':['Product Manager']},'skills':[{'id':'research','name':'Research','aliases':[],'examples':[]}]}
     items=[{'id':title,'title':title,'description':'Original product responsibilities. '*10,'location_match':{'status':'match'},
@@ -82,11 +82,10 @@ def test_priority_requires_semantic_support_and_role_alignment():
     from app.discovery_screening import priority_for
     strong={'choice':'strong','confidence':.95}
     aligned={'choice':'aligned','confidence':.95}
-    assert priority_for(strong,aligned,True)=='high'
-    assert priority_for(strong,aligned,False)=='worth_checking'
-    assert priority_for({**strong,'confidence':.4},aligned,True)=='worth_checking'
-    assert priority_for(strong,{'choice':'mismatch','confidence':.95},True)=='low'
-    assert priority_for(strong,{**aligned,'provider_inconsistent':True},True)=='worth_checking'
+    assert priority_for(strong,aligned)=='high'
+    assert priority_for({**strong,'confidence':.4},aligned)=='worth_checking'
+    assert priority_for(strong,{'choice':'mismatch','confidence':.95})=='low'
+    assert priority_for(strong,{**aligned,'provider_inconsistent':True})=='worth_checking'
 
 
 def test_profile_edits_invalidate_matching_and_hidden_skills_are_excluded():
@@ -123,7 +122,7 @@ def test_all_skills_participate_and_incomplete_profiles_do_not_call_provider(tmp
         def evaluate(self, job, stage, state, questions):
             seen.extend(s['id'] for s in state['skills'])
             return {'fit':{'choice':'strong','confidence':1.},'role':{'choice':'aligned','confidence':1.},
-                    **{'match'+str(n):{'choice':'0' if n==0 else 'none','confidence':1.} for n in range(3)}}
+                    **{'skill_'+str(n):{'choice':'direct','confidence':1.} for n in range(len(state['skills']))}}
     monkeypatch.setattr('app.discovery_screening.JevClient',Classifier)
     profile={'current':False,'target':{'roles':['PM']},'skills':[{'id':str(i),'name':'Skill '+str(i)} for i in range(208)]}
     items=[{'id':'job','title':'PM','description':'Responsibilities '*30}]
@@ -153,3 +152,19 @@ def test_request_packing_bounds_full_payload_without_dropping_skills():
         assert len(json.dumps(body,ensure_ascii=False).encode())<=POLICY['screen_request_bytes']
     with pytest.raises(RetrievalError,match='too large'):
         list(request_batches({**state,'job':{'description':'x'*50000}}))
+
+
+def test_explanation_uncertainty_does_not_suppress_priority(tmp_path,monkeypatch):
+    engine=RetrievalService(tmp_path/'r.sqlite3',tmp_path/'unused',Embeddings())
+    class Classifier:
+        def __init__(self, engine): pass
+        def evaluate(self, job, stage, state, questions):
+            assert not any(k.startswith('match') for k in questions)
+            return {'role':{'choice':'aligned','confidence':.95},'fit':{'choice':'strong','confidence':.95},
+                    'skill_0':{'choice':'direct','confidence':.4},'skill_1':{'choice':'transferable','confidence':.4}}
+    monkeypatch.setattr('app.discovery_screening.JevClient',Classifier)
+    profile={'current':True,'target':{'roles':['PM']},'skills':[{'id':'a','name':'AI agents'},{'id':'b','name':'Evaluation'}]}
+    items=[{'id':'job','title':'PM','description':'Responsibilities '*30}]
+    screen(engine,items,profile,Event());annotate(engine,items,profile)
+    assert items[0]['keyword_match']['priority']=='high'
+    assert items[0]['keyword_match']['experience']==[]

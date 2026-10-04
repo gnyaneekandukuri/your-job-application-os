@@ -1,5 +1,5 @@
 {
-  "schema_version": "0.2.0",
+  "schema_version": "0.3.0",
   "status": "ACTIVE_PRODUCT_DEFAULTS_NOT_HIRING_PROBABILITIES",
   "updated_at": "2026-09-28",
   "personal_context_source": "knowledge/profile.json",
@@ -23,7 +23,8 @@
   "recommendation_categories": [
     "SKIP",
     "CASUAL",
-    "ATTACK_HARD"
+    "ATTACK_HARD",
+    "REVIEW"
   ],
   "decision_rules": {
     "skip": "Only a sourced incompatibility with an explicit profile constraint; never missing career evidence alone.",
@@ -36,10 +37,17 @@
       "requires_role_content_match": true,
       "requires_no_unresolved_noncapability_requirements": true
     },
-    "otherwise": "CASUAL",
+    "otherwise": "REVIEW",
     "unknown_sponsorship_blocks_attack_hard": false,
     "unknown_investors_blocks_attack_hard": false,
-    "company_preferences_change_capability_score": false
+    "company_preferences_change_capability_score": false,
+    "casual": {
+      "minimum_overall": 50,
+      "maximum_core_insufficient_percent": 50,
+      "requires_nonprovisional_score": true,
+      "requires_role_content_match": true
+    },
+    "review": "Insufficient or uncertain evidence: review before recommending application effort; not a rejection."
   },
   "calibration": "Initial explainable product defaults. Review against real user decisions before claiming predictive validity."
 }

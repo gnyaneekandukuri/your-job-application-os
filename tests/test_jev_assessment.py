@@ -144,7 +144,7 @@ def test_complete_workflow_uses_embeddings_but_no_openai_generation(tmp_path,mon
         assert evidence['judgment']['assessment']['review_required'] is uncertain
         pursuit=client.get(f'/api/jobs/{job_id}/pursuit').json()
         assert pursuit['result'],pursuit
-        assert pursuit['result']['recommendation']==('CASUAL' if uncertain else 'ATTACK_HARD')
+        assert pursuit['result']['recommendation']==('REVIEW' if uncertain else 'ATTACK_HARD')
         usage=client.get('/api/usage').json()['calls']
         assert usage and embedding_calls
         assert all(c['provider']=='Jev' or c['kind']=='embedding' for c in usage)

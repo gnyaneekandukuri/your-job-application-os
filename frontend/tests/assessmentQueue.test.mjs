@@ -24,3 +24,9 @@ test('negative recommendations and unfinished work remain accessible separately'
  }
  assert.equal(analysisFilter(role({choice:'SKIP'}),'passed'),true);
 });
+test('evidence review is visible but never labeled worth applying',()=>{
+ const r=role({recommendation:'REVIEW',score:27,provisional:true});
+ assert.equal(analysisFilter(r,'worth'),false);
+ assert.equal(analysisFilter(r,'issues'),true);
+ assert.equal(analysisFilter(r,'all'),true);
+});

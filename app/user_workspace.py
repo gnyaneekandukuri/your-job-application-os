@@ -70,6 +70,17 @@ def initialize(root):
         target = root / "criteria" / source.name
         if not target.exists():
             write_json(target, json.loads(source.read_text(encoding="utf-8")))
+    # Add the new evidence gate without overwriting a candidate's custom thresholds.
+    pursuit_path = root / "criteria/pursuit-policy.json"
+    pursuit = json.loads(pursuit_path.read_text(encoding="utf-8"))
+    if 'casual' not in pursuit['decision_rules']:
+        defaults = json.loads((PRODUCT / 'criteria/pursuit-policy.json').read_text(encoding='utf-8'))
+        pursuit['decision_rules']['casual'] = defaults['decision_rules']['casual']
+        pursuit['decision_rules']['otherwise'] = 'REVIEW'
+        pursuit['decision_rules']['review'] = defaults['decision_rules']['review']
+        pursuit['recommendation_categories'] = list(dict.fromkeys([*pursuit['recommendation_categories'], 'REVIEW']))
+        pursuit['schema_version'] = '0.3.0'
+        write_json(pursuit_path, pursuit)
     protocol = root / "protocols/resume-tailoring-canonical.md"
     if not protocol.exists():
         protocol.parent.mkdir(parents=True, exist_ok=True)
