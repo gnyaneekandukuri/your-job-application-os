@@ -10,7 +10,7 @@ from contextlib import closing
 from datetime import datetime, timezone, timedelta
 from threading import Event, Lock, Thread
 
-VERSION = 'job-list-v3-freshness'
+VERSION = 'job-list-v4-soft-company-preference'
 log = logging.getLogger(__name__)
 
 
@@ -139,8 +139,9 @@ class JobList:
             metadata.pop('assessment_results',None)
             focus = (metadata.get('company_preference') or {}).get('focus','any')
             where, args = ['completed=0'], []
+            include_unknown = company == 'focus' and focus == 'startups'
             if company == 'focus': company = 'startups' if focus == 'startups' else 'established' if focus == 'established' else 'all'
-            if company == 'startups': where.append("company_group IN ('preferred','other_startup')")
+            if company == 'startups': where.append("company_group IN ('preferred','other_startup','unknown')" if include_unknown else "company_group IN ('preferred','other_startup')")
             elif company != 'all': where.append('company_group=?'); args.append(company)
             for column, value in (('location',location),('priority',priority)):
                 if value != 'all': where.append(column+'=?'); args.append(value)

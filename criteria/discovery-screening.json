@@ -1,6 +1,7 @@
 {
   "version": "semantic-screen-v1",
   "decisive_confidence": 0.8,
+  "high_confidence": 0.7,
   "screen_request_bytes": 48000,
   "jd_part_characters": 1800,
   "max_jd_bytes": 60000,
@@ -22,7 +23,7 @@
     "Initial attention priority, not qualification or interview probability.",
     "New or changed JD and source text embeddings are cached; vector comparisons are local.",
     "One bounded Jev priority check uses only three retrieved original passages and preferences.",
-    "High requires model confidence at least 0.8; uncertain results remain Worth checking.",
+    "High requires model confidence at least 0.7; uncertain results remain Worth checking.",
     "Missing descriptions or experience cannot route automatically; skills remain available as exact-match hints."
   ]
 }

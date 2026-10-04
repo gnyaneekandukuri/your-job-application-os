@@ -8,7 +8,14 @@ from .jev_assessment import excerpt_units
 from .discovery_preferences import matches as exact_matches
 
 POLICY = json.loads((Path(__file__).resolve().parents[1]/'criteria/discovery-screening.json').read_text())
-VERSION = POLICY['version'] + ':' + digest(json.dumps(POLICY, sort_keys=True))
+# Model-input cache identity excludes local routing and documentation changes.
+MODEL_POLICY = {k:v for k,v in POLICY.items() if k not in ('decisive_confidence', 'high_confidence', 'notes')}
+VERSION = POLICY['version'] + ':' + digest(json.dumps(MODEL_POLICY, sort_keys=True))
+LEGACY_VERSION = 'semantic-screen-v1:23bbb85d38cface3e3ff7dc29c56d5782635f527c5f26452c5b635b3a94ef1ea'
+_legacy_policy = {**POLICY, 'decisive_confidence': 0.8,
+                  'notes': [note.replace('0.7', '0.8') for note in POLICY['notes']]}
+_legacy_policy.pop('high_confidence', None)
+LEGACY_COMPATIBLE = POLICY['version'] + ':' + digest(json.dumps(_legacy_policy, sort_keys=True)) == LEGACY_VERSION
 
 
 def candidate_profile(view, preferences, passages=None):
@@ -21,10 +28,12 @@ def candidate_profile(view, preferences, passages=None):
             'target': {'roles': preferences.get('target_roles', []), 'keywords': []}}
 
 
-def inputs(item, profile):
+def inputs(item, profile, version=VERSION):
+    if version == LEGACY_VERSION and not LEGACY_COMPATIBLE:
+        version = VERSION
     state = {'job': {k: item.get(k, '') for k in ('title', 'description')},
              'preferences': profile.get('preferences', {'target_roles': profile['target']['roles']})}
-    key = 'discovery-screen:' + digest(json.dumps([VERSION, state, profile.get('context_version'),
+    key = 'discovery-screen:' + digest(json.dumps([version, state, profile.get('context_version'),
               profile.get('current'), profile.get('skills'), item.get('location_match')], sort_keys=True))
     return state, key
 
@@ -32,7 +41,8 @@ def inputs(item, profile):
 def priority_for(answer):
     label = answer['choice']
     if label == 'needs_information': return 'worth_checking'
-    if answer.get('provider_inconsistent') or answer['confidence'] < POLICY['decisive_confidence']:
+    threshold = POLICY['high_confidence'] if label == 'high' else POLICY['decisive_confidence']
+    if answer.get('provider_inconsistent') or answer['confidence'] < threshold:
         return 'worth_checking'
     return label if label in ('high', 'low') else 'worth_checking'
 
@@ -72,7 +82,7 @@ def screen(engine, items, profile, stop):
         if not profile.get('current'):
             counts['needs_profile'] = counts.get('needs_profile', 0)+1
             continue
-        if engine.get(key):
+        if engine.get(key) or engine.get(inputs(item, profile, LEGACY_VERSION)[1]):
             counts['cached'] += 1
             continue
         try:
@@ -124,10 +134,15 @@ def screen(engine, items, profile, stop):
 
 def annotate(engine, items, profile):
     """Read-only: changed sources, skills or preferences invalidate old decisions."""
-    keyed = [(item, inputs(item, profile)[1]) for item in items]
-    cached = engine.get_many([key for _, key in keyed])
-    for item, key in keyed:
-        saved = cached.get(key)
+    keyed = [(item, inputs(item, profile)[1], inputs(item, profile, LEGACY_VERSION)[1]) for item in items]
+    cached = engine.get_many([value for _, key, legacy in keyed for value in (key, legacy)])
+    for item, key, legacy in keyed:
+        saved = cached.get(key) or cached.get(legacy)
+        # Reapply the current local cutoff to saved provider answers without a call.
+        if saved and saved.get('answer'):
+            saved = {**saved, 'priority': priority_for(saved['answer'])}
+            if saved['priority'] == 'high':
+                saved['reason'] = 'Specific work in this role connects with your experience and preferences.'
         item['initial_evaluation'] = saved
         complete = saved and saved['state'] == 'classified' and profile.get('current')
         missing = len(item.get('description', '').strip()) < 200

@@ -77,10 +77,11 @@ def _company_fit(name, description, funding, url, focus, wanted_stages, prefer_b
         order=(wanted.index(stage) if stage in wanted else 0 if not wanted else len(wanted)+1)
     else:group='unknown';label='Company stage unknown';order=100
     focus=preference.get('focus', 'startups' if preference['startup_preference'] else 'any')
-    allowed=(focus=='any' or (focus=='established' and group=='established') or (focus=='startups' and group in ('preferred','other_startup')))
+    allowed=(group=='unknown' or focus=='any' or (focus=='established' and group=='established') or (focus=='startups' and group in ('preferred','other_startup')))
     return {'group':group,'label':label,'stage':stage,'backing_reported':backed,'evidence':evidence,
             'automatic_allowed':allowed,'sort_order':order, 'backing_boost':int(backed and preference.get('strong_backing_preferred',False)),
-            'reason':('Matches your company preferences.' if allowed else
+            'reason':('Company type is unverified; this does not reduce role alignment.' if group=='unknown' else
+                      'Matches your company preferences.' if allowed else
                       'Company type does not match your established-company preference.' if focus=='established' else
                       'Established company, outside your startup preference.' if established else
                       'Startup reported; funding stage is a preference, not an exclusion.' if startup else
@@ -90,7 +91,5 @@ def _company_fit(name, description, funding, url, focus, wanted_stages, prefer_b
 def apply_company_priority(items):
     for item in items:
         match=item.get('keyword_match');fit=item.get('company_fit')
-        if match and fit and not fit['automatic_allowed'] and match['priority']=='high':
-            match.update(priority='worth_checking',label='Worth checking',reason=fit['reason']+' Role alignment remains available for manual assessment.')
-        elif match and fit and not fit['automatic_allowed'] and match.get('label')=='Not screened':
+        if match and fit and not fit['automatic_allowed'] and match.get('label')=='Not screened':
             match['reason']=fit['reason']+' You can review its role match and select it for manual assessment.'

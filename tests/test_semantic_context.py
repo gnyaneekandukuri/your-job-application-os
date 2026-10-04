@@ -77,8 +77,8 @@ def test_screen_embeds_once_sends_only_retrieved_text_and_routes_confident_high(
             'location_match':{'status':'match'}} for t in ('Strong','Uncertain')]
     assert screen(engine,items,profile,Event())['classified']==2
     annotate(engine,items,profile)
-    assert [i['keyword_match']['priority'] for i in items]==['high','worth_checking']
-    assert [Discovery.auto_eligible(i) for i in items]==[True,False]
+    assert [i['keyword_match']['priority'] for i in items]==['high','high']
+    assert [Discovery.auto_eligible(i) for i in items]==[True,True]
     before=list(provider.inputs)
     assert screen(engine,items,profile,Event())['cached']==2
     annotate(engine,items,profile)
@@ -93,7 +93,8 @@ def test_screen_embeds_once_sends_only_retrieved_text_and_routes_confident_high(
 def test_priority_uncertainty_and_needs_information_never_auto_route():
     from app.discovery_screening import priority_for
     assert priority_for({'choice':'high','confidence':.8})=='high'
-    assert priority_for({'choice':'high','confidence':.79})=='worth_checking'
+    assert priority_for({'choice':'high','confidence':.7})=='high'
+    assert priority_for({'choice':'high','confidence':.69})=='worth_checking'
     assert priority_for({'choice':'high','confidence':1,'provider_inconsistent':True})=='worth_checking'
     assert priority_for({'choice':'needs_information','confidence':1})=='worth_checking'
     assert priority_for({'choice':'low','confidence':.9})=='low'
@@ -162,3 +163,21 @@ def test_resume_only_context_can_match_without_generated_skills(tmp_path,monkeyp
         profile=c.app.state.discovery.screening_profile({'target_roles':['PM']})
         assert profile['current']
         assert any('resume' in p['id'] for p in profile['_passages'])
+
+
+def test_old_answers_are_reused_with_new_cutoff_without_provider_calls(tmp_path):
+    from app.discovery_screening import inputs, LEGACY_VERSION, LEGACY_COMPATIBLE
+    provider=Embeddings();engine=RetrievalService(tmp_path/'r.sqlite3',tmp_path/'unused',provider)
+    profile=profile_for()
+    item={'id':'saved','title':'AI PM','description':'Specific responsibilities '*30}
+    assert LEGACY_COMPATIBLE
+    key=inputs(item,profile,LEGACY_VERSION)[1]
+    engine.put(key, {'state':'classified','priority':'worth_checking','reason':'Old cutoff',
+                     'answer':{'choice':'high','confidence':.75},'matches':[]})
+    assert screen(engine,[item],profile,Event())['cached']==1
+    annotate(engine,[item],profile)
+    assert item['keyword_match']['priority']=='high'
+    assert provider.inputs==[]
+    profile['preferences']['target_roles']=['Designer']
+    annotate(engine,[item],profile)
+    assert item['keyword_match']['label']=='Not screened'

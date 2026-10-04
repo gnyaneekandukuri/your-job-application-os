@@ -25,7 +25,7 @@ def test_stage_order_and_historical_rounds():
 def test_no_stage_inference_from_board_or_candidate_requirements():
     for text in ['Experience at a Series A startup required.', 'We are seeking experience with Series A startup customers.', 'We are planning a Series A funding round.']:
         result=fit(text, sources=[{'board':'yc'}])
-        assert result['group']=='unknown' and not result['automatic_allowed']
+        assert result['group']=='unknown' and result['automatic_allowed']
     assert fit('We are an AI startup.')['group']=='other_startup'
 
 
@@ -34,7 +34,7 @@ def test_established_facts_override_old_funding_and_do_not_change_capability():
     assert result['group']=='established' and not result['automatic_allowed']
     item={'company_fit':result,'keyword_match':{'priority':'high'},'assessment':{'score':88}}
     apply_company_priority([item])
-    assert item['keyword_match']['priority']=='worth_checking'
+    assert item['keyword_match']['priority']=='high'
     assert item['assessment']['score']==88
     assert not Discovery.auto_eligible({**item,'keyword_match':{'priority':'high'},'location_match':{'status':'match'},'description':'full JD '*100})
 

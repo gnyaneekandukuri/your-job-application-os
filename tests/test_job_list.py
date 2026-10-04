@@ -150,3 +150,11 @@ def test_freshness_filters_keep_unknown_and_old_jobs_accessible(model):
     assert m.page(show='all')['total'] == 4
     assert m.page(show='recent')['freshness_counts'] == {'recent':1, 'older':1, 'uncertain':2}
     assert m.page(show='recent',location='all')['freshness_counts']['recent'] == 2
+
+
+def test_startup_focus_keeps_unknown_companies_visible(model):
+    m,source,_=model
+    source['items']=[listing(1),listing(2,company_fit={'group':'unknown','sort_order':100}),listing(3,company_fit={'group':'established'})]
+    m.refresh()
+    assert m.page()['total']==2
+    assert m.page(company='startups')['total']==1
