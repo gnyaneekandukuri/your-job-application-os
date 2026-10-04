@@ -443,6 +443,7 @@ class Discovery:
         return self.view()
 
     def scan(self, boards=None):
+        include_leads = boards is None and self.collector == self.collect_board
         boards = list(boards) if boards is not None else list(BOARDS)
         if not boards or any(board not in BOARDS for board in boards):
             raise ValueError("Unknown discovery source")
@@ -468,6 +469,12 @@ class Discovery:
                     code = getattr(getattr(exc, 'response', None), 'status_code', None)
                     result['sources'][board] = {'state': getattr(exc, 'source_state', 'blocked' if code in (403, 429) else 'error'), 'error': f'{type(exc).__name__}' + (f' (HTTP {code})' if code else ''), 'checked_at': now(), 'diagnostic': getattr(exc, 'discovery_diagnostic', diagnose(exc))}
                 with self.db() as db: db.execute('UPDATE scans SET payload=? WHERE id=?', (json.dumps(result), sid))
+            if include_leads and not self.stop.is_set():
+                from .source_leads import refresh
+                result['phase'] = 'company_leads'
+                with self.db() as db: db.execute('UPDATE scans SET payload=? WHERE id=?', (json.dumps(result), sid))
+                leads = refresh(self.path.parent, self.stop)
+                result['lead_sources'] = {s['id']: {k: s.get(k) for k in ('state', 'checked_at', 'error')} for s in leads}
             result['phase'] = 'descriptions'
             with self.db() as db: db.execute('UPDATE scans SET payload=? WHERE id=?',(json.dumps(result),sid))
             result['descriptions'] = self.complete_descriptions(pending)

@@ -52,6 +52,14 @@ The profile is saved under the active private data directory, `yc-browser/profil
 
 The collector scrolls the directory and reads linked job descriptions. Coverage remains partial because company cards can omit roles; the scan reports loaded startups, warnings, and missing descriptions. No posting dates are inferred from sort order or first discovery. YC's sponsorship labels are retained as source claims, not proof of H-1B transfer eligibility. Existing YC IDs retain their history across the public-site to authenticated-directory transition.
 
+### Additional public sources
+
+Full discovery runs also check HN's official hiring-thread API, Lenny's Jobs, and Cosign. HN collection looks for explicit PM titles in top-level comments from the latest hiring thread posted within 24 hours (up to 400 comments). That is the hiring comment's date, not the employer's original vacancy date. Informal titles may be missed.
+
+Lenny's uses a fresh anonymous Edge session with the optional Playwright dependency above. It reads only the first publicly available PM results page. Its gated date filter is not used, and update timestamps are not treated as posting dates. Cosign supplies only its public subset; fuller account-only results are not collected. These sources report partial coverage, including when no PM listings appear in their public preview. Missing JDs enter the existing description-retrieval flow.
+
+Breakout List companies, Ramp vendor-report links, and Next Play's public RSS issues appear under **Discovery runs → Company and newsletter leads**. They refresh during full scans, stay in the local `source-leads.sqlite3` database, and never automatically become jobs or trigger model calls. Failed reads retain the last successful results with a visible error. Newsletter publication dates are not job-posting dates; paid/private issue content is not fetched. These connectors do not yet extract individual openings from newsletters or monitor each listed company's career site.
+
 Worth checking roles in New opportunities can be selected with checkboxes and submitted together using **Analyze selected**. The local durable queue runs them one at a time after any active scan. Full JDs are required; changed listings must be selected again. Pending selections survive a restart; interrupted or failed paid attempts require an explicit retry. Costs appear by role under API costs (outside automatic scans).
 
 

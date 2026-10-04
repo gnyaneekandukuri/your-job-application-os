@@ -11,7 +11,8 @@ from .extraction import JsonLdParser, plain_text
 from .discovery_network import BoardClient, recover, diagnose
 
 BOARDS = {'yc': 'Y Combinator', 'builtin': 'Built In', 'a16z': 'a16z',
-          'sequoia': 'Sequoia', 'lightspeed': 'Lightspeed', 'linkedin': 'LinkedIn'}
+          'sequoia': 'Sequoia', 'lightspeed': 'Lightspeed', 'linkedin': 'LinkedIn',
+          'hn': 'HN Who is hiring', 'lenny': "Lenny’s Jobs", 'cosign': 'Cosign'}
 UNAVAILABLE = {'wellfound': 'Direct access blocked (403)', 'khosla': 'Direct access blocked (403)',
                'index': 'Direct access blocked (403)', 'welcome_to_the_jungle': 'Collection not verified'}
 CONSIDER = {'a16z': ('https://portfoliojobs.a16z.com', 'andreessen-horowitz'),
@@ -134,8 +135,18 @@ def listing_freshness(item, current=None):
 
 def collect(board, stop=None, countries=None):
     rows, warnings = [], []
+    if board == 'lenny':
+        from .community_sources import collect_lenny
+        return collect_lenny(stop)
     with BoardClient(stop=stop, timeout=20, follow_redirects=False, trust_env=False) as client:
-        if board == 'linkedin':
+        if board == 'hn':
+            from .community_sources import collect_hn
+            rows, coverage, warnings = collect_hn(client, fetch)
+        elif board == 'cosign':
+            from .community_sources import cosign_rows
+            rows = cosign_rows(fetch(client, 'https://cosign.co/jobs'))
+            coverage = 'Partial coverage: Cosign public subset only. Fuller results require sign-in; missing descriptions need retrieval or paste.'
+        elif board == 'linkedin':
             from .linkedin_source import collect_linkedin
             rows, coverage, warnings = collect_linkedin(client, fetch, countries, stop)
         elif board in CONSIDER:

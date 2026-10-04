@@ -120,6 +120,11 @@ def create_app(data_dir: Path | None = None):
     def discovery_status(request: Request):
         return request.app.state.discovery.table_view()
 
+    @api.get("/api/discovery/leads")
+    def discovery_leads(request: Request):
+        from .source_leads import view
+        return view(request.app.state.discovery.path.parent)
+
     @api.get("/api/discovery/status")
     def job_list_status(request: Request):
         return request.app.state.job_list.status()
