@@ -9,7 +9,7 @@ test('only current chosen pursuits enter shortlist',()=>{assert.equal(queueGroup
 test('outdated and failed work cannot enter shortlist',()=>{for(const state of ['STALE','ERROR','INTERRUPTED','NOT_STARTED'])assert.equal(queueGroup(role({state,choice:'ATTACK_HARD'})),'attention');assert.equal(queueGroup(role({choice:'CASUAL',listing_changed:true})),'decision');});
 test('next action explains changed and unfinished work',()=>{assert.equal(nextAction(role({listing_changed:true})),'Review changed job description');assert.equal(nextAction(role({state:'STALE'})),'Review outdated assessment');assert.equal(queueGroup(role({state:'RUNNING'})),'running');});
 
-test('analyzed jobs default to current positive recommendations',()=>{
+test('worth applying filter contains only current positive recommendations',()=>{
  assert.equal(analysisFilter(role({}), 'worth'),true);
  assert.equal(analysisFilter(role({recommendation:'SKIP'}),'worth'),false);
  assert.equal(analysisFilter(role({choice:'SKIP'}),'worth'),false);
@@ -29,4 +29,11 @@ test('evidence review is visible but never labeled worth applying',()=>{
  assert.equal(analysisFilter(r,'worth'),false);
  assert.equal(analysisFilter(r,'issues'),true);
  assert.equal(analysisFilter(r,'all'),true);
+});
+
+test('completed scores remain visible when the recommendation failed',()=>{
+ const r=role({recommendation:null,recommendation_error:'Request too large'});
+ assert.equal(analysisFilter(r,'all'),true);
+ assert.equal(analysisFilter(r,'worth'),false);
+ assert.equal(analysisFilter(r,'issues'),true);
 });

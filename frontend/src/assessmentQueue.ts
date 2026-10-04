@@ -24,7 +24,7 @@ export function analysisFilter(r:Result,filter:string):boolean {
  const a=r.assessment;
  const completed=a.state==='COMPLETE'&&!!a.recommendation;
  if(filter==='issues')return !completed||!!a.listing_changed||a.recommendation==='REVIEW';
- if(filter==='all')return completed;
+ if(filter==='all')return a.state==='COMPLETE';
  if(filter==='passed')return completed&&a.choice==='SKIP';
  if(!completed||a.listing_changed||a.choice==='SKIP')return false;
  return filter==='worth'?['CASUAL','ATTACK_HARD'].includes(a.recommendation!):filter==='consider_passing'?a.recommendation==='SKIP':false;
