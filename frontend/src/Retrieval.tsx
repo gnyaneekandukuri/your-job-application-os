@@ -1,3 +1,4 @@
+import { Setup } from "./Setup";
 import { useEffect, useRef, useState } from "react";
 import { CandidateSkills } from "./CandidateSkills";
 
@@ -117,6 +118,7 @@ export function Retrieval({ initialAdd = false }: { initialAdd?: boolean }) {
 
   return <section className="retrieval panel" aria-labelledby="retrieval-title">
     <h1 id="retrieval-title">Your context library</h1>
+    <Setup embedded />
     {error && <div role="alert" className="error"><strong>The action did not complete.</strong><p>{error}</p></div>}
     {notice && <p role="status" className="notice">{notice}</p>}
     {busy && <p role="status" className="notice">{activity}</p>}

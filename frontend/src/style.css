@@ -983,3 +983,15 @@ summary { cursor:pointer; font-size:14px; line-height:1.5; }
 
 .usage-panel { padding:24px; }
 @media(max-width:700px) { .usage-panel { padding:18px; } }
+
+.context-preferences { margin:24px 0 32px; padding-bottom:28px; border-bottom:1px solid #dce5dc; }
+.workspace-setup { max-width:640px; margin:40px auto; padding:24px; }
+.job-preference-summary { display:grid; gap:14px; margin:0 0 20px; }
+.job-preference-summary div { display:grid; grid-template-columns:110px minmax(0,1fr); gap:14px; }
+.job-preference-summary dt { font-weight:600; }
+.job-preference-summary dd { margin:0; overflow-wrap:anywhere; color:#526359; }
+.job-preference-fields { border:0; padding:0; margin:0; max-width:760px; min-width:0; }
+.job-preference-fields label { display:block; margin:18px 0; }
+.job-preference-fields input,.job-preference-fields select { display:block; width:100%; margin-top:8px; box-sizing:border-box; }
+.job-preference-fields select { min-height:44px; padding:10px 12px; border:1px solid #c8d4cc; border-radius:8px; background:white; font:inherit; }
+@media(max-width:600px) { .job-preference-summary div { grid-template-columns:1fr; gap:4px; } }

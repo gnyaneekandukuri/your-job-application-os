@@ -103,7 +103,7 @@ export function Discovery({onOpen,onResults,initialReviewId,view="opportunities"
   </>:<>
    {state.keyword_profile && <details className="discovery-preferences"><summary>Your preferences</summary>
     <p><strong>Location:</strong> {state.location_preference?.label || "Preferred country"}</p>
-    <p><strong>Company focus:</strong> {companyFocus}{companyFocus==='startups'&&` · ${state.company_preference?.preferred_stages.join(' → ')}`}. Edit in Your preferences.</p>
+    <p><strong>Company focus:</strong> {companyFocus}{companyFocus==='startups'&&` · ${state.company_preference?.preferred_stages.join(' → ')}`}. Edit in Your context → Your job preferences.</p>
     <p><strong>Target roles:</strong> {state.keyword_profile.target.roles.join(", ")}</p>
     <p><strong>Target keywords:</strong> {state.keyword_profile.target.keywords.join(", ") || "None added"}</p>
     {!editingTarget ? <button onClick={()=>{setTargetRoles(state.keyword_profile!.target.roles.join("\n"));setTargetKeywords(state.keyword_profile!.target.keywords.join(", "));setTargetVersion(state.keyword_profile!.target.version);setEditingTarget(true);}}>Edit targets</button> : <form onSubmit={e=>{e.preventDefault();void act(async()=>{setState(await request<State>("/target",{roles:targetRoles.split("\n").map(s=>s.trim()).filter(Boolean),keywords:targetKeywords.split(",").map(s=>s.trim()).filter(Boolean),expected_version:targetVersion}));setEditingTarget(false);});}}>
