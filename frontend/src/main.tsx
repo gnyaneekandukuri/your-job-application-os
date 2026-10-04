@@ -1,3 +1,4 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Usage } from "./Usage";
 import { AssessmentResults } from "./AssessmentResults";
 import { Setup } from "./Setup";
@@ -95,10 +96,12 @@ function App() {
     );
   }
   useEffect(() => {
+    if (page !== "queue" || roleOpen) return;
+    setLoading(true);
     refresh()
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  }, []);
+  }, [page, roleOpen]);
 
   function replace(row: Review) {
     setJobs((current) => [
@@ -236,7 +239,7 @@ function App() {
         </a>
         <div className="workspace-label">PERSONAL WORKSPACE</div>
         <div className="nav-active">
-          Review queue <span>{jobs.length}</span>
+          Review workspace
         </div>
         <div className="sidebar-note">
           <span className="dot" /> Local workspace
@@ -262,7 +265,7 @@ function App() {
           <button aria-pressed={page === "retrieval"} onClick={() => { setAddContext(false); setPage("retrieval"); }}>Your context</button>
         </nav>
         {(page==='discovery'||page==='assessments')&&<header className="jobs-heading"><h1>Your jobs</h1><p>Find a job → Understand the fit → Decide whether to tailor.</p><nav className="decision-tabs" aria-label="Job stages"><button aria-pressed={page==='discovery'} onClick={()=>{setOpportunityToReview(null);setPage('discovery');}}>New jobs</button><button aria-pressed={page==='assessments'} onClick={()=>{setAssessmentTab('worth');setPage('assessments');}}>Analyzed jobs</button></nav></header>}
-        {page === "usage" ? <Usage /> : page === "assessments" ? <AssessmentResults onUpdatedJD={id=>{setOpportunityToReview(id);setPage("discovery");}} key={assessmentTab} onDiscover={()=>{setOpportunityToReview(null);setPage("discovery");}} initialTab={assessmentTab} onOpen={async (id) => { await refresh(); setSelected(id); setPage("queue"); setRoleOpen(true); setCreating(false); }} /> : page === "discovery" || page === "discovery-runs" ? <Discovery initialReviewId={opportunityToReview} onResults={(tab="worth") => {setAssessmentTab(tab);setPage("assessments");}} view={page === "discovery-runs" ? "runs" : "opportunities"} onOpen={async (id) => { await refresh(); setSelected(id); setPage("queue"); setRoleOpen(true); setCreating(false); }} /> : page === "retrieval" ? <Retrieval initialAdd={addContext} /> : <>
+        {page === "usage" ? <Usage /> : page === "assessments" ? <AssessmentResults onUpdatedJD={id=>{setOpportunityToReview(id);setPage("discovery");}} key={assessmentTab} onDiscover={()=>{setOpportunityToReview(null);setPage("discovery");}} initialTab={assessmentTab} onOpen={async (id) => { replace(await api<Review>(`/jobs/${id}`)); setLoading(false); setPage("queue"); }} /> : page === "discovery" || page === "discovery-runs" ? <Discovery initialReviewId={opportunityToReview} onResults={(tab="worth") => {setAssessmentTab(tab);setPage("assessments");}} view={page === "discovery-runs" ? "runs" : "opportunities"} onOpen={async (id) => { replace(await api<Review>(`/jobs/${id}`)); setLoading(false); setPage("queue"); }} /> : page === "retrieval" ? <Retrieval initialAdd={addContext} /> : <>
         {roleOpen && <button className="text-action" onClick={()=>{setAssessmentTab("worth");setPage("assessments");}}>← Back to analyzed jobs</button>}
         <header>
           <div>
@@ -751,4 +754,5 @@ function App() {
   );
 }
 
-createRoot(document.getElementById("root")!).render(<Setup><App /></Setup>);
+const queryClient = new QueryClient({defaultOptions:{queries:{retry:1,staleTime:15000,refetchOnWindowFocus:true}}});
+createRoot(document.getElementById("root")!).render(<QueryClientProvider client={queryClient}><Setup><App /></Setup></QueryClientProvider>);

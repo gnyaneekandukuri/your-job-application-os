@@ -263,10 +263,12 @@ class Discovery:
                 'schedule': ['08:00', '13:00', '20:00']}
 
     @read_snapshot
-    def table_view(self):
+    def table_view(self, include_assessments=False):
         """Only data displayed by the discovery UI; full evidence stays in local storage."""
         result = self.view()
         assessments = self.assessment_results()
+        if include_assessments:
+            result['assessment_results'] = assessments
         result['run_reports'] = assessments.get('scans', [])
         result['pipeline'] = {**assessments['counts'], 'queued':assessments['queued_count']}
         with self.db() as db:

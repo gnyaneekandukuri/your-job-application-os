@@ -10,6 +10,7 @@
     "test:queue": "tsc src/assessmentQueue.ts --target ES2022 --module ES2022 --outDir ../.local/queue-tests --skipLibCheck && node --test tests/assessmentQueue.test.mjs"
   },
   "dependencies": {
+    "@tanstack/react-query": "^5.104.1",
     "react": "19.3.0",
     "react-dom": "19.3.0"
   },

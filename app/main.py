@@ -3,7 +3,7 @@ import sqlite3
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Query
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from langgraph.checkpoint.sqlite import SqliteSaver
@@ -63,13 +63,17 @@ def create_app(data_dir: Path | None = None):
             Thread(target=api.state.skills.watch, daemon=True).start()
         api.state.analysis = RoleAnalysis(api.state.retrieval, api.state.library)
         api.state.discovery = Discovery(private_dir / "discovery.sqlite3", api.state.service, api.state.analysis, sources=lambda: library_sources(api.state.library), skills=api.state.skills)
+        from .job_list import JobList
+        api.state.job_list = JobList(api.state.discovery)
         if data_dir is None:
+            api.state.job_list.start()
             api.state.discovery.begin_scheduler()
         for job_id in store.ids():
             api.state.service.review(job_id)
         try:
             yield
         finally:
+            api.state.job_list.close()
             api.state.skills.close()
             api.state.discovery.close()
             api.state.analysis.close()
@@ -116,6 +120,20 @@ def create_app(data_dir: Path | None = None):
     def discovery_status(request: Request):
         return request.app.state.discovery.table_view()
 
+    @api.get("/api/discovery/status")
+    def job_list_status(request: Request):
+        return request.app.state.job_list.status()
+
+    @api.get("/api/discovery/page")
+    def job_list_page(request: Request, page: int = Query(1, ge=1), size: int = Query(25, ge=1, le=100),
+                      query: str = Query('', max_length=200), priority: str = 'all', location: str = 'match',
+                      company: str = 'focus', board: str = 'all', show: str = 'all', runs: bool = False):
+        return request.app.state.job_list.page(page,size,query,priority,location,company,board,show,runs)
+
+    @api.get("/api/discovery/{opportunity_id}/detail")
+    def job_list_detail(opportunity_id: str, request: Request):
+        return request.app.state.job_list.detail(opportunity_id)
+
     @api.post("/api/discovery/yc/connect")
     def yc_connect(request: Request):
         return request.app.state.discovery.yc.start('login')
@@ -131,6 +149,10 @@ def create_app(data_dir: Path | None = None):
     @api.post("/api/discovery/linkedin/scan")
     def linkedin_scan(request: Request):
         return request.app.state.discovery.start(['linkedin'])
+
+    @api.get("/api/assessments/saved")
+    def saved_assessment_results(request: Request):
+        return request.app.state.job_list.assessments()
 
     @api.get("/api/assessments")
     def assessment_results(request: Request):

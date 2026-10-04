@@ -1,0 +1,138 @@
+import copy
+import json
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import Mock
+import pytest
+from app.job_list import JobList
+
+
+def listing(n, **changes):
+    return {'id':str(n),'company':'Startup','title':f'Product Manager {n}',
+        'location':'USA','description':'Full responsibilities '*1000,
+        'first_seen':'2026-10-01T12:00:00+00:00','last_seen':'2026-10-01T12:00:00+00:00',
+        'freshness':'within_24h','sources':[{'board':'yc'},{'board':'linkedin'}],
+        'assessment':{'state':'NOT_STARTED','score':None},
+        'company_fit':{'group':'preferred','sort_order':0,'backing_boost':1,'evidence':[{'quote':'large evidence'}]},
+        'location_match':{'status':'match'},'keyword_match':{'label':'High priority','priority':'high'},
+        **changes}
+
+
+@pytest.fixture
+def model(tmp_path):
+    root=tmp_path/'workspace';root.mkdir()
+    source={'items':[listing(n) for n in range(61)],'company_preference':{'focus':'startups'},
+        'assessment_results':{'items':[],'counts':{},'queued_count':0,'settings':{}},'boards':{'yc':'YC','linkedin':'LinkedIn'}}
+    d=SimpleNamespace(path=tmp_path/'discovery.sqlite3',analysis=SimpleNamespace(library=SimpleNamespace(root=root)),
+        worker=None,queued_ids=set(),table_view=Mock(side_effect=lambda **kw:copy.deepcopy(source)))
+    result=JobList(d)
+    return result,source,d
+
+
+def test_saved_pages_do_not_recompute_and_details_are_not_transferred(model):
+    m,source,d=model
+    assert not m.page()['ready']
+    assert m.refresh()
+    first=m.page();second=m.page(page=2)
+    assert first['total']==61 and first['pages']==3
+    assert len(first['items'])==len(second['items'])==25
+    assert not {i['id'] for i in first['items']} & {i['id'] for i in second['items']}
+    assert all('description' not in i and i['description_length']>200 for i in first['items'])
+    assert all('evidence' not in i['company_fit'] for i in first['items'])
+    d.table_view.side_effect=AssertionError('Page load must not compute assessments')
+    assert m.page(query='Manager 60')['total']==1  # Searches beyond first page.
+    assert m.page(query="%' OR 1=1 --")['total']==0
+    assert m.page(page=999)['page']==3
+    assert m.page(board='yc')['total']==61
+    assert m.page(board='a16z')['total']==0
+    assert m.page(runs=True)['board_counts']=={'yc':61,'linkedin':61}
+    assert m.assessments()['ready']
+    assert not m.status()['refreshing']
+    assert not m.refresh()
+    assert d.table_view.call_count==1
+
+
+def test_filters_and_refresh_replace_prior_generation(model):
+    m,source,d=model
+    source['items']=[listing(1),listing(2,location_match={'status':'outside'}),
+        listing(3,company_fit={'group':'established'}),
+        listing(4,assessment={'state':'COMPLETE'}),
+        listing(5,keyword_match={'label':'Not screened','priority':'worth_checking'},description='')]
+    m.refresh()
+    assert m.page()['total']==2
+    assert m.page(location='all',company='all')['total']==4
+    assert m.page(priority='high')['total']==1
+    assert m.page(priority='not_screened',show='missing')['total']==1
+    old=m.status()['revision']
+    source['items']=[]
+    (d.analysis.library.root/'preferences.json').write_text('{"roles":["Data PM"]}')
+    assert m.status()['refreshing']
+    assert m.page()['total']==2  # Last complete generation remains usable until replacement.
+    m.refresh()
+    assert m.page()['total']==0 and m.status()['revision']!=old
+    assert not m.status()['refreshing']
+
+
+def test_failure_retains_snapshot_and_exposes_error(model):
+    m,source,d=model;m.refresh()
+    old=m.status()['revision']
+    (d.analysis.library.root/'changed.txt').write_text('changed')
+    d.table_view.side_effect=RuntimeError('unavailable source')
+    assert not m.refresh()
+    assert m.status()['error'] and m.status()['refreshing']
+    assert m.status()['revision']==old and m.page()['total']==61
+    # Read model survives a server restart and has no authority to alter source data.
+    reopened=JobList(d)
+    assert reopened.page()['total']==61
+
+
+def test_change_during_build_remains_marked_stale(model):
+    m,source,d=model
+    def changing(**kw):
+        (d.analysis.library.root/'preferences.json').write_text('changed during build')
+        return copy.deepcopy(source)
+    d.table_view.side_effect=changing
+    m.refresh()
+    assert m.status()['refreshing']
+    d.table_view.side_effect=lambda **kw:copy.deepcopy(source)
+    m.refresh()
+    assert not m.status()['refreshing']
+
+
+def test_time_dependent_filters_expire_without_database_write(model,monkeypatch):
+    m,_,_=model
+    monkeypatch.setattr('app.job_list.time.time',lambda:6000)
+    m.refresh()
+    monkeypatch.setattr('app.job_list.time.time',lambda:6061)
+    assert m.status()['refreshing']
+
+
+def test_api_pagination_validation_and_lazy_detail(tmp_path):
+    from fastapi.testclient import TestClient
+    from app.main import create_app
+    with TestClient(create_app(tmp_path)) as client:
+        client.post('/api/setup',headers={'X-Local-Review':'1'},json={'target_roles':['PM'],'countries':['US']})
+        d=client.app.state.discovery
+        oid,_=d.save('yc',{'source_id':'one','title':'PM','company':'Example','location':'USA',
+            'url':'https://example.com/job','description':'Manage AI products. '*30,'posted_at':None})
+        m=client.app.state.job_list
+        assert m.refresh()
+        response=client.get('/api/discovery/page?company=all').json()
+        assert response['total']==1 and 'description' not in response['items'][0]
+        assert client.get(f'/api/discovery/{oid}/detail').json()['description'].startswith('Manage AI')
+        assert client.get('/api/discovery/missing/detail').status_code==404
+        assert client.get('/api/discovery/page?size=100000').status_code==422
+        assert client.get('/api/discovery/page?page=0').status_code==422
+        assert client.get('/api/assessments/saved').json()['ready']
+
+
+def test_failed_publish_rolls_back_deletes(model):
+    from contextlib import closing
+    m,source,d=model;m.refresh()
+    old=m.status()['revision']
+    with closing(m.connect()) as db, db:
+        db.execute("CREATE TRIGGER fail_publish BEFORE INSERT ON listings BEGIN SELECT RAISE(ABORT,'test failure'); END")
+    (d.analysis.library.root/'changed.txt').write_text('new version')
+    assert not m.refresh()
+    assert m.page()['total']==61 and m.status()['revision']==old
+    assert m.status()['error']
