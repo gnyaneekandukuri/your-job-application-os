@@ -50,8 +50,8 @@ export function Setup({ children }: { children: ReactNode }) {
         <label>Do you require an H-1B transfer?<select value={transfer} onChange={e => setTransfer(e.target.value)}><option value="unknown">Not specified</option><option value="true">Yes</option><option value="false">No</option></select></label>
         <p>Analysis uses your connected OpenAI and TypeSafe accounts. Nothing is sent for analysis during setup.</p>
         {error && <p role="alert">{error}</p>}
-        <button type="submit">{busy ? "Saving…" : "Save preferences"}</button>
-        {complete && <button type="button" onClick={() => setEditing(false)}>Cancel</button>}
+        <div className="preferences-actions"><button type="submit">{busy ? "Saving…" : "Save preferences"}</button>
+        {complete && <button type="button" onClick={() => setEditing(false)}>Cancel</button>}</div>
       </fieldset>
     </form>
   </main>;
