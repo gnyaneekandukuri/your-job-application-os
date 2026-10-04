@@ -6,7 +6,7 @@ const filters=[["worth","Worth applying"],["consider_passing","Consider passing"
 const recommendation=(r:Result)=>r.assessment.listing_changed?'Review updated JD':r.assessment.state!=='COMPLETE'?'Not finished':r.assessment.recommendation==='REVIEW'?'Review evidence':r.assessment.recommendation==='SKIP'?'Consider passing':r.assessment.recommendation==='ATTACK_HARD'?'Worth applying · prioritize':'Worth applying';
 export function AssessmentResults({onOpen,onDiscover,onUpdatedJD,initialTab="worth"}:{initialTab?:string;onUpdatedJD:(id:string)=>void;onDiscover:()=>void;onOpen:(id:string)=>Promise<void>}) {
  const [data,setData]=useState<State|null>(null),[filter,setFilter]=useState(filters.some(([id])=>id===initialTab)?initialTab:'worth'),[error,setError]=useState(''),[saving,setSaving]=useState<string|null>(null),[notice,setNotice]=useState('');
- const status=useQuery({queryKey:['job-list-status'],queryFn:async({signal})=>{const r=await fetch('/api/discovery/status',{signal});if(!r.ok)throw new Error('Could not check saved results.');return r.json() as Promise<{ready:boolean;revision:string;refreshing:boolean;error:string|null}>;},refetchInterval:4000});
+ const status=useQuery({queryKey:['job-list-status'],queryFn:async({signal})=>{const r=await fetch('/api/discovery/status',{signal});if(!r.ok)throw new Error('Could not check saved results.');return r.json() as Promise<{ready:boolean;revision:string;refreshing:boolean;error:string|null}>;},refetchInterval:4000,refetchIntervalInBackground:true});
  useEffect(()=>{if(!status.data?.ready)return;let live=true;const controller=new AbortController();
  const load=async()=>{try{const r=await fetch('/api/assessments/saved',{signal:controller.signal});if(!r.ok)throw new Error('Could not load analyzed jobs.');const value=await r.json();if(live){if(value.ready)setData(value);setError('');}}catch(e){if(live)setError(String(e));}};
  void load();return()=>{live=false;controller.abort();};},[status.data?.revision]);
@@ -28,8 +28,8 @@ export function AssessmentResults({onOpen,onDiscover,onUpdatedJD,initialTab="wor
  return <section className="panel discovery analyzed-jobs">
  {data&&pending>0&&<section className="discovery-preferences" aria-label="Analysis progress" role="status">
   <strong>{active.length} analyzing now · {data.queued_count} queued</strong>
-  {active.map(r=><p key={r.job_id}><strong>{r.company} · {r.title}</strong><br/>{r.assessment.stage||'Preparing analysis…'} <button className="text-action" onClick={()=>void open(r.job_id)}>View progress</button></p>)}
-  <p>Progress updates automatically. Completed results appear in the filters below; a completed analysis may recommend reviewing evidence or passing.</p>
+  {active.map(r=><p key={r.job_id}><strong>{r.company} · {r.title}</strong><br/>{r.assessment.stage?.replace('Matching evidence:', 'Requirements checked for this job:')||'Preparing analysis…'} <button className="text-action" onClick={()=>void open(r.job_id)}>View progress</button></p>)}
+  <p>Analysis continues on the local server when you refresh or leave this page. The counter starts at zero for each new job; completed results appear below.</p>
  </section>}
  <div className="analysis-toolbar"><label>Show<select value={filter} onChange={e=>setFilter(e.target.value)}>{filters.map(([id,label])=><option key={id} value={id}>{label}{data?` (${all.filter(r=>analysisFilter(r,id)).length})`:''}</option>)}</select></label><span>Deep assessment explains the fit. You decide whether to pursue the job.</span></div>
  <p className="discovery-clock">Resume tailoring is not built yet. You can review the evidence, keep a role to pursue, or pass.</p>

@@ -42,7 +42,7 @@ export function Discovery({onOpen,onResults,initialReviewId,view="opportunities"
  const [jd,setJD]=useState<JDDraft|null>(null);
  const jdDialog=useRef<HTMLDialogElement>(null);
  const openedReview=useRef<string|null>(null);
- const status=useQuery({queryKey:['job-list-status'],queryFn:({signal})=>request<{ready:boolean;revision:string;refreshing:boolean;error:string|null;running:boolean;automatic_running?:boolean}>('/status',undefined,signal),refetchInterval:4000});
+ const status=useQuery({queryKey:['job-list-status'],queryFn:({signal})=>request<{ready:boolean;revision:string;refreshing:boolean;error:string|null;running:boolean;automatic_running?:boolean}>('/status',undefined,signal),refetchInterval:4000,refetchIntervalInBackground:true});
  const [search,setSearch]=useState(query);
  useEffect(()=>{const timer=setTimeout(()=>setSearch(query),250);return()=>clearTimeout(timer);},[query]);
  const params=new URLSearchParams({page:String(page),query:search,priority:priorityFilter,location:locationFilter,company:companyFilter,board:boardFilter,show:filter,runs:String(view==='runs')});
