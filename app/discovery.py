@@ -540,11 +540,13 @@ class Discovery:
             self.queued_ids.discard(item['id'])
             if not current or not self.auto_eligible(current): continue
             try:
-                self.record_scan_role(current,stage='Assessment requested',assessment_requested=True)
+                self.record_scan_role(current,stage='Checking automatic assessment')
                 with opportunity_scope(item['id']):
                     imported = self.import_role(item['id'], analyze=True, automatic=True)
                 last_job = imported.get('job_id') if imported else None
-                self.record_scan_role(current,stage='Assessment started',job_id=last_job)
+                started = bool(imported and imported.get('assessment_started'))
+                self.record_scan_role(current,stage='Assessment started' if started else 'Assessment not started',
+                                      assessment_requested=started,job_id=last_job)
             except Exception as exc:
                 from .retrieval import RetrievalError
                 error = str(exc) if isinstance(exc,(RetrievalError,Conflict,Missing)) else 'Automatic assessment stopped. Retry explicitly from the role.'
@@ -570,6 +572,7 @@ class Discovery:
     @staticmethod
     def auto_eligible(item):
         return (item.get('keyword_match',{}).get('priority')=='high'
+                and (item.get('assessment') or {}).get('state') in (None, 'NOT_STARTED')
                 and item.get('location_match',{}).get('status')=='match'
                 and item.get('company_fit',{}).get('automatic_allowed',True)
                 and len(item.get('description',''))>=200
@@ -600,6 +603,7 @@ class Discovery:
                 if not job_id: job_id = self.service.create(data).job.id
                 with self.db() as db: db.execute('UPDATE opportunities SET job_id=?,imported_hash=? WHERE id=?', (job_id, self.content_hash(data.model_dump()), oid))
             job = self.service.review(job_id).job
+            started = False
             if analyze:
                 view = self.analysis.view(job)
                 if automatic:
@@ -612,8 +616,9 @@ class Discovery:
                     if not claimed: return {'job_id':job_id}
                 if (view.get('run') or {}).get('state') not in ('COMPLETE', 'RUNNING'):
                     self.analysis.start(job, AnalyzeInput(consent_to_send=True, input_version=view['input_version']))
+                    started = True
                 with self.db() as db: db.execute('UPDATE opportunities SET assessment_state=? WHERE id=?', ('Assessment requested; open role for progress and score.', oid))
-            return {'job_id': job_id}
+            return {'job_id': job_id, 'assessment_started': started}
 
     def begin_scheduler(self):
         self.selected.start()

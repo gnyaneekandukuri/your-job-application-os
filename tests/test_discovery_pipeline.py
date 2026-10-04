@@ -40,6 +40,9 @@ def test_priority_not_posting_age_controls_eligibility(date):
     assert not Discovery.auto_eligible({**item,'description_changed':True})
     assert not Discovery.auto_eligible({**item,'location_match':{'status':'outside'}})
     assert not Discovery.auto_eligible({**item,'description':''})
+    for state in ('COMPLETE', 'RUNNING', 'STALE', 'ERROR', 'INTERRUPTED', 'JD_CHANGED'):
+        assert not Discovery.auto_eligible({**item,'assessment':{'state':state}})
+    assert Discovery.auto_eligible({**item,'assessment':{'state':'NOT_STARTED'}})
 
 
 def test_fetch_match_is_saved_but_wrong_company_needs_paste(tmp_path, monkeypatch):
