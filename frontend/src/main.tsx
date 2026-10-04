@@ -61,7 +61,7 @@ function App() {
   const [addContext, setAddContext] = useState(false);
   const [opportunityToReview,setOpportunityToReview]=useState<string|null>(null);
   const [assessmentTab,setAssessmentTab]=useState("worth");
-  const [page, setPage] = useState<"queue" | "retrieval" | "discovery" | "discovery-runs" | "assessments" | "usage">(window.location.hash === "#usage" ? "usage" : "discovery");
+  const [page, setPage] = useState<"queue" | "retrieval" | "discovery" | "discovery-runs" | "assessments" | "usage">(window.location.hash === "#usage" ? "usage" : window.location.hash === "#context" ? "retrieval" : "discovery");
   const [jobs, setJobs] = useState<Review[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
