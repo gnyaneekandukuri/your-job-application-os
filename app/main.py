@@ -239,21 +239,30 @@ def create_app(data_dir: Path | None = None):
 
     @api.post("/api/library/upload")
     def upload(data: UploadDocument, request: Request):
-        return upload_document(request.app.state.library, data)
+        result = upload_document(request.app.state.library, data)
+        if result["source"]["category"] == "story":
+            request.app.state.skills.start()
+        return result
 
     @api.post("/api/library/add-and-prepare")
     def add_and_prepare(data: AddAndPrepare, request: Request):
         library = request.app.state.library
         with library.lock:
             source = library.add(AddStory(**data.model_dump(exclude={"consent_to_send"})))
-            return prepare_saved(library, source)
+            result = prepare_saved(library, source)
+        if result["source"]["category"] == "story":
+            request.app.state.skills.start()
+        return result
 
     @api.post("/api/library/sources/{source_id}/save-and-prepare")
     def save_and_prepare(source_id: str, data: SaveAndPrepare, request: Request):
         library = request.app.state.library
         with library.lock:
             source = library.edit(source_id, EditStory(**data.model_dump(exclude={"consent_to_send"})))
-            return prepare_saved(library, source)
+            result = prepare_saved(library, source)
+        if result["source"]["category"] == "story":
+            request.app.state.skills.start()
+        return result
 
     @api.post("/api/library/import-coaching")
     def import_existing_coaching(data: Consent, request: Request):

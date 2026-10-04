@@ -124,3 +124,18 @@ def test_public_linkedin_reads_explicit_skills_only(profile,monkeypatch):
     s.linkedin(LinkedInInput(url='https://www.linkedin.com/in/person',fetch_public=True))
     assert s.view()['linkedin']['skills']=='SQL\nProduct discovery'
     assert not p.calls
+
+@pytest.mark.parametrize('category,expected',[('story',1),('coaching',0)])
+def test_first_context_save_starts_skills_only_for_experience(tmp_path,monkeypatch,category,expected):
+    from fastapi.testclient import TestClient
+    from app.main import create_app
+    from uuid import uuid4
+    with TestClient(create_app(tmp_path)) as client:
+        calls=[]
+        monkeypatch.setattr(client.app.state.skills,'start',lambda:calls.append(True))
+        monkeypatch.setattr('app.main.prepare_saved',lambda library,source:{'source':source,'preparation_error':None})
+        result=client.post('/api/library/add-and-prepare',headers={'X-Local-Review':'1'},json={
+            'request_id':str(uuid4()),'title':'First story','employer':'Example','project':'Product',
+            'text':'I interviewed customers and defined product requirements.','category':category,'consent_to_send':True})
+        assert result.status_code==200
+        assert len(calls)==expected

@@ -57,8 +57,8 @@ Worth checking roles in New opportunities can be selected with checkboxes and su
 
 ### Reusable candidate skills profile
 
-Your context library includes a separate skills profile. Prepare it once to enable
-incremental updates while the local server is running. It reads current firsthand
+Your context library includes a separate skills profile. Saving an experience starts skills preparation, including on first use. You can also
+prepare existing context explicitly. Later updates are incremental while the local server is running. It reads current firsthand
 stories/raw evidence and the current master resume; coaching guidance is excluded.
 A resume uploaded in this panel replaces the profile's resume input only, not the
 master resume. LinkedIn links can import explicit public skills metadata when

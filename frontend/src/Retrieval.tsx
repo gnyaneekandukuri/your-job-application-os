@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from "react";
-import { ContextKeywords } from "./ContextKeywords";
 import { CandidateSkills } from "./CandidateSkills";
 
 type Usage = { cap_usd: number | null; estimated_cost_usd: number; reserved_unknown_usd: number; calls: number };
@@ -118,23 +117,18 @@ export function Retrieval({ initialAdd = false }: { initialAdd?: boolean }) {
 
   return <section className="retrieval panel" aria-labelledby="retrieval-title">
     <h1 id="retrieval-title">Your context library</h1>
-    <CandidateSkills />
-    {status && <details><summary>Current discovery keywords (legacy matcher)</summary><ContextKeywords revision={status.source_sha256}/></details> }
-    <p>Experience evidence and coaching guidance, kept separate.</p>
     {error && <div role="alert" className="error"><strong>The action did not complete.</strong><p>{error}</p></div>}
     {notice && <p role="status" className="notice">{notice}</p>}
     {busy && <p role="status" className="notice">{activity}</p>}
     {!status ? <><p>Checking your library…</p><button disabled={busy} onClick={() => void run(refresh)}>Check again</button></> : <>
-      <label>Search in<select value={category} disabled={busy} onChange={e => { setCategory(e.target.value as "story" | "coaching"); setResults(null); }}><option value="story">Stories — experience evidence</option><option value="coaching">Coaching — positioning guidance</option></select></label>
-      <p className="library-coverage">Searching {scoped.filter(s => s.ready).length} of {scoped.length} {category === "story" ? "stories" : "coaching documents"}.</p>
-      <details className="retrieval-advanced" open={intakeOpen} onToggle={e => setIntakeOpen(e.currentTarget.open)}><summary>Add experience or transcript</summary>
+      <section className="context-intake"><h2>Add your context</h2><p>Add your experience first. We’ll extract skills for you to review below.</p><button className="primary" aria-expanded={intakeOpen} onClick={()=>setIntakeOpen(!intakeOpen)}>Add experience or transcript</button>{intakeOpen&&<div className="context-intake-form">
         <p>Add context once to use across roles. Choose one employer/project per entry; split a transcript that covers several experiences into separate entries.</p>
         <div className="filters" aria-label="Add context method">
           <button disabled={busy || dirty} aria-pressed={intakeMode === "upload"} onClick={() => { setIntakeMode("upload"); setSelected(null); setAdding(false); }}>Upload document</button>
           <button disabled={busy || dirty} aria-pressed={intakeMode === "paste"} onClick={() => { setIntakeMode("paste"); setAdding(true); setSelected(null); setDraft(emptyDraft); saveId.current = crypto.randomUUID(); saveFingerprint.current = ""; }}>Paste experience or transcript</button>
         </div>
         <p>Saving prepares the new context for future role analyses. Existing reports become outdated and can be reanalyzed. New details remain unapproved evidence.</p>
-        <p><small>Preparation sends new or changed text to OpenAI for embeddings. Original files and the search index stay local; unchanged text is reused.</small></p>
+        <p><small>Saving sends new or changed text to OpenAI for search embeddings and skill extraction. Coaching notes are excluded from skills. Original files and the search index stay local; unchanged text is reused.</small></p>
         {intakeMode === "upload" && <>
           <p>Word (.docx), text-based PDF, TXT or Markdown · up to 2 MB. Upload a written transcript; audio and video transcription is not supported.</p>
         <form onSubmit={e => { e.preventDefault(); void run(upload, "Saving and preparing your document… This may take a few minutes."); }}>
@@ -181,7 +175,11 @@ export function Retrieval({ initialAdd = false }: { initialAdd?: boolean }) {
         </section>}
 
         </>}
-      </details>
+      </div>}</section>
+      <CandidateSkills />
+      <h2>Search your documents</h2>
+      <label>Document type<select value={category} disabled={busy} onChange={e => { setCategory(e.target.value as "story" | "coaching"); setResults(null); }}><option value="story">Experience stories</option><option value="coaching">Coaching notes</option></select></label>
+      <p className="library-coverage">{scoped.filter(s => s.ready).length} documents available{scoped.some(s => !s.ready) ? ` · ${scoped.filter(s => !s.ready).length} need preparation` : ""}.</p>
       <form onSubmit={event => {
         event.preventDefault();
         if (!status.ready || !status.configured || !consent || query.trim().length < 3) return;
