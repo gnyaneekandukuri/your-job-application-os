@@ -122,15 +122,14 @@ export function Retrieval({ initialAdd = false }: { initialAdd?: boolean }) {
     {busy && <p role="status" className="notice">{activity}</p>}
     {!status ? <><p>Checking your library…</p><button disabled={busy} onClick={() => void run(refresh)}>Check again</button></> : <>
       <section className="context-intake"><h2>Add your context</h2><p>Add your experience first. We’ll extract skills for you to review below.</p><button className="primary" aria-expanded={intakeOpen} onClick={()=>setIntakeOpen(!intakeOpen)}>Add experience or transcript</button>{intakeOpen&&<div className="context-intake-form">
-        <p>Add context once to use across roles. Choose one employer/project per entry; split a transcript that covers several experiences into separate entries.</p>
+        <p>Use one employer or project per entry. Split transcripts covering multiple experiences into separate entries.</p>
         <div className="filters" aria-label="Add context method">
           <button disabled={busy || dirty} aria-pressed={intakeMode === "upload"} onClick={() => { setIntakeMode("upload"); setSelected(null); setAdding(false); }}>Upload document</button>
           <button disabled={busy || dirty} aria-pressed={intakeMode === "paste"} onClick={() => { setIntakeMode("paste"); setAdding(true); setSelected(null); setDraft(emptyDraft); saveId.current = crypto.randomUUID(); saveFingerprint.current = ""; }}>Paste experience or transcript</button>
         </div>
-        <p>Saving prepares the new context for future role analyses. Existing reports become outdated and can be reanalyzed. New details remain unapproved evidence.</p>
-        <p><small>Saving sends new or changed text to OpenAI for search embeddings and skill extraction. Coaching notes are excluded from skills. Original files and the search index stay local; unchanged text is reused.</small></p>
+        <p>Saving uses OpenAI to prepare search and extract skills from new or changed text. Usage is tracked; unchanged text is reused. Coaching notes are excluded from skills.</p>
         {intakeMode === "upload" && <>
-          <p>Word (.docx), text-based PDF, TXT or Markdown · up to 2 MB. Upload a written transcript; audio and video transcription is not supported.</p>
+          <p>DOCX, text-based PDF, TXT or Markdown · up to 2 MB. Written transcripts only; audio and video aren’t supported.</p>
         <form onSubmit={e => { e.preventDefault(); void run(upload, "Saving and preparing your document… This may take a few minutes."); }}>
           <fieldset disabled={busy || dirty}>
             <label>Document type<select value={uploadCategory} onChange={e => { setUploadCategory(e.target.value as "story" | "coaching"); setReplaceId(""); uploadId.current = crypto.randomUUID(); }}><option value="story">Story</option><option value="coaching">Coaching guidance (unreviewed)</option></select></label>
