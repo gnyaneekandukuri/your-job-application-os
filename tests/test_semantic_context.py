@@ -52,119 +52,113 @@ def test_semantic_search_finds_differently_worded_evidence_before_lexical_distra
     assert all('raw_vector' not in u for u in first)  # No vectors sent as Jev evidence.
 
 
-def test_first_pass_never_embeds_and_only_high_routes_automatically(tmp_path,monkeypatch):
-    class NoEmbeddings:
-        configured=True
-        def request(self,*args): raise AssertionError('First pass called OpenAI')
-    engine=RetrievalService(tmp_path/'r.sqlite3',tmp_path/'unused',NoEmbeddings())
+def profile_for(passages=None):
+    from app.discovery_screening import candidate_profile
+    return candidate_profile({'skills':[{'key':'ai','name':'AI agents','aliases':[]}]},
+                             {'target_roles':['AI Product Manager']}, passages or [
+        {'id':'source','source_title':'My experience','text':'I built an agent evaluation workflow with customer feedback.'}])
+
+
+def test_screen_embeds_once_sends_only_retrieved_text_and_routes_confident_high(tmp_path,monkeypatch):
+    provider=Embeddings();engine=RetrievalService(tmp_path/'r.sqlite3',tmp_path/'unused',provider)
     calls=[]
     class Classifier:
         def __init__(self,engine): pass
         def evaluate(self,job,stage,state,questions):
             calls.append(state)
-            label={'Aligned':'strong','Adjacent':'plausible','Other':'mismatch'}[state['job']['title']]
-            return {'fit':{'choice':label,'confidence':1.}, 'role':{'choice':'mismatch' if label=='mismatch' else 'aligned','confidence':1.}, **{'skill_'+str(n):{'choice':'direct','confidence':1.} for n in range(len(state['skills']))}}
+            assert 'skills' not in state
+            assert len(state['retrieved_experience'])<=3
+            assert all('similarity' not in p for p in state['retrieved_experience'])
+            return {'priority':{'choice':'high','confidence':.9 if state['job']['title']=='Strong' else .7}}
     monkeypatch.setattr('app.discovery_screening.JevClient',Classifier)
-    profile={'current':True,'target':{'roles':['Product Manager']},'skills':[{'id':'research','name':'Research','aliases':[],'examples':[]}]}
-    items=[{'id':title,'title':title,'description':'Original product responsibilities. '*10,'location_match':{'status':'match'},
-            'keyword_match':{'priority':'worth_checking','ranking':{}}} for title in ('Aligned','Adjacent','Other')]
-    screen(engine,items,profile,Event());annotate(engine,items,profile)
-    assert [i['keyword_match']['priority'] for i in items]==['high','worth_checking','low']
-    assert [Discovery.auto_eligible(i) for i in items]==[True,False,False]
-    screen(engine,items,profile,Event());annotate(engine,items,profile)
-    assert len(calls)==3
-    profile['target']['roles']=['Designer']
+    profile=profile_for()
+    profile['skills'] += [{'id':str(i),'name':'Skill '+str(i)} for i in range(500)]
+    items=[{'id':t,'title':t,'description':'Own AI agents and evaluate customer workflows. '*8,
+            'location_match':{'status':'match'}} for t in ('Strong','Uncertain')]
+    assert screen(engine,items,profile,Event())['classified']==2
     annotate(engine,items,profile)
-    assert all(i['keyword_match']['priority']=='worth_checking' for i in items)
-    assert len(calls)==3  # Changing targets/refreshing never dispatches paid work.
+    assert [i['keyword_match']['priority'] for i in items]==['high','worth_checking']
+    assert [Discovery.auto_eligible(i) for i in items]==[True,False]
+    before=list(provider.inputs)
+    assert screen(engine,items,profile,Event())['cached']==2
+    annotate(engine,items,profile)
+    assert len(calls)==2 and provider.inputs==before
+    assert before.count(profile['_passages'][0]['text'])==1
+    profile['preferences']['target_roles']=['Designer']
+    annotate(engine,items,profile)
+    assert all(i['keyword_match']['label']=='Not screened' for i in items)
+    assert len(calls)==2
 
-def test_priority_requires_semantic_support_and_role_alignment():
+
+def test_priority_uncertainty_and_needs_information_never_auto_route():
     from app.discovery_screening import priority_for
-    strong={'choice':'strong','confidence':.95}
-    aligned={'choice':'aligned','confidence':.95}
-    assert priority_for(strong,aligned)=='high'
-    assert priority_for({**strong,'confidence':.4},aligned)=='worth_checking'
-    assert priority_for(strong,{'choice':'mismatch','confidence':.95})=='low'
-    assert priority_for(strong,{**aligned,'provider_inconsistent':True})=='worth_checking'
+    assert priority_for({'choice':'high','confidence':.8})=='high'
+    assert priority_for({'choice':'high','confidence':.79})=='worth_checking'
+    assert priority_for({'choice':'high','confidence':1,'provider_inconsistent':True})=='worth_checking'
+    assert priority_for({'choice':'needs_information','confidence':1})=='worth_checking'
+    assert priority_for({'choice':'low','confidence':.9})=='low'
+    assert priority_for({'choice':'low','confidence':.3})=='worth_checking'
 
 
-def test_profile_edits_invalidate_matching_and_hidden_skills_are_excluded():
-    from app.discovery_screening import candidate_profile, inputs
-    view={'current':True,'skills':[{'key':'ai','name':'AI agents','sources':[]},{'key':'hidden','name':'Hidden','hidden':True}]}
-    profile=candidate_profile(view,{'target_roles':['PM']})
-    assert len(profile['skills'])==1
-    first=inputs({'title':'PM','description':'JD'},profile)[1]
-    view['skills'][0]['name']='Data platforms'
-    assert inputs({'title':'PM','description':'JD'},candidate_profile(view,{'target_roles':['PM']}))[1]!=first
+def test_missing_foreign_and_empty_context_do_not_call_apis(tmp_path):
+    provider=Embeddings();engine=RetrievalService(tmp_path/'r.sqlite3',tmp_path/'unused',provider)
+    missing={'id':'missing','title':'AI PM','description':''}
+    foreign={'id':'foreign','title':'PM','description':'Responsibilities '*30,'location_match':{'status':'outside'}}
+    profile=profile_for()
+    counts=screen(engine,[missing,foreign],profile,Event())
+    assert counts['needs_description']==1 and not provider.inputs
+    annotate(engine,[missing],profile)
+    assert missing['keyword_match']['label']=='Needs information'
+    profile['current']=False
+    counts=screen(engine,[{**foreign,'location_match':{'status':'match'}}],profile,Event())
+    assert counts['needs_profile']==1 and not provider.inputs
 
 
-def test_current_resume_is_in_fast_profile_without_embeddings(tmp_path,monkeypatch):
+def test_context_changes_invalidate_cached_priority_without_network():
+    from app.discovery_screening import inputs
+    item={'title':'PM','description':'JD'}
+    first=inputs(item,profile_for())[1]
+    changed=profile_for([{'id':'source','source_title':'My experience','text':'I changed my saved account.'}])
+    assert inputs(item,changed)[1]!=first
+    hidden=profile_for();hidden['skills']=[]
+    assert inputs(item,hidden)[1]!=first
+
+
+def test_oversized_jd_fails_before_any_embedding(tmp_path):
+    provider=Embeddings();engine=RetrievalService(tmp_path/'r.sqlite3',tmp_path/'unused',provider)
+    item={'id':'large','title':'PM','description':'x'*65000}
+    counts=screen(engine,[item],profile_for(),Event())
+    assert counts['errors']==1 and provider.inputs==[]
+    assert screen(engine,[item],profile_for(),Event())['cached']==1
+    annotate(engine,[item],profile_for())
+    assert item['keyword_match']['priority']=='worth_checking'
+
+
+def test_error_circuit_breaks_without_repeated_provider_calls(tmp_path,monkeypatch):
+    from app.retrieval import RetrievalError
+    provider=Embeddings();engine=RetrievalService(tmp_path/'r.sqlite3',tmp_path/'unused',provider)
+    calls=[]
+    class Classifier:
+        def __init__(self,engine): pass
+        def evaluate(self,*args):calls.append(1);raise RetrievalError('TypeSafe unavailable')
+    monkeypatch.setattr('app.discovery_screening.JevClient',Classifier)
+    items=[{'id':str(i),'title':str(i),'description':'Responsibilities '*30} for i in range(2)]
+    assert screen(engine,items,profile_for(),Event())['errors']==1
+    assert len(calls)==1
+    assert screen(engine,items[:1],profile_for(),Event())['cached']==1
+    assert len(calls)==1
+
+
+def test_resume_only_context_can_match_without_generated_skills(tmp_path,monkeypatch):
     from fastapi.testclient import TestClient
     from app.main import create_app
-    from app.discovery_keywords import library_sources
     from app.model_provider import OpenAIProvider
-    monkeypatch.setattr(OpenAIProvider,'request',lambda *a: (_ for _ in ()).throw(AssertionError('No API call expected')))
+    monkeypatch.setattr(OpenAIProvider,'request',lambda *a: (_ for _ in ()).throw(AssertionError('No API call expected on read')))
     with TestClient(create_app(tmp_path)) as c:
         library=c.app.state.library
         path=library.root/'sources/master/current.md';path.parent.mkdir(parents=True,exist_ok=True)
         path.write_text('I owned the AI platform roadmap and customer discovery.')
         (library.root/'knowledge/canonical_resume_inventory.json').write_text(json.dumps({'source':'sources/master/current.md'}))
-        sources=library_sources(library)
-        assert sources[0]['id']=='current-resume'
-        assert sources[0]['text']==path.read_text()
-
-def test_all_skills_participate_and_incomplete_profiles_do_not_call_provider(tmp_path, monkeypatch):
-    from app.discovery_screening import inputs
-    engine=RetrievalService(tmp_path/'r.sqlite3',tmp_path/'unused',Embeddings())
-    seen=[]
-    class Classifier:
-        def __init__(self, engine): pass
-        def evaluate(self, job, stage, state, questions):
-            seen.extend(s['id'] for s in state['skills'])
-            return {'fit':{'choice':'strong','confidence':1.},'role':{'choice':'aligned','confidence':1.},
-                    **{'skill_'+str(n):{'choice':'direct','confidence':1.} for n in range(len(state['skills']))}}
-    monkeypatch.setattr('app.discovery_screening.JevClient',Classifier)
-    profile={'current':False,'target':{'roles':['PM']},'skills':[{'id':str(i),'name':'Skill '+str(i)} for i in range(208)]}
-    items=[{'id':'job','title':'PM','description':'Responsibilities '*30}]
-    assert screen(engine,items,profile,Event())['needs_profile']==1
-    assert seen==[]
-    profile['current']=True
-    assert screen(engine,items,profile,Event())['classified']==1
-    assert seen==[str(i) for i in range(208)]
-    assert screen(engine,items,profile,Event())['cached']==1
-    assert len(seen)==208
-    profile['current']=False
-    annotate(engine,items,profile)
-    assert items[0]['keyword_match']['label']=='Not screened'
-
-def test_request_packing_bounds_full_payload_without_dropping_skills():
-    import json
-    import pytest
-    from app.discovery_screening import request_batches, questions_for, POLICY
-    from app.retrieval import RetrievalError
-    state={'job':{'description':'Responsibilities '*100},'target_preferences':{'roles':['PM']},
-           'skills':[{'id':str(i),'name':'Skill '+str(i),'examples':[{'quote':'Evidence '*100}]} for i in range(208)]}
-    batches=list(request_batches(state))
-    assert len(batches)>2
-    assert [s['id'] for b in batches for s in b]==[str(i) for i in range(208)]
-    for b in batches:
-        body={'state':{**state,'skills':b},'questions':questions_for(b)}
-        assert len(json.dumps(body,ensure_ascii=False).encode())<=POLICY['screen_request_bytes']
-    with pytest.raises(RetrievalError,match='too large'):
-        list(request_batches({**state,'job':{'description':'x'*50000}}))
-
-
-def test_explanation_uncertainty_does_not_suppress_priority(tmp_path,monkeypatch):
-    engine=RetrievalService(tmp_path/'r.sqlite3',tmp_path/'unused',Embeddings())
-    class Classifier:
-        def __init__(self, engine): pass
-        def evaluate(self, job, stage, state, questions):
-            assert not any(k.startswith('match') for k in questions)
-            return {'role':{'choice':'aligned','confidence':.95},'fit':{'choice':'strong','confidence':.95},
-                    'skill_0':{'choice':'direct','confidence':.4},'skill_1':{'choice':'transferable','confidence':.4}}
-    monkeypatch.setattr('app.discovery_screening.JevClient',Classifier)
-    profile={'current':True,'target':{'roles':['PM']},'skills':[{'id':'a','name':'AI agents'},{'id':'b','name':'Evaluation'}]}
-    items=[{'id':'job','title':'PM','description':'Responsibilities '*30}]
-    screen(engine,items,profile,Event());annotate(engine,items,profile)
-    assert items[0]['keyword_match']['priority']=='high'
-    assert items[0]['keyword_match']['experience']==[]
+        profile=c.app.state.discovery.screening_profile({'target_roles':['PM']})
+        assert profile['current']
+        assert any('resume' in p['id'] for p in profile['_passages'])

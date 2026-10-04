@@ -99,7 +99,29 @@ class Discovery:
 
     def screening_profile(self, preferences):
         from .discovery_screening import candidate_profile
-        return candidate_profile(self.skills.view() if self.skills else {}, preferences)
+        from .retrieval import RetrievalError, chunk_story
+        view = self.skills.view() if self.skills else {}
+        try:
+            passages = [{k:v for k,v in p.items() if k != 'raw_vector'} for p in self.analysis.passages()]
+            if self.skills:
+                # Resume-only candidates are supported too. Stories already appear
+                # above; never add coaching or generated skill summaries as evidence.
+                sources, _ = self.skills.snapshot()
+                for source in sources:
+                    if source['id'] not in ('current-resume', 'skills-resume'): continue
+                    for chunk in chunk_story(source['text'], max_chunks=100):
+                        passages.append({**chunk, 'id':source['id']+':'+chunk['id'],
+                                         'source_title':source['title'],
+                                         'source_caveats':['Listed resume claims; not independently verified.']})
+                listed = list(dict.fromkeys(s['name'] for s in view.get('skills', [])
+                              if not s.get('hidden') and any(r.get('id') in ('linkedin','manual') for r in s.get('sources', []))))
+                for n, name in enumerate(listed):
+                    passages.append({'id':'listed-skill:'+str(n), 'text':'Candidate lists this skill: '+name,
+                                     'source_title':'Candidate-listed skills',
+                                     'source_caveats':['A listed skill does not establish concrete delivery, ownership or outcomes.']})
+            return candidate_profile(view, preferences, passages)
+        except RetrievalError as exc:
+            return {**candidate_profile(view, preferences), 'error':str(exc)}
 
     @contextmanager
     def db(self):
