@@ -62,7 +62,7 @@ def create_app(data_dir: Path | None = None):
         if data_dir is None:
             Thread(target=api.state.skills.watch, daemon=True).start()
         api.state.analysis = RoleAnalysis(api.state.retrieval, api.state.library)
-        api.state.discovery = Discovery(private_dir / "discovery.sqlite3", api.state.service, api.state.analysis, sources=lambda: library_sources(api.state.library))
+        api.state.discovery = Discovery(private_dir / "discovery.sqlite3", api.state.service, api.state.analysis, sources=lambda: library_sources(api.state.library), skills=api.state.skills)
         if data_dir is None:
             api.state.discovery.begin_scheduler()
         for job_id in store.ids():

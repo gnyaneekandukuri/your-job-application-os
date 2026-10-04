@@ -63,9 +63,9 @@ def test_first_pass_never_embeds_and_only_high_routes_automatically(tmp_path,mon
         def evaluate(self,job,stage,state,questions):
             calls.append(state)
             label={'Aligned':'strong','Adjacent':'plausible','Other':'mismatch'}[state['job']['title']]
-            return {'fit':{'choice':label,'confidence':1.}}
+            return {'fit':{'choice':label,'confidence':1.}, 'role':{'choice':'mismatch' if label=='mismatch' else 'aligned','confidence':1.}, **{'match'+str(n):{'choice':'0' if n==0 else 'none','confidence':1.} for n in range(3)}}
     monkeypatch.setattr('app.discovery_screening.JevClient',Classifier)
-    profile={'target':{'roles':['Product Manager']},'experience':[{'term':'Research','sources':[{'id':'s','employer':'Example','project':'Discovery','excerpt':'Interviewed users.','strength':'work'}]}]}
+    profile={'current':True,'target':{'roles':['Product Manager']},'skills':[{'id':'research','name':'Research','aliases':[],'examples':[]}]}
     items=[{'id':title,'title':title,'description':'Original product responsibilities. '*10,'location_match':{'status':'match'},
             'keyword_match':{'priority':'worth_checking','ranking':{}}} for title in ('Aligned','Adjacent','Other')]
     screen(engine,items,profile,Event());annotate(engine,items,profile)
@@ -78,14 +78,26 @@ def test_first_pass_never_embeds_and_only_high_routes_automatically(tmp_path,mon
     assert all(i['keyword_match']['priority']=='worth_checking' for i in items)
     assert len(calls)==3  # Changing targets/refreshing never dispatches paid work.
 
-def test_keyword_high_requires_positive_jev_evidence_not_just_absence_of_rejection():
+def test_priority_requires_semantic_support_and_role_alignment():
     from app.discovery_screening import priority_for
-    a={'choice':'strong','confidence':.4,'probabilities':{'strong':.55,'plausible':.43,'mismatch':.01,'unknown':.01}}
-    assert priority_for(a,'high',True)=='high'
-    assert priority_for(a,'worth_checking',True)=='worth_checking'
-    a.update(choice='unknown',confidence=.4,probabilities={'strong':.2,'plausible':.2,'unknown':.6,'mismatch':0})
-    assert priority_for(a,'high',True)=='worth_checking'
-    assert priority_for({'choice':'mismatch','confidence':.95},'high',True)=='low'
+    strong={'choice':'strong','confidence':.95}
+    aligned={'choice':'aligned','confidence':.95}
+    assert priority_for(strong,aligned,True)=='high'
+    assert priority_for(strong,aligned,False)=='worth_checking'
+    assert priority_for({**strong,'confidence':.4},aligned,True)=='worth_checking'
+    assert priority_for(strong,{'choice':'mismatch','confidence':.95},True)=='low'
+    assert priority_for(strong,{**aligned,'provider_inconsistent':True},True)=='worth_checking'
+
+
+def test_profile_edits_invalidate_matching_and_hidden_skills_are_excluded():
+    from app.discovery_screening import candidate_profile, inputs
+    view={'current':True,'skills':[{'key':'ai','name':'AI agents','sources':[]},{'key':'hidden','name':'Hidden','hidden':True}]}
+    profile=candidate_profile(view,{'target_roles':['PM']})
+    assert len(profile['skills'])==1
+    first=inputs({'title':'PM','description':'JD'},profile)[1]
+    view['skills'][0]['name']='Data platforms'
+    assert inputs({'title':'PM','description':'JD'},candidate_profile(view,{'target_roles':['PM']}))[1]!=first
+
 
 def test_current_resume_is_in_fast_profile_without_embeddings(tmp_path,monkeypatch):
     from fastapi.testclient import TestClient
@@ -101,3 +113,27 @@ def test_current_resume_is_in_fast_profile_without_embeddings(tmp_path,monkeypat
         sources=library_sources(library)
         assert sources[0]['id']=='current-resume'
         assert sources[0]['text']==path.read_text()
+
+def test_all_skills_participate_and_incomplete_profiles_do_not_call_provider(tmp_path, monkeypatch):
+    from app.discovery_screening import inputs
+    engine=RetrievalService(tmp_path/'r.sqlite3',tmp_path/'unused',Embeddings())
+    seen=[]
+    class Classifier:
+        def __init__(self, engine): pass
+        def evaluate(self, job, stage, state, questions):
+            seen.extend(s['id'] for s in state['skills'])
+            return {'fit':{'choice':'strong','confidence':1.},'role':{'choice':'aligned','confidence':1.},
+                    **{'match'+str(n):{'choice':'0' if n==0 else 'none','confidence':1.} for n in range(3)}}
+    monkeypatch.setattr('app.discovery_screening.JevClient',Classifier)
+    profile={'current':False,'target':{'roles':['PM']},'skills':[{'id':str(i),'name':'Skill '+str(i)} for i in range(208)]}
+    items=[{'id':'job','title':'PM','description':'Responsibilities '*30}]
+    assert screen(engine,items,profile,Event())['needs_profile']==1
+    assert seen==[]
+    profile['current']=True
+    assert screen(engine,items,profile,Event())['classified']==1
+    assert seen==[str(i) for i in range(208)]
+    assert screen(engine,items,profile,Event())['cached']==1
+    assert len(seen)==208
+    profile['current']=False
+    annotate(engine,items,profile)
+    assert items[0]['keyword_match']['label']=='Not screened'

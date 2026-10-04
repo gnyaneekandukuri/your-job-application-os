@@ -24,6 +24,8 @@ def answer_body(body, uncertain=False):
             selected = 'supports'
         elif 'demonstrated' in options:
             selected = 'demonstrated'
+        elif name.startswith('match') and '0' in options:
+            selected = '0'
         elif 'strong' in options:
             selected = 'strong'
         elif 'similar_work' in options:
@@ -222,6 +224,7 @@ def test_scan_high_priority_handoff_completes_semantic_assessment(tmp_path,monke
             'text':'I owned product management for our AI platform and prioritized the roadmap with customer discovery.'}).json()
         c.post(f"/api/library/sources/{story['id']}/prepare",headers=headers,json={'expected_revision':story['revision'],'consent_to_send':True})
         d=c.app.state.discovery
+        monkeypatch.setattr(c.app.state.skills,'view',lambda:{'current':True,'skills':[{'key':'platform','name':'AI platform roadmaps','sources':[{'activity':'Owned AI platform roadmap','support':'described','quote':'I owned product management for our AI platform.'}]}]})
         d.configure(Settings(enabled=False,auto_assess=True))
         rows=[{'source_id':'high','title':'Product Manager','company':'Example','url':'https://example.com/pm','location':'New York, USA',
             'description':'Own product discovery and the AI platform roadmap. '*5,'posted_at':now()}]

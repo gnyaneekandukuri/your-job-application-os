@@ -58,7 +58,7 @@ class DescriptionInput(BaseModel):
 
 
 class Discovery:
-    def __init__(self, path, service, analysis, collector=collect, sources=lambda: []):
+    def __init__(self, path, service, analysis, collector=collect, sources=lambda: [], skills=None):
         self.path, self.service, self.analysis, self.collector = path, service, analysis, collector
         self.lock, self.stop = RLock(), Event()
         self.yc = YCConnection(path.parent)
@@ -91,10 +91,15 @@ class Discovery:
                 payload.update(state='interrupted', error='Server stopped during this scan; saved listings were retained.')
                 db.execute('UPDATE scans SET finished=?,payload=? WHERE id=?', (now(),json.dumps(payload),interrupted['id']))
 
+        self.skills = skills
         self.keywords = KeywordIndex(path, sources)
         self.jev = JevClassifier(path)
         from .selected_assessments import SelectedQueue
         self.selected = SelectedQueue(self)
+
+    def screening_profile(self, preferences):
+        from .discovery_screening import candidate_profile
+        return candidate_profile(self.skills.view() if self.skills else {}, preferences)
 
     @contextmanager
     def db(self):
@@ -214,7 +219,7 @@ class Discovery:
         if include_analysis:
             for item in items:
                 item["assessment"] = self.assessment_summary(item)
-        keyword_profile = self.keywords.enrich(items, preferences) if include_analysis else None
+        keyword_profile = self.screening_profile(preferences) if include_analysis else None
         if include_analysis:
             self.jev.annotate(items)
             from .discovery_screening import annotate
@@ -429,7 +434,7 @@ class Discovery:
             from .discovery_screening import screen
             preferences = load_preferences(self.analysis.library.root / 'knowledge/discovery-preferences.json')
             screening_items = [item for item in self.view(include_analysis=False)['items'] if item['id'] in pending and self.initial_screening_eligible(item)]
-            screening_profile = self.keywords.enrich(screening_items, preferences)
+            screening_profile = self.screening_profile(preferences)
             self.jev.annotate(screening_items)
             result['screening'] = screen(self.analysis.engine, screening_items, screening_profile, self.stop)
             for item in self.view()['items']:

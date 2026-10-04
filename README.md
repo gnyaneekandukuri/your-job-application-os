@@ -20,7 +20,7 @@ First startup creates an empty `.local/` directory containing SQLite databases a
 
 Set `JOB_REVIEW_DATA_DIR` to an absolute private directory to choose another location. Run one server process per data directory. Do not point the public product at an older personal workspace without an explicit migration.
 
-Set `TYPESAFE_API_KEY` for Jev classification and assessment, and `OPENAI_API_KEY` for API embeddings. Preparation embeds only new or changed original text with `text-embedding-3-small`; vectors and sources are stored locally. Discovery compares a compact source-backed candidate profile and preferences with the JD, using keywords plus Jev, without embeddings. Only High priority jobs automatically enter deeper semantic assessment; other jobs can be assessed manually. Generative OpenAI calls remain disabled. See [the assessment design](docs/jev-assessment.md). Resume tailoring is not implemented. Never commit keys or personal data.
+Set `TYPESAFE_API_KEY` for Jev classification and assessment, and `OPENAI_API_KEY` for API embeddings. Preparation embeds only new or changed original text with `text-embedding-3-small`; vectors and sources are stored locally. Discovery compares a compact source-backed candidate profile and preferences with the JD, using the reusable candidate skills profile plus Jev, without embeddings. Only High priority jobs automatically enter deeper semantic assessment; other jobs can be assessed manually. Generative OpenAI calls remain disabled. See [the assessment design](docs/jev-assessment.md). Resume tailoring is not implemented. Never commit keys or personal data.
 
 Your canonical resume is optional for evidence review. To register a separate master for future tailoring, place it under `.local/workspace/sources/master/` and set `source` in `.local/workspace/knowledge/canonical_resume_inventory.json` to its relative path. Uploading a resume to the context library supplies evidence, but does not silently make it an approved canonical master. Tailoring and application submission are not automated.
 
@@ -77,5 +77,10 @@ Errors stop automatic preparation until the user resumes; completed passages are
 reused. A server interruption requires explicit resume, avoiding silent repeated
 billing. The profile can be inspected without triggering paid requests. Local
 profile state, uploaded resume text and model outputs live in the private workspace,
-not Git. This profile is not connected to discovery ranking yet: the legacy matcher
-continues until the replacement matching rules are reviewed.
+not Git. Discovery now uses this profile for Jev matching against JD responsibilities.
+Role preferences are checked separately; exact keywords and legacy weights do not
+decide priority. High priority requires confident role and skills alignment with a
+named relevant skill. Hidden skills are excluded; profile edits invalidate cached
+initial verdicts. Refreshing the page never makes paid calls. Existing listings are
+rechecked when included in a subsequent scan. Preferences remain in Your preferences,
+separate from the skills and experience library.

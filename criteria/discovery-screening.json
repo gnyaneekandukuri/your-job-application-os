@@ -1,12 +1,12 @@
 {
-  "version": "candidate-screen-v2",
+  "version": "candidate-skills-screen-v3",
   "decisive_confidence": 0.8,
-  "compatible_mass_for_keyword_high": 0.9,
   "notes": [
-    "A decisive Jev strong judgment can promote a role without exact keyword overlap.",
-    "An existing weighted keyword High can proceed when Jev places at least 0.9 combined probability on strong or plausible alignment.",
-    "Strong versus plausible uncertainty is not the same as uncertainty about relevance. Deep assessment must verify actual evidence.",
-    "Only a decisive functional mismatch becomes Skip. Provider errors and missing descriptions remain Worth checking.",
-    "These are initial routing policies, not calibrated hiring probabilities."
+    "Preferences determine target role fit separately from experience fit.",
+    "High requires confident role alignment, specific skills alignment and a named matching skill.",
+    "Equivalent and transferable skills count; lexical weights do not decide priority.",
+    "All active skills are considered in batches of at most 200. Generic overlap alone is insufficient.",
+    "Missing evidence, stale profiles and provider failures cannot trigger automatic deep assessment.",
+    "Confidence is a routing threshold, not a calibrated hiring probability."
   ]
 }
