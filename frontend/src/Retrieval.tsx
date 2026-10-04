@@ -121,7 +121,7 @@ export function Retrieval({ initialAdd = false }: { initialAdd?: boolean }) {
     {notice && <p role="status" className="notice">{notice}</p>}
     {busy && <p role="status" className="notice">{activity}</p>}
     {!status ? <><p>Checking your library…</p><button disabled={busy} onClick={() => void run(refresh)}>Check again</button></> : <>
-      <section className="context-intake"><h2>Add your context</h2><p>Add your experience first. We’ll extract skills for you to review below.</p><button className="primary" aria-expanded={intakeOpen} onClick={()=>setIntakeOpen(!intakeOpen)}>Add experience or transcript</button>{intakeOpen&&<div className="context-intake-form">
+      <section className="context-intake"><h2 className="context-section-title">Add your context</h2><p>Add your experience first. We’ll extract skills for you to review below.</p><button className="primary" aria-expanded={intakeOpen} onClick={()=>setIntakeOpen(!intakeOpen)}>Add experience or transcript</button>{intakeOpen&&<div className="context-intake-form">
         <p>Use one employer or project per entry. Split transcripts covering multiple experiences into separate entries.</p>
         <div className="filters" aria-label="Add context method">
           <button disabled={busy || dirty} aria-pressed={intakeMode === "upload"} onClick={() => { setIntakeMode("upload"); setSelected(null); setAdding(false); }}>Upload document</button>
@@ -176,8 +176,8 @@ export function Retrieval({ initialAdd = false }: { initialAdd?: boolean }) {
         </>}
       </div>}</section>
       <CandidateSkills />
-      <h2>Search your documents</h2>
-      <label>Document type<select value={category} disabled={busy} onChange={e => { setCategory(e.target.value as "story" | "coaching"); setResults(null); }}><option value="story">Experience stories</option><option value="coaching">Coaching notes</option></select></label>
+      <h2 className="context-section-title">Search your documents</h2>
+      <label className="context-document-type">Document type<select value={category} disabled={busy} onChange={e => { setCategory(e.target.value as "story" | "coaching"); setResults(null); }}><option value="story">Experience stories</option><option value="coaching">Coaching notes</option></select></label>
       <p className="library-coverage">{scoped.filter(s => s.ready).length} documents available{scoped.some(s => !s.ready) ? ` · ${scoped.filter(s => !s.ready).length} need preparation` : ""}.</p>
       <form onSubmit={event => {
         event.preventDefault();
