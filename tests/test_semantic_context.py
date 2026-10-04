@@ -137,3 +137,19 @@ def test_all_skills_participate_and_incomplete_profiles_do_not_call_provider(tmp
     profile['current']=False
     annotate(engine,items,profile)
     assert items[0]['keyword_match']['label']=='Not screened'
+
+def test_request_packing_bounds_full_payload_without_dropping_skills():
+    import json
+    import pytest
+    from app.discovery_screening import request_batches, questions_for, POLICY
+    from app.retrieval import RetrievalError
+    state={'job':{'description':'Responsibilities '*100},'target_preferences':{'roles':['PM']},
+           'skills':[{'id':str(i),'name':'Skill '+str(i),'examples':[{'quote':'Evidence '*100}]} for i in range(208)]}
+    batches=list(request_batches(state))
+    assert len(batches)>2
+    assert [s['id'] for b in batches for s in b]==[str(i) for i in range(208)]
+    for b in batches:
+        body={'state':{**state,'skills':b},'questions':questions_for(b)}
+        assert len(json.dumps(body,ensure_ascii=False).encode())<=POLICY['screen_request_bytes']
+    with pytest.raises(RetrievalError,match='too large'):
+        list(request_batches({**state,'job':{'description':'x'*50000}}))

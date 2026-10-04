@@ -345,3 +345,10 @@ def test_selected_queue_stops_remaining_work_on_provider_limit_and_marks_interru
         with d.db() as db:
             state,error=db.execute('SELECT state,error FROM selected_assessments WHERE opportunity_id=?',(ids[0],)).fetchone()
             assert state=='NEEDS_ATTENTION' and 'Server stopped' in error
+
+def test_provider_context_limit_is_not_reported_as_billing(tmp_path,monkeypatch):
+    import httpx
+    monkeypatch.setenv('TYPESAFE_API_KEY','test-only')
+    monkeypatch.setattr(httpx.Client,'post',lambda *args,**kwargs:httpx.Response(400,json={'detail':{'error_type':'max_tokens_exceeded'}}))
+    with pytest.raises(RetrievalError,match='not a billing error'):
+        JevClient(engine_at(tmp_path)).evaluate(None,'test',{'text':'input'},{'q':choice('Classify',{'yes':'yes','no':'no'})})

@@ -76,7 +76,7 @@ class JevClient:
         if not questions:
             return {}
         if any(not 2 <= len(q.get('criteria', {})) <= 255 for q in questions.values()):
-            raise RetrievalError('Jev choices must contain 2–255 options. Nothing was sent.', 409)
+            raise RetrievalError('Jev choices must contain 2â€“255 options. Nothing was sent.', 409)
         body = {'model': MODEL, 'state': state, 'questions': questions}
         encoded = json.dumps(body, ensure_ascii=False, sort_keys=True)
         if len(encoded.encode()) > POLICY['max_request_bytes']:
@@ -104,6 +104,13 @@ class JevClient:
                         response = client.post('https://api.typesafe.ai/v1/systemone',
                                                headers={'Authorization': 'Bearer '+secret}, json=body)
                     if not response.is_success:
+                        try:
+                            detail = response.json().get('detail', {})
+                            error_type = detail.get('error_type') if isinstance(detail, dict) else None
+                        except (ValueError, AttributeError):
+                            error_type = None
+                        if error_type == 'max_tokens_exceeded':
+                            raise RetrievalError('TypeSafe request exceeded the model context limit. Reduce the request size; this is not a billing error. No automatic retry was made.', 409)
                         raise RetrievalError(f'TypeSafe Jev returned HTTP {response.status_code}. Check TypeSafe access or balance; no automatic retry or OpenAI fallback was made.', 502)
                     response = response.json()
                 usage = response['usage']
