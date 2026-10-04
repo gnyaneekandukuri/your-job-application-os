@@ -37,10 +37,10 @@ def test_priority_not_posting_age_controls_eligibility(date):
           'freshness':date,'description':'A complete description of the job responsibilities. '*5}
     assert Discovery.auto_eligible(item)
     assert not Discovery.auto_eligible({**item,'automatic_assessment':{'state':'FAILED'}})
-    assert not Discovery.auto_eligible({**item,'description_changed':True})
+    assert Discovery.auto_eligible({**item,'description_changed':True,'assessment':{'state':'JD_CHANGED'}})
     assert not Discovery.auto_eligible({**item,'location_match':{'status':'outside'}})
     assert not Discovery.auto_eligible({**item,'description':''})
-    for state in ('COMPLETE', 'RUNNING', 'STALE', 'ERROR', 'INTERRUPTED', 'JD_CHANGED'):
+    for state in ('COMPLETE', 'RUNNING', 'ERROR', 'INTERRUPTED'):
         assert not Discovery.auto_eligible({**item,'assessment':{'state':state}})
     assert Discovery.auto_eligible({**item,'assessment':{'state':'NOT_STARTED'}})
 
@@ -231,3 +231,46 @@ def test_both_jev_passes_exclude_foreign_jobs_before_classifying(tmp_path,monkey
         d.scan()
         assert set(classified)=={'USA','Remote'}
         assert set(screened)=={'USA','Remote'}
+
+
+def test_automatic_new_input_version_runs_once_and_changed_jd_keeps_old_job(tmp_path, monkeypatch):
+    with TestClient(create_app(tmp_path)) as client:
+        d=configure(client);d.configure(Settings(enabled=False,auto_assess=True))
+        oid,_=d.save('yc',row('Responsibilities version one. '*20))
+        version=['a'*64];attempts=[]
+        monkeypatch.setattr(d.analysis,'view',lambda job:{'run':None,'ready':True,'previous_result_outdated':True,'input_version':version[0]})
+        monkeypatch.setattr(d.analysis,'start',lambda job,data:attempts.append((job.id,data.input_version)))
+        first=d.import_role(oid,automatic=True)
+        assert first['assessment_started']
+        assert not d.import_role(oid,automatic=True).get('assessment_started')
+        version[0]='b'*64
+        assert d.import_role(oid,automatic=True)['assessment_started']
+        d.save('yc',row('Responsibilities version two. '*20));version[0]='c'*64
+        second=d.import_role(oid,automatic=True)
+        assert second['job_id']!=first['job_id'] and second['assessment_started']
+        assert d.service.store.read(first['job_id'])[0].description.startswith('Responsibilities version one')
+        assert len(attempts)==3
+
+
+def test_saved_high_priority_reconciles_without_new_scan(tmp_path, monkeypatch):
+    with TestClient(create_app(tmp_path)) as client:
+        d=configure(client);d.configure(Settings(enabled=False,auto_assess=True))
+        oid,_=d.save('yc',row('Responsibilities '*30))
+        item={'id':oid,'keyword_match':{'priority':'high','label':'High priority'}}
+        monkeypatch.setattr(d,'view',lambda:{'items':[item]})
+        calls=[];monkeypatch.setattr(d,'assess_high_priority',lambda ids:calls.append(ids))
+        d.reconcile_automatic()
+        assert calls==[{oid}]
+        with d.db() as db:
+            assert db.execute('SELECT COUNT(*) FROM scans').fetchone()[0]==0
+            assert db.execute('SELECT opportunity_id FROM automatic_candidates').fetchone()[0]==oid
+
+
+def test_unexpected_queue_failure_pauses_automatic_work_visibly(tmp_path, monkeypatch):
+    with TestClient(create_app(tmp_path)) as client:
+        d=configure(client);d.configure(Settings(enabled=False,auto_assess=True))
+        def fail():raise RuntimeError('test failure')
+        monkeypatch.setattr(d,'view',fail)
+        d.reconcile_automatic()
+        assert not d.settings()['auto_assess']
+        assert 'stopped unexpectedly' in client.app.state.job_list.status()['error']

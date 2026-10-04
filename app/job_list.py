@@ -125,8 +125,9 @@ class JobList:
         stale = not row or row['fingerprint'] != self.fingerprint()
         return {'ready':bool(row), 'revision':row['revision'] if row else None,
                 'updated_at':row['updated'] if row else None, 'refreshing':stale,
-                'error':self.error,
-                'running':bool(self.discovery.worker and self.discovery.worker.is_alive())}
+                'error':self.error or getattr(self.discovery, 'automatic_error', None),
+                'running':bool(self.discovery.worker and self.discovery.worker.is_alive()),
+                'automatic_running':bool(self.discovery.worker and self.discovery.worker.is_alive() and self.discovery.worker.name == 'automatic-assessments')}
 
     def page(self, page=1, size=25, query='', priority='all', location='match',
              company='focus', board='all', show='all', runs=False):

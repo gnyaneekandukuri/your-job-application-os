@@ -65,6 +65,7 @@ class Discovery:
         if collector is collect:
             self.collector = self.collect_board
         self.worker = self.scheduler = None
+        self.automatic_error = None
         self.queued_ids = set()
         path.parent.mkdir(parents=True, exist_ok=True)
         with self.db() as db:
@@ -80,6 +81,9 @@ class Discovery:
                 CREATE TABLE IF NOT EXISTS config (id INTEGER PRIMARY KEY CHECK(id=1), payload TEXT);
                 CREATE TABLE IF NOT EXISTS import_intents (id TEXT PRIMARY KEY, payload TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS automatic_assessments (opportunity_id TEXT PRIMARY KEY, state TEXT, attempted_at TEXT, error TEXT);
+                CREATE TABLE IF NOT EXISTS automatic_versions (opportunity_id TEXT, input_version TEXT, attempted_at TEXT,
+                PRIMARY KEY(opportunity_id,input_version));
+                CREATE TABLE IF NOT EXISTS automatic_candidates (opportunity_id TEXT PRIMARY KEY);
                 CREATE TABLE IF NOT EXISTS discovery_drafts (id TEXT PRIMARY KEY, opportunity_id TEXT, payload TEXT);
                 CREATE TABLE IF NOT EXISTS description_fetches (opportunity_id TEXT PRIMARY KEY, state TEXT, checked_at TEXT, error TEXT);
                 CREATE TABLE IF NOT EXISTS revisions (opportunity_id TEXT, content_hash TEXT, payload TEXT, seen_at TEXT,
@@ -572,12 +576,12 @@ class Discovery:
     @staticmethod
     def auto_eligible(item):
         return (item.get('keyword_match',{}).get('priority')=='high'
-                and (item.get('assessment') or {}).get('state') in (None, 'NOT_STARTED')
+                and (item.get('assessment') or {}).get('state') in (None, 'NOT_STARTED', 'STALE', 'JD_CHANGED')
                 and item.get('location_match',{}).get('status')=='match'
                 and item.get('company_fit',{}).get('automatic_allowed',True)
                 and len(item.get('description',''))>=200
-                and not item.get('description_changed')
-                and not item.get('automatic_assessment'))
+                and (not item.get('automatic_assessment') or
+                     (item.get('assessment') or {}).get('state') in ('STALE', 'JD_CHANGED')))
 
     def import_role(self, oid, analyze=True, automatic=False):
         with self.lock:
@@ -588,7 +592,10 @@ class Discovery:
                 if len(item.get('description', '')) < 20: raise Conflict('Full description needed before assessment. Use Get full JD.')
                 job_id = row['job_id']
                 if analyze and job_id and row['imported_hash'] != self.content_hash(item):
-                    raise Conflict('The listing changed. Review and save the updated JD before assessing it.')
+                    if not automatic:
+                        raise Conflict('The listing changed. Review and save the updated JD before assessing it.')
+                    # New JD gets a new saved job; the previous report is retained.
+                    job_id = None
                 intent_id = oid + ':' + self.content_hash(item)
                 if not job_id:
                     intent = db.execute('SELECT payload FROM import_intents WHERE id=?', (intent_id,)).fetchone()
@@ -607,18 +614,61 @@ class Discovery:
             if analyze:
                 view = self.analysis.view(job)
                 if automatic:
-                    # Any prior report, stale result or unresolved attempt requires
-                    # a user's decision, never an automatic paid retry.
-                    if self.stop.is_set() or not self.settings()['auto_assess'] or view.get('run') or view.get('previous_result_outdated') or not view.get('ready'):
+                    # Completed/current failed attempts are reused, never retried.
+                    # A changed JD/context has a new input version and may run once.
+                    if self.stop.is_set() or not self.settings()['auto_assess'] or view.get('run') or not view.get('ready'):
                         return {'job_id':job_id}
                     with self.db() as db:
-                        claimed = db.execute("INSERT OR IGNORE INTO automatic_assessments VALUES(?, 'DISPATCHED', ?, '')",(oid,now())).rowcount
+                        claimed = db.execute('INSERT OR IGNORE INTO automatic_versions VALUES(?,?,?)',
+                                             (oid,view['input_version'],now())).rowcount
+                        if claimed:
+                            db.execute("INSERT OR REPLACE INTO automatic_assessments VALUES(?, 'DISPATCHED', ?, '')",(oid,now()))
                     if not claimed: return {'job_id':job_id}
                 if (view.get('run') or {}).get('state') not in ('COMPLETE', 'RUNNING'):
                     self.analysis.start(job, AnalyzeInput(consent_to_send=True, input_version=view['input_version']))
                     started = True
                 with self.db() as db: db.execute('UPDATE opportunities SET assessment_state=? WHERE id=?', ('Assessment requested; open role for progress and score.', oid))
             return {'job_id': job_id, 'assessment_started': started}
+
+    def reconcile_automatic(self):
+        """Dispatch saved High priority jobs without waiting for another scan."""
+        from .discovery_screening import screen
+        try:
+            self.automatic_error = None
+            items = self.view()['items']
+            with self.db() as db:
+                tracked = {r[0] for r in db.execute('SELECT opportunity_id FROM automatic_candidates')}
+                # Bootstrap from recorded scan decisions, preserving old reports.
+                for row in db.execute('SELECT opportunity_id,payload FROM scan_roles'):
+                    if json.loads(row[1]).get('priority') == 'High priority': tracked.add(row[0])
+                tracked.update(i['id'] for i in items if i.get('keyword_match',{}).get('priority') == 'high')
+                db.executemany('INSERT OR IGNORE INTO automatic_candidates VALUES(?)', [(oid,) for oid in tracked])
+            changed = [i for i in items if i['id'] in tracked and
+                       i.get('keyword_match',{}).get('label') == 'Not screened' and self.initial_screening_eligible(i)]
+            if changed:
+                preferences = load_preferences(self.analysis.library.root / 'knowledge/discovery-preferences.json')
+                screen(self.analysis.engine, changed, self.screening_profile(preferences), self.stop)
+            self.assess_high_priority(tracked)
+        except Exception:
+            import logging
+            logging.getLogger(__name__).exception('Automatic assessment queue stopped')
+            self.automatic_error = 'Automatic analysis stopped unexpectedly. Saved work is retained; review before enabling it again.'
+            with self.lock, self.db() as db:
+                config = self.settings()
+                config['auto_assess'] = False
+                db.execute('UPDATE config SET payload=? WHERE id=1', (json.dumps(config),))
+        finally:
+            self.queued_ids.clear()
+
+    def start_automatic(self):
+        with self.lock:
+            if (self.stop.is_set() or not self.settings()['auto_assess'] or
+                    (self.worker and self.worker.is_alive()) or
+                    (self.selected.worker and self.selected.worker.is_alive()) or
+                    (self.analysis.worker and self.analysis.worker.is_alive())):
+                return
+            self.worker = Thread(target=self.reconcile_automatic, daemon=True, name='automatic-assessments')
+            self.worker.start()
 
     def begin_scheduler(self):
         self.selected.start()
@@ -631,6 +681,7 @@ class Discovery:
                         if cfg['enabled'] and slot and slot != cfg.get('last_slot') and not (self.worker and self.worker.is_alive()) and not (self.selected.worker and self.selected.worker.is_alive()):
                             self.start(); cfg['last_slot'] = slot
                             with self.db() as db: db.execute('UPDATE config SET payload=? WHERE id=1', (json.dumps(cfg),))
+                    self.start_automatic()
                 except Exception:
                     # Transient database errors do not kill future scheduled checks.
                     continue
