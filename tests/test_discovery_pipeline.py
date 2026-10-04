@@ -19,6 +19,18 @@ def configure(client):
     return client.app.state.discovery
 
 
+def test_metadata_sighting_cannot_mix_date_and_provenance(tmp_path):
+    with TestClient(create_app(tmp_path)) as client:
+        discovery = configure(client)
+        discovery.save('cosign', {**row(), 'posted_at':'2026-10-04T12:00:00+00:00',
+                                 'date_basis':'board_timestamp', 'date_label':'Cosign posting timestamp'})
+        discovery.save('lenny', {**row(), 'date_basis':'unknown', 'date_label':'Updated today'})
+        item = discovery.view(include_analysis=False)['items'][0]
+        assert item['date_basis'] == 'board_timestamp'
+        assert item['date_label'] == 'Cosign posting timestamp'
+        assert item['posted_at'] == '2026-10-04T12:00:00+00:00'
+
+
 @pytest.mark.parametrize('date',['older','unknown','date_only','within_24h'])
 def test_priority_not_posting_age_controls_eligibility(date):
     item={'keyword_match':{'priority':'high'},'location_match':{'status':'match'},

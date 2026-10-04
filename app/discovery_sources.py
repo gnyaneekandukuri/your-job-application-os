@@ -119,6 +119,8 @@ def detail(client, url):
 
 def listing_freshness(item, current=None):
     current = current or datetime.now(timezone.utc)
+    if item.get('date_basis') in ('hiring_comment_timestamp', 'unknown', 'source_updated_at'):
+        return 'unknown'
     if item.get('date_basis') == 'source_relative_age':
         try:
             if current < datetime.fromisoformat(item['age_observed_at']):

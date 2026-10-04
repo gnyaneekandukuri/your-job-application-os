@@ -136,3 +136,17 @@ def test_failed_publish_rolls_back_deletes(model):
     assert not m.refresh()
     assert m.page()['total']==61 and m.status()['revision']==old
     assert m.status()['error']
+
+
+def test_freshness_filters_keep_unknown_and_old_jobs_accessible(model):
+    m, source, _ = model
+    source['items'] = [listing(1), listing(2, freshness='older'),
+                       listing(3, freshness='date_only'), listing(4, freshness='unknown'),
+                       listing(5, freshness='within_24h', location_match={'status':'outside'})]
+    m.refresh()
+    assert m.page(show='recent')['total'] == 1
+    assert m.page(show='older')['items'][0]['id'] == '2'
+    assert m.page(show='uncertain')['total'] == 2
+    assert m.page(show='all')['total'] == 4
+    assert m.page(show='recent')['freshness_counts'] == {'recent':1, 'older':1, 'uncertain':2}
+    assert m.page(show='recent',location='all')['freshness_counts']['recent'] == 2

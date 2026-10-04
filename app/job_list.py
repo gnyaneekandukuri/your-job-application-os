@@ -10,7 +10,7 @@ from contextlib import closing
 from datetime import datetime, timezone, timedelta
 from threading import Event, Lock, Thread
 
-VERSION = 'job-list-v2'
+VERSION = 'job-list-v3-freshness'
 log = logging.getLogger(__name__)
 
 
@@ -147,7 +147,13 @@ class JobList:
             if board != 'all':
                 where.append('id IN (SELECT id FROM boards WHERE board=?)'); args.append(board)
             if query: where.append('instr(search_text,?)>0'); args.append(query.lower())
+            freshness_counts = {'recent': 0, 'older': 0, 'uncertain': 0}
+            for age, count in db.execute('SELECT freshness,count(*) FROM listings WHERE '+
+                                        ' AND '.join(where)+' GROUP BY freshness', args):
+                bucket = 'recent' if age == 'within_24h' else 'older' if age == 'older' else 'uncertain'
+                freshness_counts[bucket] += count
             if show == 'recent': where.append("freshness='within_24h'")
+            elif show == 'older': where.append("freshness='older'")
             elif show == 'uncertain': where.append("freshness IN ('date_only','unknown')")
             elif show == 'missing': where.append('description_length<200')
             elif show == 'discovered':
@@ -165,6 +171,7 @@ class JobList:
                     metadata['scan']['payload'] = {k:v for k,v in metadata['scan']['payload'].items()
                         if k in ('state','phase','new_count','error')}
             return {**metadata,'ready':True,'items':items,'total':total,'page':page,'pages':pages,
+                    'freshness_counts':freshness_counts,
                     'revision':row['revision'],'updated_at':row['updated']}
 
     def assessments(self):

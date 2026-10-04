@@ -995,3 +995,6 @@ summary { cursor:pointer; font-size:14px; line-height:1.5; }
 .job-preference-fields input,.job-preference-fields select { display:block; width:100%; margin-top:8px; box-sizing:border-box; }
 .job-preference-fields select { min-height:44px; padding:10px 12px; border:1px solid #c8d4cc; border-radius:8px; background:white; font:inherit; }
 @media(max-width:600px) { .job-preference-summary div { grid-template-columns:1fr; gap:4px; } }
+
+/* Compact posting-age navigation beside discovery results. */
+button.text-button { border: 0; background: transparent; padding: .2rem .25rem; min-height: auto; color: var(--accent, #245c47); text-decoration: underline; font: inherit; }

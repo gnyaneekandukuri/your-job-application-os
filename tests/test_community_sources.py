@@ -10,6 +10,14 @@ from app.source_leads import parse_leads, refresh, view
 NOW = datetime(2026, 10, 4, 18, tzinfo=timezone.utc)
 
 
+def test_posting_freshness_requires_a_posting_date_not_an_update_or_comment():
+    from app.discovery_sources import listing_freshness
+    for basis in ('hiring_comment_timestamp', 'unknown', 'source_updated_at'):
+        assert listing_freshness({'posted_at': NOW.isoformat(), 'date_basis':basis}, NOW) == 'unknown'
+    assert listing_freshness({'posted_at':NOW.isoformat(), 'date_basis':'board_timestamp'}, NOW) == 'within_24h'
+    assert listing_freshness({'posted_at':'2026-10-04', 'date_basis':'source_datePosted'}, NOW) == 'date_only'
+
+
 def test_hn_comment_date_not_thread_date_and_no_replies():
     comment = {'id': 12, 'type': 'comment', 'parent': 10, 'time': NOW.timestamp()-120,
                'text': 'Example | New York, US | Full time<p>Senior Product Manager</p><p>Build our AI platform.</p>'}

@@ -390,6 +390,14 @@ class Discovery:
                 old = json.loads(row[0])
                 # A failed detail fetch or metadata-only source must not erase a good description.
                 merged = {**old, **{k: v for k, v in item.items() if v not in ('', None, 'Unknown')}}
+                # Date, label and provenance are one fact. A metadata-only sighting
+                # must not relabel a previously saved date as a new posting claim.
+                date_keys = ('posted_at', 'date_basis', 'date_label', 'fresh_until', 'older_after', 'age_observed_at')
+                date_source = item if item.get('posted_at') or item.get('date_basis') == 'source_relative_age' else old
+                for key in date_keys:
+                    merged.pop(key, None)
+                    if key in date_source:
+                        merged[key] = date_source[key]
                 if item.get('date_basis') == 'source_relative_age':
                     # A later unparseable age must not inherit an old freshness claim.
                     for key in ('fresh_until', 'older_after', 'age_observed_at'):
