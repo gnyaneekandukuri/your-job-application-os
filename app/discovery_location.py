@@ -37,6 +37,12 @@ def location_match(location, preferences):
     if "CA" in found and not re.search(r"\bCanada\b", text, re.I) and re.search(r",\s*CA\s*$", text):
         found.discard("CA")
     city_country = CITY_COUNTRIES.get(text.casefold()) if not found else None
+    if not found and not city_country:
+        # Accept a list only when EVERY complete segment is a known city label.
+        # Never infer US eligibility from an unknown/foreign/remote segment.
+        cities = [part.strip().casefold() for part in re.split(r'\s*[/;|]\s*', text)]
+        if len(cities) > 1 and all(CITY_COUNTRIES.get(city) == 'US' for city in cities):
+            city_country = 'US'
     if city_country:
         found.add(city_country)
     ambiguous = bool(re.search(r"\b(except|excluding|outside|not|non)[ -]", text, re.I))

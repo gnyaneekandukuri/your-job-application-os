@@ -10,7 +10,7 @@ from contextlib import closing
 from datetime import datetime, timezone, timedelta
 from threading import Event, Lock, Thread
 
-VERSION = 'job-list-v1'
+VERSION = 'job-list-v2'
 log = logging.getLogger(__name__)
 
 
@@ -76,6 +76,8 @@ class JobList:
                 return False
             result = self.discovery.table_view(include_assessments=True)
             items = result.pop('items')
+            from .scan_overview import overview
+            result['scan_overview'] = overview(result,items)
             result.get('assessment_results',{}).pop('scans',None)
             board_counts = {}
             listings, boards = [], []
