@@ -1,5 +1,5 @@
 """Persistent local discovery queue and three-times-daily scheduler."""
-from .read_snapshot import read_snapshot
+from .read_snapshot import read_snapshot, snapshot_keyed
 from .company_preferences import preferences as company_preferences, company_fit, apply_company_priority
 import hashlib
 import json
@@ -159,7 +159,7 @@ class Discovery:
             discovered = {r['job_id']: dict(r) for r in db.execute('SELECT * FROM opportunities WHERE job_id IS NOT NULL')}
         items = []
         for job_id in self.service.store.ids():
-            job = self.service.store.read(job_id)[0]
+            job = self.saved_job(job_id)
             row = discovered.get(job_id)
             changed = bool(row and row['imported_hash'] != self.content_hash(json.loads(row['payload'])))
             # Results belong to the saved JD. A newer board snapshot must not
@@ -209,14 +209,24 @@ class Discovery:
         company_policy = company_preferences(self.analysis.library.root, preferences)
         with self.db() as db:
             items = []
+            locations = {}
+            sightings = {}
+            for source in db.execute('SELECT opportunity_id,board,seen_at,payload FROM sightings'):
+                sightings.setdefault(source['opportunity_id'], []).append(dict(source))
+            automatic = {r['opportunity_id']:dict(r) for r in db.execute('SELECT * FROM automatic_assessments')}
+            selected_rows = {r['opportunity_id']:dict(r) for r in db.execute('SELECT opportunity_id,state,error FROM selected_assessments')}
+            fetched_rows = {r['opportunity_id']:dict(r) for r in db.execute('SELECT * FROM description_fetches')}
             for row in db.execute('SELECT * FROM opportunities ORDER BY first_seen DESC'):
                 item = json.loads(row['payload'])
-                sources = [dict(r) for r in db.execute('SELECT board,seen_at,payload FROM sightings WHERE opportunity_id=?', (row['id'],))]
+                sources = sightings.get(row['id'], [])
                 item.update(id=row['id'], first_seen=row['first_seen'], last_seen=row['last_seen'], job_id=row['job_id'],
                             assessment_state=row['assessment_state'], freshness=listing_freshness(item),
                             description_changed=bool(row['imported_hash'] and row['imported_hash'] != self.content_hash(item)),
                             sources=[{'board': s['board'], 'seen_at': s['seen_at'], 'posted_at': json.loads(s['payload']).get('posted_at')} for s in sources])
-                item["location_match"] = location_match(item.get("location"), preferences)
+                location = item.get("location")
+                if location not in locations:
+                    locations[location] = location_match(location, preferences)
+                item["location_match"] = dict(locations[location])
                 item["company_fit"] = company_fit(item, company_policy)
                 us_state = (item.get('search_country') == 'US' and re.search(
                     r',\s*(AL|AK|AZ|AR|CA|CO|CT|DE|DC|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|MA|MI|MN|MS|MO|MT|NE|NV|NH|NJ|NM|NY|NC|ND|OH|OK|OR|PA|RI|SC|SD|TN|TX|UT|VT|VA|WA|WV|WI|WY)\s*$', item.get('location', '')))
@@ -228,13 +238,13 @@ class Discovery:
                     item['location_match'] = {**item['location_match'], 'status': 'match' if code in target else 'outside',
                                               'countries': [code], 'reason': f'LinkedIn search country: {code}; listing location retained as provided.'}
                 item["content_hash"] = self.content_hash(item)
-                attempt = db.execute('SELECT state,attempted_at,error FROM automatic_assessments WHERE opportunity_id=?',(row['id'],)).fetchone()
-                item['automatic_assessment'] = dict(attempt) if attempt else None
+                attempt = automatic.get(row['id'])
+                item['automatic_assessment'] = {k:attempt[k] for k in ('state','attempted_at','error')} if attempt else None
                 item['queued_for_assessment'] = row['id'] in self.queued_ids
-                selected = db.execute('SELECT state,error FROM selected_assessments WHERE opportunity_id=?',(row['id'],)).fetchone()
-                item['selected_assessment'] = dict(selected) if selected else None
-                fetched = db.execute('SELECT state,checked_at,error FROM description_fetches WHERE opportunity_id=?',(row['id'],)).fetchone()
-                item['description_fetch'] = dict(fetched) if fetched else None
+                selected = selected_rows.get(row['id'])
+                item['selected_assessment'] = {k:selected[k] for k in ('state','error')} if selected else None
+                fetched = fetched_rows.get(row['id'])
+                item['description_fetch'] = {k:fetched[k] for k in ('state','checked_at','error')} if fetched else None
                 items.append(item)
             scan = db.execute('SELECT * FROM scans ORDER BY id DESC LIMIT 1').fetchone()
         # Never hold a listing cursor/read lock during filesystem-heavy analysis summaries.
@@ -252,6 +262,7 @@ class Discovery:
                 'boards': BOARDS, 'unavailable': UNAVAILABLE, 'timezone': str(datetime.now().astimezone().tzinfo),
                 'schedule': ['08:00', '13:00', '20:00']}
 
+    @read_snapshot
     def table_view(self):
         """Only data displayed by the discovery UI; full evidence stays in local storage."""
         result = self.view()
@@ -289,11 +300,19 @@ class Discovery:
             return {'state': 'NEEDS_JD' if len(item.get('description','')) < 20 else 'NOT_STARTED', 'score': None, 'recommendation': None}
         if item.get('description_changed'):
             return {'state':'JD_CHANGED', 'score':None, 'recommendation':None, 'stage':'Review the updated JD before assessing it.'}
+        return dict(self.saved_assessment(item['job_id']))
+
+    @snapshot_keyed
+    def saved_job(self, job_id):
+        return self.service.store.read(job_id)[0]
+
+    @snapshot_keyed
+    def saved_assessment(self, job_id):
         from .retrieval import RetrievalError
         from .pursuit import PursuitService
         try:
             # Polling must not reconcile the review graph or compete for its lock.
-            job = self.service.store.read(item['job_id'])[0]
+            job = self.saved_job(job_id)
             view = self.analysis.view(job, compact=True)
             run = view.get('run')
             if view.get('previous_result_outdated'):

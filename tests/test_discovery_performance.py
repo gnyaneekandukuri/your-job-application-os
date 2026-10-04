@@ -71,3 +71,46 @@ def test_bulk_cache_read_keeps_missing_keys_and_large_batches_safe(tmp_path):
     engine.put('one',{'value':1});engine.put('two',None)
     assert engine.get_many(['one','two',*map(str,range(1100))])=={'one':{'value':1},'two':None}
     assert engine.get_many([])=={}
+
+
+def test_nested_listing_reads_share_snapshot_but_next_request_is_fresh():
+    from app.read_snapshot import snapshot_keyed
+    class Reader:
+        calls = 0
+        value = 'first'
+        @snapshot_keyed
+        def get(self, key):
+            self.calls += 1
+            return self.value
+    reader = Reader()
+    @read_snapshot
+    def nested():
+        return reader.get('same-job')
+    @read_snapshot
+    def response():
+        return reader.get('same-job'), nested()
+    assert response() == ('first', 'first')
+    assert reader.calls == 1
+    reader.value = 'updated'
+    assert response() == ('updated', 'updated')
+    assert reader.calls == 2
+
+
+def test_duplicate_listing_summaries_reuse_work_without_sharing_mutations():
+    from unittest.mock import Mock
+    d = Discovery.__new__(Discovery)
+    job = SimpleNamespace(id='job')
+    d.service = SimpleNamespace(store=SimpleNamespace(read=Mock(return_value=(job,))))
+    d.analysis = SimpleNamespace(view=Mock(return_value={'run':None}))
+    @read_snapshot
+    def response():
+        first = d.assessment_summary({'job_id':'job'})
+        first['listing_changed'] = True
+        second = d.assessment_summary({'job_id':'job'})
+        changed = d.assessment_summary({'job_id':'job','description_changed':True})
+        assert 'listing_changed' not in second
+        assert changed['state'] == 'JD_CHANGED'
+    response()
+    assert d.analysis.view.call_count == d.service.store.read.call_count == 1
+    response()
+    assert d.analysis.view.call_count == d.service.store.read.call_count == 2

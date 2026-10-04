@@ -106,7 +106,7 @@ class RoleAnalysis:
         return self.jev
 
     @snapshot_cached
-    def environment(self, job):
+    def shared_environment(self):
         try:
             docs = control_documents(self.library.root)
             rules = {k: json.loads(docs[k]) for k in ("facts", "forbidden", "conflicts")}
@@ -126,7 +126,13 @@ class RoleAnalysis:
         state = self.library.status()
         stories = [s for s in state["sources"] if s["category"] == "story"]
         versions = {k: hashlib.sha256(v).hexdigest() for k, v in docs.items()}
-        versions.update(corpus=state["source_sha256"], requirements=key_for(job), jd=source_hash(job))
+        versions['corpus'] = state['source_sha256']
+        return versions, rules, stories
+
+    @snapshot_cached
+    def environment(self, job):
+        shared_versions, rules, stories = self.shared_environment()
+        versions = {**shared_versions, 'requirements':key_for(job), 'jd':source_hash(job)}
         review = self.engine.get("review-context:" + job.id)
         if review: versions["review"] = digest(json.dumps(review, sort_keys=True))
         version = digest(VERSION + MODEL + PROMPT + json.dumps(versions, sort_keys=True))

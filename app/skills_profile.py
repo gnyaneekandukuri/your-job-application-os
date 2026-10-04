@@ -132,12 +132,17 @@ class SkillsProfile:
             sources,version=self.snapshot();state=self.state();groups={};pending=0
             edits=self.engine.get('skills:edits') or {}
             mapping=self.engine.get('skills:groups') or {}
+            normalized_names = {}
+            def normalized(value):
+                if value not in normalized_names:
+                    normalized_names[value] = name_key(value)
+                return normalized_names[value]
             def add(skill,ref):
-                key=name_key(skill['name']);mapped=mapping.get(key,{})
+                key=normalized(skill['name']);mapped=mapping.get(key,{})
                 key=mapped.get('key',key);edit=edits.get(key,{})
                 label=edit.get('name',mapped.get('name',skill['name']))
-                equivalent={name_key(label),*(name_key(a) for a in skill.get('aliases',[]))}
-                group_key=next((k for k,g in groups.items() if not edit and (name_key(label) in {k,*(name_key(a) for a in g['aliases'])} or k in equivalent)),name_key(label))
+                equivalent={normalized(label),*(normalized(a) for a in skill.get('aliases',[]))}
+                group_key=next((k for k,g in groups.items() if not edit and (normalized(label) in {k,*(normalized(a) for a in g['aliases'])} or k in equivalent)),normalized(label))
                 group=groups.setdefault(group_key,{'key':key,'name':label,'aliases':[],'sources':[],'hidden':edit.get('hidden',False)})
                 group['aliases']=sorted(set(group['aliases']+skill.get('aliases',[])+([skill['name']] if skill['name']!=label else [])))
                 group['sources'].append({**ref,**{k:skill[k] for k in ('activity','support','quote')}})
