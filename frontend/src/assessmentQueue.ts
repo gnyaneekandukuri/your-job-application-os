@@ -20,12 +20,24 @@ export function nextAction(r:Result):string {
  return 'Review job';
 }
 
+export function processingStatus(r:Result):string|null {
+ const a=r.assessment;
+ if(a.state==='RUNNING')return 'Analyzing';
+ if(a.state==='STALE'||a.listing_changed)return 'Outdated';
+ if(a.state==='ERROR')return 'Analysis failed';
+ if(a.state==='INTERRUPTED')return 'Interrupted';
+ if(a.state==='PAUSED')return 'Paused';
+ if(a.state!=='COMPLETE')return 'Not finished';
+ if(!a.recommendation)return 'Recommendation unavailable';
+ return null;
+}
+
 export function analysisFilter(r:Result,filter:string):boolean {
  const a=r.assessment;
- const completed=a.state==='COMPLETE'&&!!a.recommendation;
- if(filter==='issues')return !completed||!!a.listing_changed||a.recommendation==='REVIEW';
- if(filter==='all')return a.state==='COMPLETE';
- if(filter==='passed')return completed&&a.choice==='SKIP';
- if(!completed||a.listing_changed||a.choice==='SKIP')return false;
- return filter==='worth'?['CASUAL','ATTACK_HARD'].includes(a.recommendation!):filter==='consider_passing'?a.recommendation==='SKIP':false;
+ if(a.state!=='COMPLETE')return false;
+ if(filter==='all')return true;
+ if(filter==='unavailable')return !a.recommendation;
+ if(filter==='review')return a.recommendation==='REVIEW';
+ if(filter==='worth')return ['CASUAL','ATTACK_HARD'].includes(a.recommendation??'');
+ return filter==='consider_passing'&&a.recommendation==='SKIP';
 }
