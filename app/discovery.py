@@ -334,6 +334,7 @@ class Discovery:
             if state == 'COMPLETE':
                 pursuit = PursuitService(self.analysis).view(job)
                 result['recommendation'] = (pursuit.get('result') or {}).get('recommendation')
+                result['explanation'] = (pursuit.get('result') or {}).get('explanation')
                 result['rationale'] = (pursuit.get('result') or {}).get('rationale','')
                 result['choice'] = (pursuit.get('choice') or {}).get('choice')
                 automatic = pursuit.get('automatic') or {}

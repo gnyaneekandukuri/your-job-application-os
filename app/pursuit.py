@@ -267,6 +267,10 @@ class PursuitService:
             snapshot=self.graph(saver,job,inputs).get_state(self.config(job,version))
         result=snapshot.values.get('result')
         if result and 'recommendation' not in result:result=None
+        if result:
+            from .pursuit_explanation import explain
+            result = {**result, 'explanation':explain(result,inputs[1])}
+            result['rationale'] = result['explanation']['summary']
         return {'ready':True,'reason':'','version':version,'result':result,'choice':snapshot.values.get('choice'), 'automatic':self.manager.engine.get('pursuit-auto:'+job.id+':'+version)}
 
     def generate(self,job,data):

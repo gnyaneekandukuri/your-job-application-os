@@ -1,10 +1,12 @@
+import { RecommendationWhy } from './RecommendationWhy';
+import type { Explanation } from './assessmentQueue';
 import { useEffect, useRef, useState } from 'react';
 import { FeedbackLearning } from './FeedbackLearning';
 
 type Choice = 'SKIP'|'CASUAL'|'ATTACK_HARD';
 const labels:Record<Choice,string>={SKIP:'Pass',CASUAL:'I want to apply',ATTACK_HARD:'Prioritize this application'};
 type Signal={kind:string;finding:string;quote:string;reason:string};
-type Result={recommendation:Choice|'REVIEW';rationale:string;score:number;created_at:string;
+type Result={explanation?:Explanation;recommendation:Choice|'REVIEW';rationale:string;score:number;created_at:string;
   input_versions:Record<string,string>;source_url:string|null;
   constraints:Signal[];priorities:Signal[];limitations:string[];what_would_change_it:string[];
   checks:{label:string;passed:boolean;detail:string}[];
@@ -61,7 +63,7 @@ export function PursuitAssessment({jobId,onChanged=()=>{},onReviewEvidence=()=>{
       {!busy&&view.automatic&&<button onClick={()=>void act()}>Retry recommendation</button>}
     </>}
     {result&&<>
-      <h4>Recommendation: {{REVIEW:'Review evidence before applying',SKIP:'Consider passing',CASUAL:'Worth considering',ATTACK_HARD:'Prioritize this role'}[result.recommendation]}</h4><p>{result.rationale}</p>
+      <h4>Recommendation: {{REVIEW:'Review evidence before applying',SKIP:'Consider passing',CASUAL:'Worth considering',ATTACK_HARD:'Prioritize this role'}[result.recommendation]}</h4>{result.explanation?<RecommendationWhy value={result.explanation}/>:<p>{result.rationale}</p>}
       <p>Documented fit: <strong>{result.score}/100</strong>. Personal preferences do not change this score.</p>
       <details><summary>Why this recommendation?</summary>
         <h4>Application and extra-effort criteria</h4><ul>{result.checks.map(c=><li key={c.label}><strong>{c.passed?'Meets':'Not yet met'} — {c.label}:</strong> {c.detail}</li>)}</ul>

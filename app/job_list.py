@@ -10,7 +10,7 @@ from contextlib import closing
 from datetime import datetime, timezone, timedelta
 from threading import Event, Lock, Thread
 
-VERSION = 'job-list-v4-soft-company-preference'
+VERSION = 'job-list-v5-evidence-explanations'
 log = logging.getLogger(__name__)
 
 
