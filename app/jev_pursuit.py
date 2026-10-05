@@ -1,7 +1,27 @@
 """Quoted Jev preference signals; existing deterministic pursuit rules decide."""
-from .jev_client import choice, confident
+import json
+from .jev_client import choice, confident, MODEL, POLICY
 from .jev_requirements import spans
 from .retrieval import RetrievalError
+
+
+def evaluate_bounded(client, job_id, state, questions):
+    """Pack questions before dispatch; preserve the entire source and every question."""
+    def fits(batch):
+        return len(json.dumps({'model':MODEL,'state':state,'questions':batch},ensure_ascii=False,sort_keys=True).encode()) <= POLICY['max_request_bytes']
+    batches, batch = [], {}
+    for name, question in questions.items():
+        if not fits({name:question}):
+            raise RetrievalError('A single recommendation question exceeds the request limit. Saved evidence is retained; no request was sent.',409)
+        if batch and not fits({**batch,name:question}):
+            batches.append(batch)
+            batch = {}
+        batch[name] = question
+    if batch: batches.append(batch)
+    answers = {}
+    for batch in batches:
+        answers.update(client.evaluate(job_id,'pursuit_interpretation',state,batch))
+    return answers
 
 
 def interpret(client, job, run, profile):
@@ -26,7 +46,7 @@ def interpret(client, job, run, profile):
     for r in eligible:
         questions['core_'+r['id']] = choice(f'Is requirement {r["id"]} central to the actual work? Exclude eligibility, physical conditions, credentials and generic boilerplate.',
                                             {'core':'Central product/work responsibility.', 'other':'Not central to the actual work.'})
-    answers = client.evaluate(job.id, 'pursuit_interpretation', {'job_description':job.description, 'blocks':blocks,
+    answers = evaluate_bounded(client, job.id, {'job_description':job.description, 'blocks':blocks,
         'requirements':run['requirements'], 'profile':profile, 'policy':PROMPT}, questions)
     constraints, priorities = [], []
     for kind in sorted(CONSTRAINTS):
