@@ -1,7 +1,7 @@
 {
-  "schema_version": "0.3.0",
+  "schema_version": "0.4.0",
   "status": "ACTIVE_PRODUCT_DEFAULTS_NOT_HIRING_PROBABILITIES",
-  "updated_at": "2026-09-28",
+  "updated_at": "2026-10-04",
   "personal_context_source": "knowledge/profile.json",
   "principles": {
     "separate_documented_fit_from_personal_priority": true,
@@ -18,7 +18,8 @@
     "seniority": "Compare scope and ownership, using personal level preferences; title mismatch alone is not a hard gate.",
     "investor_backing": "Optional priority signal requiring sourced company-specific evidence. Examples in personal context are not an allowlist. Unknown backing is not a disqualifier and does not alter capability scores.",
     "success": "Explain evidence supporting interview competitiveness, offer competitiveness and ability to perform the work; do not invent probabilities or guarantee outcomes.",
-    "human_review": "Present recommendation, rationale, uncertainties and what would change it; user chooses pursuit level."
+    "human_review": "Present recommendation, rationale, uncertainties and what would change it; user chooses pursuit level.",
+    "partial_fit": "Recommend effort from overall and core-work evidence, not 100% requirement coverage. Tentative matches remain visible without requiring manual confirmation of every classification."
   },
   "recommendation_categories": [
     "SKIP",
@@ -44,10 +45,10 @@
     "casual": {
       "minimum_overall": 50,
       "maximum_core_insufficient_percent": 50,
-      "requires_nonprovisional_score": true,
-      "requires_role_content_match": true
+      "requires_nonprovisional_score": false,
+      "requires_role_content_match": false
     },
-    "review": "Insufficient or uncertain evidence: review before recommending application effort; not a rejection."
+    "review": "Overall score below baseline or insufficient evidence for most core work: explain the gaps; not a rejection. Individual tentative classifications are warnings, not blanket gates."
   },
   "calibration": "Initial explainable product defaults. Review against real user decisions before claiming predictive validity."
 }

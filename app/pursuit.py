@@ -128,8 +128,6 @@ def recommend(run, interpreted, policy):
             if re.search(r'visa|sponsor|h[ -]?1b|work authoriz', r['quote'], re.I): continue
             unresolved.append(r['id'])
     checks = [
-        {'label':'Assessment classifications reviewed', 'passed':not score.get('review_required_ids'),
-         'detail':f"{len(score.get('review_required_ids', []))} requirement classifications remain tentative."},
         {'label':'Overall documented fit', 'passed':score['percent'] >= rules['minimum_overall'], 'detail':f"{score['percent']}/100; minimum {rules['minimum_overall']}"},
         *[{'label':f'{key.title()} evidence', 'passed':dimensions.get(key) is not None and dimensions[key] >= rules['minimum_'+key],
            'detail':f"{dimensions.get(key) if dimensions.get(key) is not None else 'Not applicable'}/100; minimum {rules['minimum_'+key]}"} for key in ('actions','ownership','scope')],
@@ -140,7 +138,7 @@ def recommend(run, interpreted, policy):
     casual = policy['decision_rules']['casual']
     casual_checks = [
         {'label':'Evidence score for applying', 'passed':score['percent'] >= casual['minimum_overall'], 'detail':f"{score['percent']}/100; minimum {casual['minimum_overall']}"},
-        {'label':'Evidence certainty', 'passed':not casual['requires_nonprovisional_score'] or not score.get('provisional'), 'detail':'Provisional evidence needs review before recommending application effort.'},
+        {'label':'Evidence certainty', 'passed':not casual['requires_nonprovisional_score'] or not score.get('provisional'), 'detail':'Some evidence classifications are tentative; review the flagged matches while deciding.'},
         {'label':'Core evidence coverage', 'passed':insufficient <= casual['maximum_core_insufficient_percent'], 'detail':f"{insufficient:.1f}% insufficient; maximum {casual['maximum_core_insufficient_percent']}%"},
         {'label':'Target work alignment', 'passed':not casual['requires_role_content_match'] or any(p.kind=='role_content' and p.finding=='match' for p in interpreted.priorities), 'detail':'Actual responsibilities must match desired work.'},
     ]
@@ -148,8 +146,12 @@ def recommend(run, interpreted, policy):
     checks = casual_checks + checks
     rationale = ('The saved JD indicates a conflict with a personal constraint. Review the cited interpretation before deciding.' if blockers else
                  'The documented evidence meets the configured higher-effort criteria and the responsibilities match your target work.' if choice=='ATTACK_HARD' else
-                 'The evidence meets the baseline for applying, but not every higher-effort criterion.' if choice=='CASUAL' else
+                 'Worth applying: the overall score and core evidence meet the baseline. Gaps do not require a perfect match.' if choice=='CASUAL' else
                  'Review the evidence before deciding to apply: '+ '; '.join(c['label']+': '+c['detail'] for c in casual_checks if not c['passed'])+' Missing evidence is not proof of missing ability.')
+    if score.get('provisional'):
+        rationale += ' Some evidence classifications are tentative; the recommendation is provisional, not a requirement to confirm every match.'
+    if not any(p.kind=='role_content' and p.finding=='match' for p in interpreted.priorities):
+        rationale += ' Preferred-work alignment is not established; check the responsibilities before investing heavily.'
     requirements = {r['id']:r for r in run['requirements']}
     evidence = [{'requirement_id':i, 'requirement':requirements[i]['interpretation'],
                  'alignment':run['results'][i]['judgment']['assessment']['alignment'],
@@ -164,6 +166,11 @@ def recommend(run, interpreted, policy):
             'limitations':['Effort recommendation, not an interview or offer probability.',
                           'Company and investor signals come only from the saved JD; they are not independently researched.',
                           'Absent sponsorship language is unknown and carries no penalty. Salary is not a filter for the current profile.']}
+
+
+def interpretation_key(job_id, hashes):
+    source = {k:v for k,v in hashes.items() if k != 'criteria'}
+    return 'pursuit-signals:' + job_id + ':' + digest(VERSION+MODEL+PROMPT+json.dumps(source,sort_keys=True))
 
 
 class Flow(TypedDict, total=False):
@@ -212,9 +219,24 @@ class PursuitService:
     def graph(self, saver, job, inputs):
         version, run, profile, policy, hashes = inputs
         manager = self.manager
-        key = 'pursuit-interpretation:'+job.id+':'+version
+        # Interpretation depends on evidence and preferences, not decision thresholds.
+        key = interpretation_key(job.id, hashes)
         def interpret(_):
             raw = manager.engine.get(key)
+            if raw is None:
+                # Reuse only exact source/profile matches from the pre-migration policy.
+                policies = [policy]
+                backup = manager.library.root / 'criteria/pursuit-policy-before-0.4.json'
+                if backup.exists():
+                    policies.append(json.loads(backup.read_text(encoding='utf-8')))
+                for previous_policy in policies:
+                    previous_hashes = {**hashes, 'criteria':digest(json.dumps(previous_policy,sort_keys=True))}
+                    previous_version = digest(VERSION+MODEL+PROMPT+json.dumps(previous_hashes,sort_keys=True))
+                    raw = manager.engine.get('pursuit-interpretation:'+job.id+':'+previous_version)
+                    if raw is not None:
+                        validate_interpretation(Interpretation.model_validate(raw),job,run,profile)
+                        manager.engine.put(key,raw)
+                        break
             if raw is None:
                 from .jev_pursuit import interpret as interpret_with_jev
                 parsed = interpret_with_jev(manager.jev_client(), job, run, profile)

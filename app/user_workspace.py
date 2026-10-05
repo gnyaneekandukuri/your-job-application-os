@@ -81,6 +81,16 @@ def initialize(root):
         pursuit['recommendation_categories'] = list(dict.fromkeys([*pursuit['recommendation_categories'], 'REVIEW']))
         pursuit['schema_version'] = '0.3.0'
         write_json(pursuit_path, pursuit)
+    if pursuit.get('schema_version') == '0.3.0':
+        # Preserve numerical thresholds and the old policy for audit.
+        write_json(root / 'criteria/pursuit-policy-before-0.4.json', pursuit)
+        pursuit['decision_rules']['casual']['requires_nonprovisional_score'] = False
+        pursuit['decision_rules']['casual']['requires_role_content_match'] = False
+        defaults = json.loads((PRODUCT / 'criteria/pursuit-policy.json').read_text(encoding='utf-8'))
+        pursuit['decision_rules']['review'] = defaults['decision_rules']['review']
+        pursuit['principles']['partial_fit'] = defaults['principles']['partial_fit']
+        pursuit['schema_version'] = '0.4.0'
+        write_json(pursuit_path, pursuit)
     protocol = root / "protocols/resume-tailoring-canonical.md"
     if not protocol.exists():
         protocol.parent.mkdir(parents=True, exist_ok=True)
