@@ -50,15 +50,15 @@ def test_fetch_match_is_saved_but_wrong_company_needs_paste(tmp_path, monkeypatc
         discovery=configure(client)
         oid,_=discovery.save('yc',row())
         draft={'title':'Product Manager','company':'Wrong Employer','description':'Responsibilities: research customers and deliver products. '*20}
-        monkeypatch.setattr('app.extraction.extract_job',lambda _:SimpleNamespace(model_dump=lambda **kw:draft))
+        monkeypatch.setattr('app.description_worker.extract_bounded',lambda _:draft)
         assert discovery.complete_descriptions({oid})['needs_paste']==1
         assert discovery.view()['items'][0]['description']==''
         # Retry is bounded: a failed automatic fetch is not repeated each poll/scan.
-        monkeypatch.setattr('app.extraction.extract_job',lambda _:pytest.fail('Unexpected repeat fetch'))
+        monkeypatch.setattr('app.description_worker.extract_bounded',lambda _:pytest.fail('Unexpected repeat fetch'))
         discovery.complete_descriptions({oid})
         with discovery.db() as db: db.execute('DELETE FROM description_fetches')
         draft['company']='Example Labs'
-        monkeypatch.setattr('app.extraction.extract_job',lambda _:SimpleNamespace(model_dump=lambda **kw:draft))
+        monkeypatch.setattr('app.description_worker.extract_bounded',lambda _:draft)
         assert discovery.complete_descriptions({oid})['fetched']==1
         saved=discovery.view()['items'][0]
         assert saved['description']==draft['description']
@@ -274,3 +274,24 @@ def test_unexpected_queue_failure_pauses_automatic_work_visibly(tmp_path, monkey
         d.reconcile_automatic()
         assert not d.settings()['auto_assess']
         assert 'stopped unexpectedly' in client.app.state.job_list.status()['error']
+
+
+def test_description_timeout_continues_to_next_listing(tmp_path, monkeypatch):
+    with TestClient(create_app(tmp_path)) as client:
+        discovery = configure(client)
+        first, _ = discovery.save('yc', row())
+        second, _ = discovery.save('yc', {**row(), 'source_id':'second', 'url':'https://example.com/jobs/second'})
+        calls = []
+        def fetch(url):
+            calls.append(url)
+            if url.endswith('/pm'):
+                raise ExtractionError('Full JD fetching timed out. The scan continued.')
+            return {'title':'Product Manager', 'company':'Example Labs',
+                    'description':'Research customers and deliver useful products. '*20}
+        monkeypatch.setattr('app.description_worker.extract_bounded', fetch)
+        counts = discovery.complete_descriptions({first, second})
+        assert len(calls) == 2
+        assert counts == {'fetched':1, 'needs_paste':1}
+        with discovery.db() as db:
+            error = db.execute('SELECT error FROM description_fetches WHERE opportunity_id=?', (first,)).fetchone()[0]
+        assert 'timed out' in error

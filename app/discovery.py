@@ -414,20 +414,33 @@ class Discovery:
 
     def complete_descriptions(self, seen_ids):
         """Fetch missing JDs without a model; mismatches require manual review."""
-        from .extraction import extract_job
+        from .description_worker import extract_bounded
         from .safe_fetch import ExtractionError
         def identity(text):
             return re.sub(r'\b(inc|llc|ltd|company|corporation)\b', '', re.sub(r'[^a-z0-9]+',' ',text.lower())).strip()
         counts = {'fetched':0, 'needs_paste':0}
-        for item in self.view(include_analysis=False)['items']:
+        items = [item for item in self.view(include_analysis=False)['items']
+                 if item['id'] in seen_ids and len(item.get('description','')) < 200
+                 and item['location_match']['status'] != 'outside']
+        def progress(completed, current=None):
+            sid = scan_id.get()
+            if sid is None: return
+            with self.db() as db:
+                row = db.execute('SELECT payload FROM scans WHERE id=?', (sid,)).fetchone()
+                if not row: return
+                payload = json.loads(row[0])
+                payload['description_progress'] = dict(total=len(items), completed=completed,
+                    current=current, updated_at=now(), **counts)
+                db.execute('UPDATE scans SET payload=? WHERE id=?', (json.dumps(payload), sid))
+        for index, item in enumerate(items):
             if self.stop.is_set(): break
-            if item['id'] not in seen_ids or len(item.get('description','')) >= 200 or item['location_match']['status'] == 'outside': continue
+            progress(index, {'company': item['company'], 'title': item['title']})
             previous = item.get('description_fetch')
             if previous and freshness(previous['checked_at']) == 'within_24h':
                 counts['needs_paste'] += 1
                 continue
             try:
-                draft = extract_job(item['url']).model_dump(mode='json')
+                draft = extract_bounded(item['url'])
                 if (identity(draft['title']) != identity(item['title']) or identity(draft['company']) != identity(item['company']) or len(draft['description']) < 200):
                     raise ValueError('Listing identity or description needs review')
                 with self.lock, self.db() as db:
@@ -444,6 +457,7 @@ class Discovery:
                 with self.db() as db:
                     db.execute('INSERT OR REPLACE INTO description_fetches VALUES(?,?,?,?)',(item['id'],'NEEDS_PASTE',now(),message))
                 counts['needs_paste'] += 1
+        progress(counts['fetched'] + counts['needs_paste'])
         return counts
 
     def start(self, boards=None):
