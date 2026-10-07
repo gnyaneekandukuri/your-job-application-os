@@ -34,20 +34,29 @@ export function TailorResume({jobId,label}:{jobId:string;label?:string}) {
  {!view.configured&&<p role="alert">Connect your OpenAI API key to prepare a draft.</p>}
  </details>
  <details><summary>Ground rules included</summary><p>PAR by default, with XYZ, concise STAR, or your existing style. Every claim needs candidate evidence. Preserve ownership, dates, titles, numbers, and project context. Never invent qualifications or copy requirements as experience. Use plain language, relevant accomplishments, and readable formatting. Review changes before approval; no automatic applications.</p><p>Citation checks and an AI claim review help catch errors; they are not independent verification of your experience.</p></details>
- {record&&<><p role="status"><strong>{record.state==='APPROVED'?'Approved resume':record.stage||record.state}</strong> · {record.framework} · Rules v{record.policy_version}</p>
+ {record&&<><p role="status"><strong>{record.state==='APPROVED'?'Approved resume':['ERROR','INTERRUPTED'].includes(record.state)?'Preparation stopped — draft saved':record.stage||record.state}</strong> · {record.framework} · Rules v{record.policy_version}</p>
  {running&&<p>Preparation continues on the server if you close this window or refresh.</p>}
  {record.error&&<p role="alert">{record.error}</p>}
  {['ERROR','INTERRUPTED'].includes(record.state)&&!editing&&<button disabled={busy} onClick={()=>void act('',{consent_to_send:true,framework:record.framework,base_resume:record.context.sources[0].text,retry:true})}>Retry unfinished preparation · API usage</button>}
  {record.draft&&<>
  {record.draft.questions.length>0&&<details><summary>Questions and missing details ({record.draft.questions.length})</summary><ul>{record.draft.questions.map((q,i)=><li key={i}>{q}</li>)}</ul><p>Add factual details to the relevant experience in Your context, then reassess before generating a new draft.</p></details>}
- <div className="tailoring-preview" aria-label="Resume draft">{(editing?blocks:record.draft.blocks).map((block,i)=>{
-  const finding=record.checks?.findings.find(f=>f.block_index===i);
-  return <div key={i} className={`tailoring-block ${block.kind}`}>
-   {editing?<><label>Resume {block.kind}<textarea value={block.text} rows={block.kind==='bullet'?3:2} onChange={e=>change(i,e.target.value)}/></label><button onClick={()=>setBlocks(old=>old.filter((_,j)=>i!==j))}>Remove</button></>:block.kind==='heading'?<h3>{block.text}</h3>:<p>{block.kind==='bullet'?'• ':''}{block.text}</p>}
-   {!editing&&finding&&!finding.supported&&<p role="alert">Needs correction: {finding.reason}</p>}
-   {block.kind!=='heading'&&<details><summary>Why this wording · source evidence</summary><p>{block.reason}</p>{block.citations.map((ref,j)=>{const source=record.context.sources.find(s=>s.id===ref.source_id);return <div key={j}><strong>{source?.title||ref.source_id}{source?.employer?` · ${source.employer}`:''}</strong>{source?.start_line&&<small> · passage starts at line {source.start_line}</small>}<blockquote>{ref.quote}</blockquote></div>;})}</details>}
-  </div>;
- })}</div>
+ <div className="tailoring-review-heading"><div><h3>Your tailored draft</h3><p>{running?'Draft prepared; claim checks are still running. You can read the wording below.':['ERROR','INTERRUPTED'].includes(record.state)?'Your draft is saved, but verification did not finish. Review the error above. Expand a source to read the supporting quote.':'Review the tailored wording below, then approve when it is ready. Expand a source to read the supporting quote.'}</p></div>{!running&&!editing&&<button disabled={busy} onClick={()=>{setBlocks(record.draft!.blocks.map(b=>({...b})));setEditing(true);setConfirmed(false);}}>Edit draft</button>}</div>
+ <div className="tailoring-table-wrap"><table className="tailoring-review-table" aria-label="Tailored resume and supporting evidence">
+ <colgroup><col className="tailoring-company-col"/><col className="tailoring-point-col"/><col className="tailoring-evidence-col"/></colgroup>
+ <thead><tr><th scope="col">Company / section</th><th scope="col">Resume point</th><th scope="col">Evidence</th></tr></thead>
+ <tbody>{(()=>{let section='Contact details',company='';return (editing?blocks:record.draft!.blocks).map((block,i)=>{
+  if(block.kind==='heading'){section=block.text;company='';}
+  if(block.kind==='role')company=block.text.split('|')[0].trim();
+  const finding=!editing?record.checks?.findings.find(f=>f.block_index===i):undefined;
+  if(block.kind==='heading'&&!editing)return <tr key={i} className="tailoring-section-row"><th colSpan={3} scope="colgroup">{block.text}</th></tr>;
+  return <tr key={i} className={block.kind==='role'?'tailoring-role-row':''}>
+   <th scope="row">{company||section}</th>
+   <td>{editing?<><label>Resume {block.kind}<textarea value={block.text} rows={block.kind==='bullet'?4:2} onChange={e=>change(i,e.target.value)}/></label><button disabled={busy} onClick={()=>setBlocks(old=>old.filter((_,j)=>i!==j))}>Remove</button></>:<p>{block.text}</p>}
+   {finding&&!finding.supported&&<p role="alert">Needs correction: {finding.reason}</p>}
+   </td>
+   <td>{block.kind!=='heading'&&<>{block.reason&&<p className="tailoring-wording-reason">{block.reason}</p>}{block.citations.map((ref,j)=>{const source=record.context.sources.find(s=>s.id===ref.source_id);return <details key={j}><summary>{source?.title||ref.source_id}</summary>{source?.start_line&&<p className="tailoring-source-location">Passage starts at line {source.start_line}</p>}<blockquote>{ref.quote}</blockquote></details>;})}</>}</td>
+  </tr>;
+ });})()}</tbody></table></div>
  {!running&&<div className="tailoring-actions">{editing?<><button className="primary" disabled={busy||!blocks.length} onClick={()=>void act('/edit',{revision:record.revision,blocks})}>Save edits</button><button onClick={()=>setEditing(false)}>Cancel edits</button><p>Existing citations are preserved. Save, then check edited claims before approving.</p></>:<>
  <button disabled={busy} onClick={()=>{setBlocks(record.draft!.blocks.map(b=>({...b})));setEditing(true);setConfirmed(false);}}>Edit draft</button>
  {['EDITED','NEEDS_REVIEW'].includes(record.state)&&<button disabled={busy} onClick={()=>void act('/check',{revision:record.revision,confirmed:true})}>Check claims · API usage</button>}

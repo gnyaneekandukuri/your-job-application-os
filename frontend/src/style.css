@@ -999,7 +999,7 @@ summary { cursor:pointer; font-size:14px; line-height:1.5; }
 /* Compact posting-age navigation beside discovery results. */
 button.text-button { border: 0; background: transparent; padding: .2rem .25rem; min-height: auto; color: var(--accent, #245c47); text-decoration: underline; font: inherit; }
 
-.tailoring-dialog { width:min(900px,calc(100vw - 32px)); }
+.tailoring-dialog { width:min(1280px,calc(100vw - 32px)); }
 .tailoring-dialog > details, .tailoring-dialog > p { margin-top:20px; }
 .tailoring-dialog label { display:block; margin:16px 0; }
 .tailoring-dialog select, .tailoring-dialog textarea { width:100%; box-sizing:border-box; display:block; margin-top:8px; }
@@ -1015,3 +1015,27 @@ button.text-button { border: 0; background: transparent; padding: .2rem .25rem; 
 .tailoring-actions p { flex-basis:100%; }
 .tailoring-dialog [role=alert] { color:#8c2828; background:#fff0ed; padding:12px; border-radius:6px; }
 @media(max-width:600px) { .tailoring-preview {padding:12px;} .tailoring-dialog {padding:16px;} }
+
+.tailoring-review-heading {display:flex;align-items:center;justify-content:space-between;gap:20px;margin:24px 0 16px;}
+.tailoring-review-heading h3 {margin:0 0 8px;}
+.tailoring-review-heading p {margin:0;color:#65736a;}
+.tailoring-review-heading button {flex-shrink:0;}
+.tailoring-table-wrap {overflow-x:auto;margin-bottom:24px;border:1px solid #dce5dc;border-radius:8px;}
+.tailoring-review-table {width:100%;min-width:720px;table-layout:fixed;border-collapse:collapse;font-size:14px;line-height:1.6;}
+.tailoring-company-col {width:18%;}
+.tailoring-point-col {width:46%;}
+.tailoring-evidence-col {width:36%;}
+.tailoring-review-table th,.tailoring-review-table td {padding:16px;text-align:left;vertical-align:top;border-bottom:1px solid #dce5dc;overflow-wrap:anywhere;white-space:normal;}
+.tailoring-review-table thead th {background:#edf2ed;font-size:14px;text-transform:none;letter-spacing:normal;}
+.tailoring-review-table tbody th {font-weight:600;}
+.tailoring-review-table p {margin:0;white-space:pre-wrap;}
+.tailoring-review-table .tailoring-section-row th {background:#f3f6f2;font-size:13px;letter-spacing:.04em;}
+.tailoring-role-row td:nth-child(2) {font-weight:600;}
+.tailoring-review-table .tailoring-wording-reason {color:#59695f;margin-bottom:10px;}
+.tailoring-review-table details {margin:8px 0;}
+.tailoring-review-table summary {cursor:pointer;color:#275e49;font-size:14px;}
+.tailoring-review-table blockquote {margin:10px 0;padding:8px 12px;border-left:3px solid #cad6ce;background:#f7f9f6;white-space:pre-wrap;}
+.tailoring-review-table .tailoring-source-location {font-size:12px;color:#65736a;margin-top:8px;}
+.tailoring-review-table label {margin:0 0 10px;font-size:13px;}
+.tailoring-review-table textarea {font-size:14px;line-height:1.6;min-height:100px;}
+@media(max-width:600px){.tailoring-review-heading{align-items:flex-start;flex-direction:column;}.tailoring-review-table th,.tailoring-review-table td{padding:12px;}}
