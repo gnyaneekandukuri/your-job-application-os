@@ -92,8 +92,9 @@ def test_claim_failure_blocks_approval(setup):
 
 def test_bad_citation_is_saved_for_correction_not_approved(setup):
     s,j,p,*_=setup;p.bad_quote=True;r=generate(s,j)
-    assert r['state']=='ERROR' and r['draft']
-    assert len(p.calls)==1
+    assert r['state']=='NEEDS_REVIEW' and r['draft']
+    assert any(not f['supported'] and f['block_index']==3 for f in r['checks']['findings'])
+    assert len(p.calls)==2
 
 
 def test_numbers_cannot_come_from_jd():
@@ -173,3 +174,28 @@ def test_verifier_must_cover_every_block(setup,monkeypatch):
     monkeypatch.setattr(s,'call',lambda job,stage,*args:Checks(findings=[]) if stage=='claim_check' else original(job,stage,*args))
     r=generate(s,j)
     assert r['state']=='ERROR' and 'omitted' in r['error']
+
+
+def test_saved_fact_citations_and_whitespace_are_valid_sources():
+    from app.tailoring import citation_sources
+    body={'sources':[{'id':'resume','text':'Built a tool\nfor 12 users.'}],
+          'candidate_fact_rules':{'facts':{'facts':[{'id':'ROLE_1','subject':'Example','claim':'Role ended in 2025.','status':'CANDIDATE_CONFIRMED'}]}}}
+    blocks=[Block(kind='bullet',text='Built a tool for 12 users.',citations=[{'source_id':'resume','quote':'Built a tool for 12 users.'}],reason=''),
+            Block(kind='role',text='Role ended in 2025.',citations=[{'source_id':'candidate_fact_rules.facts.ROLE_1','quote':'Role ended in 2025.'}],reason='')]
+    validate_blocks(blocks,citation_sources(body))
+    blocks[0].citations[0].quote='Built the tool for 12 users.'
+    with pytest.raises(RetrievalError):validate_blocks(blocks,citation_sources(body))
+
+
+def test_unverified_edits_can_save_but_cannot_be_approved(setup):
+    s,j,p,*_=setup;r=generate(s,j)
+    blocks=[Block.model_validate(b) for b in r['draft']['blocks']]
+    blocks[-1].text='Built a prototype for 1200 users.'
+    r=s.edit(j,Edit(revision=r['revision'],blocks=blocks))['record']
+    assert r['state']=='EDITED'
+    with pytest.raises(RetrievalError):s.approve(j,Action(revision=r['revision'],confirmed=True))
+    s.recheck(j,Action(revision=r['revision'],confirmed=True));s.worker.join(5)
+    r=s.view(j)['record']
+    assert r['state']=='NEEDS_REVIEW'
+    assert any(f['block_index']==3 and not f['supported'] for f in r['checks']['findings'])
+    assert 3 not in [b['block_index'] for b in json.loads(p.calls[-1]['input'])['blocks']]
