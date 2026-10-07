@@ -1,3 +1,4 @@
+import { TailorResume } from "./TailorResume";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Usage } from "./Usage";
 import { AssessmentResults } from "./AssessmentResults";
@@ -571,6 +572,7 @@ function App() {
                     Added {new Date(review.job.created_at).toLocaleDateString()}
                   </span>
                 </div>
+                <TailorResume key={"tailor-"+review.job.id} jobId={review.job.id} label={`${review.job.company} · ${review.job.title}`}/>
                 <Requirements key={review.job.id} jobId={review.job.id} />
                 <details><summary>Legacy sample assessment (not this analysis)</summary><div className="assessment">
                   <div className="eyebrow">

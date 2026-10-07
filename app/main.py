@@ -17,6 +17,8 @@ from .store import Conflict, Missing, Store
 from .workflow import build_graph
 from .retrieval import BuildInput, SearchInput, RetrievalService, RetrievalError, SOURCE
 from .model_provider import OpenAIProvider
+from .tailoring import Tailoring, Generate as TailorGenerate, Edit as TailorEdit, Action as TailorAction
+from fastapi.responses import PlainTextResponse
 from .job_requirements import ExtractRequirements
 from .jev_requirements import extract as extract_requirements, key_for as jev_requirements_key
 from .requirement_evidence import EvidenceInput
@@ -62,6 +64,7 @@ def create_app(data_dir: Path | None = None):
         if data_dir is None:
             Thread(target=api.state.skills.watch, daemon=True).start()
         api.state.analysis = RoleAnalysis(api.state.retrieval, api.state.library)
+        api.state.tailoring = Tailoring(api.state.analysis, api.state.skills, OpenAIProvider(allow_generation=True, allow_embeddings=False))
         api.state.discovery = Discovery(private_dir / "discovery.sqlite3", api.state.service, api.state.analysis, sources=lambda: library_sources(api.state.library), skills=api.state.skills)
         from .job_list import JobList
         api.state.job_list = JobList(api.state.discovery)
@@ -76,6 +79,7 @@ def create_app(data_dir: Path | None = None):
             api.state.job_list.close()
             api.state.skills.close()
             api.state.discovery.close()
+            api.state.tailoring.close()
             api.state.analysis.close()
             connection.close()
 
@@ -376,6 +380,31 @@ def create_app(data_dir: Path | None = None):
         view = request.app.state.analysis.view(job)
         return {'context_version':view['input_version'], 'ready':view['ready'], 'unready_sources':view['unready_sources'],
                 'result':(view['run'] or {}).get('results', {}).get(requirement_id), 'usage':view['usage']}
+
+    @api.get("/api/jobs/{job_id}/tailoring")
+    def tailoring_view(job_id: str, request: Request):
+        return request.app.state.tailoring.view(request.app.state.service.review(job_id).job)
+
+    @api.post("/api/jobs/{job_id}/tailoring")
+    def tailoring_generate(job_id: str, data: TailorGenerate, request: Request):
+        return request.app.state.tailoring.start(request.app.state.service.review(job_id).job, data)
+
+    @api.post("/api/jobs/{job_id}/tailoring/edit")
+    def tailoring_edit(job_id: str, data: TailorEdit, request: Request):
+        return request.app.state.tailoring.edit(request.app.state.service.review(job_id).job, data)
+
+    @api.post("/api/jobs/{job_id}/tailoring/check")
+    def tailoring_check(job_id: str, data: TailorAction, request: Request):
+        return request.app.state.tailoring.recheck(request.app.state.service.review(job_id).job, data)
+
+    @api.post("/api/jobs/{job_id}/tailoring/approve")
+    def tailoring_approve(job_id: str, data: TailorAction, request: Request):
+        return request.app.state.tailoring.approve(request.app.state.service.review(job_id).job, data)
+
+    @api.get("/api/jobs/{job_id}/tailoring/export", response_class=PlainTextResponse)
+    def tailoring_export(job_id: str, revision: str, request: Request):
+        text = request.app.state.tailoring.export(request.app.state.service.review(job_id).job, revision)
+        return PlainTextResponse(text, headers={"Content-Disposition": 'attachment; filename="tailored-resume.txt"'})
 
     @api.get("/api/jobs/{job_id}/analysis")
     def get_analysis(job_id: str, request: Request):

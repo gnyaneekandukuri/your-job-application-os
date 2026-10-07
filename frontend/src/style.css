@@ -998,3 +998,20 @@ summary { cursor:pointer; font-size:14px; line-height:1.5; }
 
 /* Compact posting-age navigation beside discovery results. */
 button.text-button { border: 0; background: transparent; padding: .2rem .25rem; min-height: auto; color: var(--accent, #245c47); text-decoration: underline; font: inherit; }
+
+.tailoring-dialog { width:min(900px,calc(100vw - 32px)); }
+.tailoring-dialog > details, .tailoring-dialog > p { margin-top:20px; }
+.tailoring-dialog label { display:block; margin:16px 0; }
+.tailoring-dialog select, .tailoring-dialog textarea { width:100%; box-sizing:border-box; display:block; margin-top:8px; }
+.tailoring-dialog .tailor-checkbox { display:flex; align-items:flex-start; gap:10px; }
+.tailoring-dialog .tailor-checkbox input { width:auto; margin-top:4px; }
+.tailoring-preview { border:1px solid #c4d2c8; padding:24px; margin:24px 0; background:white; }
+.tailoring-block p { white-space:pre-wrap; overflow-wrap:anywhere; margin:8px 0; }
+.tailoring-block { margin:16px 0; }
+.tailoring-block.role > p { font-weight:650; }
+.tailoring-block details { font-size:0.9rem; color:#45594b; }
+.tailoring-block blockquote { margin:12px 0; padding-left:14px; border-left:3px solid #cad6ce; white-space:pre-wrap; }
+.tailoring-actions { display:flex; flex-wrap:wrap; gap:12px; align-items:center; }
+.tailoring-actions p { flex-basis:100%; }
+.tailoring-dialog [role=alert] { color:#8c2828; background:#fff0ed; padding:12px; border-radius:6px; }
+@media(max-width:600px) { .tailoring-preview {padding:12px;} .tailoring-dialog {padding:16px;} }

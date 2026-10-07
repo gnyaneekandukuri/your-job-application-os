@@ -220,7 +220,7 @@ class RetrievalService:
         """
         if not self.provider.configured:
             raise RetrievalError("API key unavailable to the backend. Restart using scripts/start-review.ps1.", 503)
-        generation = kind in ("context", "rerank", "requirements", "evidence", "skills")
+        generation = kind in ("context", "rerank", "requirements", "evidence", "skills", "tailoring")
         input_bound = len(json.dumps(payload, ensure_ascii=False).encode("utf-8")) + 2048
         output_bound = payload.get("max_output_tokens", 0)
         reserved = (input_bound * (2.5 if generation else 0.02) + output_bound * 10) / 1_000_000

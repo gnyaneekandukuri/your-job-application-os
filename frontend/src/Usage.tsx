@@ -6,7 +6,7 @@ const money=(n:number)=>n>0&&n<.000001?'< $0.000001':n.toLocaleString(undefined,
 const total=(rows:Call[],key:'cost'|'input_tokens'|'output_tokens')=>rows.reduce((n,c)=>n+(c[key]??0),0);
 const unknown=(rows:Call[])=>rows.filter(c=>c.cost==null).length;
 const measuredCost=(rows:Call[])=>rows.length>0&&rows.every(c=>c.cost==null)?'Unknown':money(total(rows,'cost'));
-const stageName=(s:string)=>({candidate_skills:'Candidate skills',role_classification:'Role classification',discovery_screening:'Initial job match',discovery_jd_embedding:'Discovery JD embeddings',discovery_jev_evaluation:'Matching evaluation',discovery_semantic_evaluation:'Semantic matching evaluation',context_embedding:'Experience embeddings',requirement_embedding:'JD embeddings',library_query_embedding:'Library search'}[s]??s.replaceAll('_',' '));
+const stageName=(s:string)=>({resume_draft:'Resume drafting',resume_claim_check:'Resume claim checking',candidate_skills:'Candidate skills',role_classification:'Role classification',discovery_screening:'Initial job match',discovery_jd_embedding:'Discovery JD embeddings',discovery_jev_evaluation:'Matching evaluation',discovery_semantic_evaluation:'Semantic matching evaluation',context_embedding:'Experience embeddings',requirement_embedding:'JD embeddings',library_query_embedding:'Library search'}[s]??s.replaceAll('_',' '));
 const time=(value:string)=>new Date(value).toLocaleString();
 export function Usage(){
  const [calls,setCalls]=useState<Call[]>([]),[scans,setScans]=useState<Scan[]>([]),[error,setError]=useState(''),[days,setDays]=useState('1'),[provider,setProvider]=useState('all'),[selected,setSelected]=useState('all'),[updated,setUpdated]=useState('');

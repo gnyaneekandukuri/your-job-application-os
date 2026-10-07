@@ -20,7 +20,7 @@ First startup creates an empty `.local/` directory containing SQLite databases a
 
 Set `JOB_REVIEW_DATA_DIR` to an absolute private directory to choose another location. Run one server process per data directory. Do not point the public product at an older personal workspace without an explicit migration.
 
-Set `TYPESAFE_API_KEY` for Jev classification and assessment, and `OPENAI_API_KEY` for API embeddings. Preparation embeds only new or changed original text with `text-embedding-3-small`; vectors and sources are stored locally. Discovery compares a compact source-backed candidate profile and preferences with the JD, using the reusable candidate skills profile plus Jev, without embeddings. Only High priority jobs automatically enter deeper semantic assessment; other jobs can be assessed manually. Generative OpenAI calls remain disabled. See [the assessment design](docs/jev-assessment.md). Resume tailoring is not implemented. Never commit keys or personal data.
+Set `TYPESAFE_API_KEY` for Jev classification and assessment, and `OPENAI_API_KEY` for API embeddings, candidate skills extraction, and explicitly requested resume tailoring. Original source embeddings are reused until the source changes. Generative OpenAI calls are disabled for role assessment; resume drafting and claim checking use a separate generation-enabled adapter and the same local usage ledger. Never commit keys or personal data.
 
 Your canonical resume is optional for evidence review. To register a separate master for future tailoring, place it under `.local/workspace/sources/master/` and set `source` in `.local/workspace/knowledge/canonical_resume_inventory.json` to its relative path. Uploading a resume to the context library supplies evidence, but does not silently make it an approved canonical master. Tailoring and application submission are not automated.
 
@@ -114,3 +114,16 @@ Unfinished / needs review and All analyzed; candidates retain their apply/pass c
 ### Keep the local scheduler available on Windows
 
 Run `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-server-task.ps1` once to register a current-user Windows task. It starts the server at sign-in and checks every five minutes, without restarting an existing server. It runs while that user is signed in, including on battery; it does not wake a sleeping laptop. Scan times and paid-analysis choices remain controlled by Discovery runs. Startup/exit diagnostics are saved in `.local/server-supervisor.log`; API keys remain in your Windows user environment. Disable or remove **Job Review Local Server** in Windows Task Scheduler to stop automatic server startup.
+
+
+## Resume tailoring
+
+Open **Your jobs → Analyzed jobs → Tailor resume**, or use the button in a saved role's workspace. A current completed deep assessment and a base resume are required. The base can come from the master resume, the resume uploaded under Your context / Add skills, or pasted text for this role.
+
+Choose PAR (default), XYZ, concise STAR, or your existing style. Optionally remember the choice for future jobs. **Prepare draft** explicitly sends the JD, base resume, selected original passages already retrieved during assessment, and candidate fact/conflict rules to OpenAI. It loads [the resume-tailoring skill](skills/resume-tailoring/SKILL.md) into both the drafting instructions and the separate claim-checking request. It does not send the entire story library, request new embeddings, or automatically tailor jobs during scans.
+
+The server saves progress in the existing private SQLite cache. Reopening the page does not dispatch a new request. Identical successful inputs reuse the saved draft; failed or interrupted calls require explicit retry. A saved draft can resume at claim checking without repeating generation. API costs attribute drafting and claim checking to the role.
+
+Each factual block needs exact source citations; numbers must occur in those citations. A separate model review checks support, ownership, scope, and conflicts. These checks are fallible and are not independent fact verification. Review wording and source excerpts, edit or remove flagged claims, then recheck edits. Approval is blocked until all current blocks pass checks and the candidate explicitly confirms review. Changing a draft removes its approval. Changed JD/source/policy inputs prevent approval or export of an outdated version.
+
+Approved drafts can be downloaded as **plain text**. This first implementation does not produce Word/PDF layout exports or submit applications. It keeps the master resume unchanged. Model-call tests use an offline provider fixture; they validate orchestration and rejection paths, not production-model factual accuracy.
