@@ -110,3 +110,7 @@ These are editable, uncalibrated product defaults, not hiring probabilities.
 Existing workspace migrations add the baseline gates while preserving custom
 Attack Hard thresholds. Reports requiring review appear under Analyzed jobs >
 Unfinished / needs review and All analyzed; candidates retain their apply/pass choice.
+
+### Keep the local scheduler available on Windows
+
+Run `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-server-task.ps1` once to register a current-user Windows task. It starts the server at sign-in and checks every five minutes, without restarting an existing server. It runs while that user is signed in, including on battery; it does not wake a sleeping laptop. Scan times and paid-analysis choices remain controlled by Discovery runs. Startup/exit diagnostics are saved in `.local/server-supervisor.log`; API keys remain in your Windows user environment. Disable or remove **Job Review Local Server** in Windows Task Scheduler to stop automatic server startup.
