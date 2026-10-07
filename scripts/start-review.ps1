@@ -14,5 +14,13 @@ Write-Host 'Open http://127.0.0.1:8000 - your local Job Review workspace.'
 if ([string]::IsNullOrWhiteSpace($env:TYPESAFE_API_KEY)) {
     $env:TYPESAFE_API_KEY = [Environment]::GetEnvironmentVariable('TYPESAFE_API_KEY', 'User')
 }
-& '.venv/Scripts/python.exe' -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1
+$previousErrorPreference = $ErrorActionPreference
+try {
+    # Windows PowerShell wraps redirected native stderr as error records.
+    # Uvicorn writes normal startup logs there; judge failure by exit code.
+    $ErrorActionPreference = 'Continue'
+    & '.venv/Scripts/python.exe' -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1
+} finally {
+    $ErrorActionPreference = $previousErrorPreference
+}
 if ($LASTEXITCODE -ne 0) { throw 'The local server exited with an error.' }
