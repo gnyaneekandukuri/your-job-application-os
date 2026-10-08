@@ -12,3 +12,5 @@ __pycache__/
 knowledge/
 sources/
 artifacts/
+
+frontend/.resume-tests/

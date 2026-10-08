@@ -1,3 +1,4 @@
+import {changedFromMaster} from './resumeChanges';
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 const ResumeDocument=lazy(()=>import('./ResumeDocument').then(module=>({default:module.ResumeDocument})));
 
@@ -24,7 +25,7 @@ export function TailorResume({jobId,label}:{jobId:string;label?:string}) {
  function close(){if(editing&&!window.confirm('Discard unsaved resume edits?'))return;setOpen(false);}
  useEffect(()=>{if(!editing)return;const warn=(event:BeforeUnloadEvent)=>{event.preventDefault();event.returnValue='';};window.addEventListener('beforeunload',warn);return()=>window.removeEventListener('beforeunload',warn);},[editing]);
  const visibleBlocks=editing?blocks:record?.draft?.blocks||[];
- const appliedChanges=visibleBlocks.map((block,index)=>({block,index,original:record?.context.master?.find(item=>item.item_id===block.item_id)})).filter(({block,original})=>!original||block.text!==original.text||block.kind!==original.kind);
+ const appliedChanges=visibleBlocks.map((block,index)=>({block,index,original:record?.context.master?.find(item=>item.item_id===block.item_id)})).filter(({block,original})=>changedFromMaster(block,original));
  const selectedBlock=visibleBlocks[selected];
  const selectedFinding=!editing?record?.checks?.findings.find(f=>f.block_index===selected):undefined;
  async function download(){setBusy(true);setError('');try{const response=await fetch(path+`/export?revision=${encodeURIComponent(record!.revision)}`);if(!response.ok){const data=await response.json();throw new Error(data.detail||'Export failed.');}const url=URL.createObjectURL(await response.blob());const a=document.createElement('a');a.href=url;a.download='tailored-resume.txt';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}catch(e){setError(String(e));}finally{setBusy(false);}}
@@ -63,7 +64,7 @@ export function TailorResume({jobId,label}:{jobId:string;label?:string}) {
  {record.proposals?.length===0&&<p>No structural changes proposed. Wording changes appear in yellow below.</p>}
  {record.proposals?.map(p=><details key={p.id}><summary>{p.operation.charAt(0).toUpperCase()+p.operation.slice(1)} a resume point · {p.status==='pending'?'Not in the draft':p.status==='accepted'?'Applied to draft':'Declined'}</summary>
  <p><strong>Why for this job:</strong> {p.reason}</p><p><strong>Job requirement:</strong> {p.jd_quote}</p>
- <div className="resume-proposal-comparison"><div><h4>Before this suggestion</h4>{p.before.length?p.before.map(b=><p key={b.item_id}>{b.text}</p>):<p>New point</p>}</div><div><h4>{p.status==='accepted'?'Accepted wording':'Proposed wording — not applied'}</h4><p>{p.text|| (p.operation==='remove'?'Remove this point.':'Move this point to the proposed position.')}</p></div></div>
+ <div className="resume-proposal-comparison pending-comparison"><div><h4>Before this suggestion</h4>{p.before.length?p.before.map(b=><p key={b.item_id}>{b.text}</p>):<p>New point</p>}</div><div><h4>{p.status==='accepted'?'Accepted wording':'Proposed wording — not applied'}</h4><p>{p.text|| (p.operation==='remove'?'Remove this point.':'Move this point to the proposed position.')}</p></div></div>
  {p.after_id&&<p><strong>Place after:</strong> {record.draft?.blocks.find(b=>b.item_id===p.after_id)?.text||p.after_id}</p>}
  <details><summary>Source evidence</summary>{p.citations.map((ref,i)=><div key={i}><strong>{view.citation_sources?.find(s=>s.id===ref.source_id)?.title||ref.source_id}</strong><blockquote>{ref.quote}</blockquote></div>)}</details>
  {p.error&&<p role="alert">{p.error}</p>}
@@ -79,11 +80,11 @@ export function TailorResume({jobId,label}:{jobId:string;label?:string}) {
  {!editing&&record.state==='APPROVED'&&<button disabled={busy} onClick={()=>void download()}>Download text</button>}
  <button aria-pressed={showEvidence} onClick={()=>setShowEvidence(v=>!v)}>{showEvidence?'Hide evidence':'Show evidence'}</button>
  </div>
- <p className="resume-change-legend"><span aria-hidden="true"/> Yellow marks points changed from the master, including your edits. Select one to compare the original and evidence.</p>
+ <p className="resume-change-legend"><span aria-hidden="true"/> Yellow means this paragraph contains edits or is new. Unchanged words within an edited paragraph are highlighted too. Select one to compare the original and evidence.</p>
  <div className={`resume-workspace ${showEvidence?'with-evidence':''}`}>
  <Suspense fallback={<p>Opening document editor…</p>}><ResumeDocument key={`${record.revision}:${editorReset}`} initial={record.draft.blocks} master={record.context.master} disabled={busy||!!running} onChange={next=>{setBlocks(next);setEditing(JSON.stringify(next)!==JSON.stringify(record.draft!.blocks));setConfirmed(false);}} onSelect={setSelected}/></Suspense>
  {showEvidence&&<aside className="resume-evidence-panel" aria-label="Selected point evidence">
- <h3>Evidence</h3>{selectedBlock&&record.context.master&&<strong className="resume-change-status">{record.context.master.find(b=>b.item_id===selectedBlock.item_id)?.text===selectedBlock.text?'Unchanged from master':'Changed from master'}</strong>}<p className="resume-panel-help">Select a point in the resume to see its sources.</p>
+ <h3>Evidence</h3>{selectedBlock&&record.context.master&&<strong className="resume-change-status">{changedFromMaster(selectedBlock,record.context.master.find(b=>b.item_id===selectedBlock.item_id))?'Changed from master':'Unchanged from master'}</strong>}<p className="resume-panel-help">Select a point in the resume to see its sources.</p>
  {selectedBlock&&<><p className="resume-selected-point">{selectedBlock.text}</p>
  {editing&&<p>Edits need a new claim check after saving.</p>}
  {selectedFinding&&!selectedFinding.supported&&<p role="alert">{selectedFinding.reason}</p>}

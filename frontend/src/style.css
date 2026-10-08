@@ -1086,3 +1086,5 @@ button.text-button { border: 0; background: transparent; padding: .2rem .25rem; 
 .resume-change-status {font-size:12px;display:inline-block;padding:3px 7px;background:#fff4bf;border-radius:4px;}
 
 .resume-proposals>details{border:1px solid #d8e1da;border-radius:8px;padding:16px;margin:12px 0}.resume-proposal-comparison{display:grid;grid-template-columns:1fr 1fr;gap:20px}.resume-proposal-comparison>div:last-child{background:#fff5c7;padding:12px}.resume-proposal-actions{display:flex;gap:12px;margin-top:16px}@media(max-width:850px){.resume-proposal-comparison{grid-template-columns:1fr}}
+
+.pending-comparison>div:last-child{background:#eef3f8}
