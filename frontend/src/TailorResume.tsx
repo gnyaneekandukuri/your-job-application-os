@@ -2,7 +2,7 @@ import {changedFromMaster} from './resumeChanges';
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 const ResumeDocument=lazy(()=>import('./ResumeDocument').then(module=>({default:module.ResumeDocument})));
 
-type Block={item_id?:string;format?:{font_family:string;font_size:number;bold:boolean;italic:boolean;align:string};kind:'heading'|'contact'|'role'|'bullet'|'text';text:string;citations:{source_id:string;quote:string}[];reason:string};
+type Block={change_type?:string;jd_quote?:string;item_id?:string;format?:{font_family:string;font_size:number;bold:boolean;italic:boolean;align:string};kind:'heading'|'contact'|'role'|'bullet'|'text';text:string;citations:{source_id:string;quote:string}[];reason:string};
 type Proposal={after_id:string;id:string;operation:string;status:string;error:string;text:string;reason:string;jd_quote:string;before:Block[];citations:Block["citations"]};
 type RecordValue={quality?:{framework:string;passed:number;total:number;required:number;percent:number|null;meets_threshold:boolean;failures:{block_index:number;reason:string}[]}|null;proposals?:Proposal[];state:string;stage:string;error:string;revision:string;framework:string;policy_version:string;draft:{blocks:Block[];questions:string[]}|null;checks:{findings:{block_index:number;supported:boolean;reason:string}[]}|null;context:{master?:Block[];sources:{id:string;title:string;text:string;employer?:string;start_line?:number}[]}};
 type View={quality_checks_version?:number;framework:string;base_resume:string;base_title:string;configured:boolean;record:RecordValue|null;citation_sources?:RecordValue['context']['sources']};
@@ -64,6 +64,8 @@ export function TailorResume({jobId,label}:{jobId:string;label?:string}) {
  {appliedChanges.map(({block,index,original})=><details key={`${block.item_id}:${index}`}><summary>{block.kind==='role'?'Role details':block.kind==='bullet'?'Resume point':'Resume text'} · {block.text.slice(0,85)}{block.text.length>85?'…':''}</summary>
  <div className="resume-proposal-comparison"><div><h4>Master resume</h4><p>{original?.text||'New point'}</p></div><div><h4>In your draft now</h4><p>{block.text}</p></div></div>
  <p><strong>Why:</strong> {block.reason}</p>
+ <p><strong>Reason category:</strong> {block.change_type==='fact_correction'?'Factual correction':block.change_type==='framework'?'Writing framework':block.change_type==='job_alignment'?'Job requirement':'Not recorded in this older draft'}</p>
+ {block.jd_quote?<blockquote><strong>JD requirement:</strong> {block.jd_quote}</blockquote>:<p>{['fact_correction','framework'].includes(block.change_type||'')?'This change does not claim a specific JD requirement.':'No exact JD quotation was saved for this edit.'}</p>}
  <button onClick={()=>{setSelected(index);setShowEvidence(true);}}>Show evidence for this change</button>
  </details>)}
  </section>
@@ -96,7 +98,7 @@ export function TailorResume({jobId,label}:{jobId:string;label?:string}) {
  {selectedBlock&&<><p className="resume-selected-point">{selectedBlock.text}</p>
  {editing&&<p>Edits need a new claim check after saving.</p>}
  {selectedFinding&&!selectedFinding.supported&&<p role="alert">{selectedFinding.reason}</p>}
- {selectedBlock.reason&&<><h4>Why this wording</h4><p>{selectedBlock.reason}</p></>}
+ {selectedBlock.reason&&<><h4>Why this wording</h4><p>{selectedBlock.reason}</p>{selectedBlock.jd_quote&&<blockquote><strong>JD requirement:</strong> {selectedBlock.jd_quote}</blockquote>}</>}
  {record.context.master&&selectedBlock.item_id&&<details><summary>Original master item</summary><p>{record.context.master.find(b=>b.item_id===selectedBlock.item_id)?.text}</p></details>}
  <h4>Sources</h4>{selectedBlock.citations.length===0?<p>{selectedBlock.kind==='heading'?'Section headings do not need evidence.':'No source attached. Add factual details to Your context and prepare a new draft, or use existing supported wording.'}</p>:selectedBlock.citations.map((ref,j)=>{const source=(view.citation_sources||record.context.sources).find(s=>s.id===ref.source_id);return <div className="resume-source" key={j}><strong>{source?.title||ref.source_id}</strong>{source?.start_line&&<p>Passage starts at line {source.start_line}</p>}<blockquote>{ref.quote}</blockquote></div>;})}
  </>}

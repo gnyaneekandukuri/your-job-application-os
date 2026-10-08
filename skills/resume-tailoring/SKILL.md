@@ -5,7 +5,7 @@ description: Tailor or review an industry resume against a job description using
 
 # Resume tailoring
 
-Policy version: 1.4. Default audience: US industry applications across roles and candidates. Ask about regional conventions when a different market requires them. Do not embed a particular candidate's history, target company, or preferred occupation in these rules.
+Policy version: 1.5. Default audience: US industry applications across roles and candidates. Ask about regional conventions when a different market requires them. Do not embed a particular candidate's history, target company, or preferred occupation in these rules.
 
 ## Load before drafting
 
@@ -107,3 +107,7 @@ Apply same-accomplishment wording improvements in the draft. Propose replacement
 At least 80% of professional-experience bullets must meet the selected framework before approval, rounded up to a whole bullet. Evaluate unchanged master bullets too. Exclude contact details, role headers, education, skills lists and other sections. PAR needs project/problem, personal action and a supported result; concise STAR also makes the situation/task clear. XYZ needs accomplishment, a documented measurement and method. Existing-style drafts keep their voice but still need action and supported result for the same 80% threshold. Qualitative results count except where the candidate selected XYZ. Never invent an outcome or metric to pass; flag the missing component and ask for evidence.
 
 For every numeric claim, check the metric meaning, unit, baseline, period, personal/team scope and whether it is projected, identified, backtested, piloted or realized. Cross-check candidate stories and fact/conflict rules even when the old resume contains the number. Product revenue is not necessarily ARR; investment is not revenue; profit opportunity is not achieved profit. An unresolved metric conflict fails the claim check regardless of framework coverage. Return exact draft excerpts for each framework component and numeric claim. The application verifies coverage, and displays failures before approval.
+
+## Explain each edit
+
+Record whether an applied rewrite is driven by a job requirement, a factual correction, or the selected writing framework. Job-driven edits must quote the exact JD text that motivates the change and explain how the supported new wording addresses it. Factual/date corrections and framework-only improvements need not have a JD quotation; do not manufacture a job motivation. Preserve this explanation alongside the actual saved block, including when accepting structural suggestions. Older drafts lacking this record must say it was not recorded, not reconstruct a supposedly original rationale.

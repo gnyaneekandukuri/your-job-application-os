@@ -24,7 +24,7 @@ class Provider:
         self.calls.append(payload)
         if payload['text']['format']['name']=='resume_draft':
             master=json.loads(payload['input'])['master']
-            result={'proposals':[], 'edits':[{'item_id':master[-1]['item_id'],'text':'Built a reporting prototype for 12 users during a pilot.','citations':[{'source_id':'e1','quote':PASSAGE}],'reason':'Relevant reporting work.'}], 'questions':['What changed after the pilot?']}
+            result={'proposals':[], 'edits':[{'item_id':master[-1]['item_id'],'text':'Built a reporting prototype for 12 users during a pilot.','citations':[{'source_id':'e1','quote':PASSAGE}],'reason':'Relevant reporting work.','change_type':'job_alignment','jd_quote':'Build reporting tools'}], 'questions':['What changed after the pilot?']}
             if self.bad_quote: result['edits'][0]['citations'][0]['quote']='Not in the source'
         else:
             if self.fail_check: raise RetrievalError('API timed out; billing unknown.',502)
@@ -255,7 +255,7 @@ def test_proposal_accept_requires_new_checks_and_revision(setup):
     original=r['draft']['blocks'][-1]
     r['proposals']=[{'id':'1','operation':'replace','target_ids':[original['item_id']], 'after_id':'',
         'text':'Built a reporting prototype for 12 users.', 'citations':original['citations'],
-        'reason':'Shows reporting ownership.', 'jd_quote':'Build reporting tools.',
+        'reason':'Shows reporting ownership.', 'jd_quote':'Build reporting tools',
         'before':[original],'status':'pending','error':''}]
     s.engine.put(key,r)
     with pytest.raises(RetrievalError,match='pending'):s.approve(j,Action(revision=r['revision'],confirmed=True))
@@ -275,7 +275,7 @@ def test_proposal_operations_preserve_unrelated_items():
     from app.tailoring import apply_proposal
     from app.resume_master import text_template
     rows=text_template('Alex\ncontact@example.com\nEXPERIENCE\nFirst point\nSecond point\nADDITIONAL INFORMATION\nVolunteering')
-    proposal={'operation':'combine','target_ids':['m4','m5'],'after_id':'','text':'Combined point','citations':[], 'reason':'Relevance'}
+    proposal={'operation':'combine','target_ids':['m4','m5'],'after_id':'','text':'Combined point','citations':[], 'reason':'Relevance','jd_quote':'Build reporting tools'}
     changed=apply_proposal(rows,proposal,'1')
     assert [b['text'] for b in changed][-2:]==['ADDITIONAL INFORMATION','Volunteering']
     assert len(changed)==len(rows)-1
@@ -313,9 +313,9 @@ def test_generated_proposals_remain_pending_and_bad_quotes_block_acceptance(setu
             result=json.loads(response['output'][0]['content'][0]['text'])
             result['proposals']=[{'operation':'replace','target_ids':['m4'],'after_id':'',
                 'text':'Built a reporting prototype.', 'citations':[{'source_id':'e1','quote':PASSAGE}],
-                'reason':'Demonstrates reporting ownership.', 'jd_quote':'Build reporting tools.'},
+                'reason':'Demonstrates reporting ownership.', 'jd_quote':'Build reporting tools'},
                 {'operation':'add','target_ids':[],'after_id':'m4','text':'Invented evidence',
-                 'citations':[{'source_id':'e1','quote':'not present'}], 'reason':'Claims relevance', 'jd_quote':'Build reporting tools.'}]
+                 'citations':[{'source_id':'e1','quote':'not present'}], 'reason':'Claims relevance', 'jd_quote':'Build reporting tools'}]
             response['output'][0]['content'][0]['text']=json.dumps(result)
         return response
     p.request=with_proposal
@@ -355,3 +355,20 @@ def test_missing_metric_review_flags_bullet_without_losing_other_results(setup):
     p.request=omit_metrics;r=generate(s,j)
     assert r['state']=='NEEDS_REVIEW' and r['quality'] is not None
     assert any(not f['supported'] and 'numeric claim' in f['reason'] for f in r['checks']['findings'])
+
+
+def test_rewrite_keeps_exact_job_rationale(setup):
+    s,j,*_=setup;r=generate(s,j)
+    b=r['draft']['blocks'][-1]
+    assert b['change_type']=='job_alignment' and b['jd_quote']=='Build reporting tools'
+
+def test_fabricated_jd_quote_stops_generation(setup):
+    s,j,p,*_=setup;original=p.request
+    def wrong_quote(endpoint,payload):
+        response=original(endpoint,payload)
+        if payload['text']['format']['name']=='resume_draft':
+            result=json.loads(response['output'][0]['content'][0]['text']);result['edits'][0]['jd_quote']='Invented requirement'
+            response['output'][0]['content'][0]['text']=json.dumps(result)
+        return response
+    p.request=wrong_quote;r=generate(s,j)
+    assert r['state']=='ERROR' and 'not in the JD' in r['error']

@@ -7,7 +7,7 @@ import StarterKit from '@tiptap/starter-kit';
 import {changedFromMaster} from './resumeChanges';
 import {uniqueResumeOrigins,paragraphText} from './resumeDocumentLogic';
 
-export type ResumeBlock={item_id?:string;format?:{font_family:string;font_size:number;bold:boolean;italic:boolean;align:string};kind:'heading'|'contact'|'role'|'bullet'|'text';text:string;citations:{source_id:string;quote:string}[];reason:string};
+export type ResumeBlock={change_type?:string;jd_quote?:string;item_id?:string;format?:{font_family:string;font_size:number;bold:boolean;italic:boolean;align:string};kind:'heading'|'contact'|'role'|'bullet'|'text';text:string;citations:{source_id:string;quote:string}[];reason:string};
 const Metadata=Extension.create({name:'resumeMetadata',addGlobalAttributes(){return [{types:['paragraph'],attributes:{
  origin:{default:null,rendered:false},manualId:{default:null,rendered:false},format:{default:null,renderHTML:attrs=>attrs.format?{style:`font-family:${attrs.format.font_family};font-size:${attrs.format.font_size}pt;font-weight:${attrs.format.bold?700:400};font-style:${attrs.format.italic?'italic':'normal'};text-align:${attrs.format.align};`}:{}},kind:{default:'text',renderHTML:attrs=>({'data-kind':attrs.kind})}
 }}];}});
@@ -29,7 +29,7 @@ export function ResumeDocument({initial,master,disabled,onChange,onSelect}:{init
   editorProps:{attributes:{class:'resume-paper',role:'textbox','aria-label':'Resume document','aria-multiline':'true'},
    // Paste text only: outside HTML cannot inject source identifiers or formatting.
    handlePaste(view,event){const text=event.clipboardData?.getData('text/plain');if(text===undefined)return false;event.preventDefault();view.dispatch(view.state.tr.insertText(text));return true;}},
-  onUpdate:({editor,transaction})=>{if(!transaction.docChanged)return;const next:ResumeBlock[]=[];editor.state.doc.forEach(node=>{const source=initial[node.attrs.origin];next.push({...source,item_id:source?.item_id||node.attrs.manualId,format:node.attrs.format||source?.format,kind:node.attrs.kind,text:paragraphText(node),citations:source?.citations||[],reason:source?.reason||'Added during editing; needs supporting evidence.'});});onChange(next);},
+  onUpdate:({editor,transaction})=>{if(!transaction.docChanged)return;const next:ResumeBlock[]=[];editor.state.doc.forEach(node=>{const source=initial[node.attrs.origin];next.push({...source,item_id:source?.item_id||node.attrs.manualId,format:node.attrs.format||source?.format,kind:node.attrs.kind,text:paragraphText(node),citations:source?.citations||[],change_type:source&&paragraphText(node)===source.text?source.change_type:'manual',jd_quote:source&&paragraphText(node)===source.text?source.jd_quote:'',reason:source&&paragraphText(node)===source.text?source.reason:'Manually edited; review evidence and JD alignment again.'});});onChange(next);},
   onSelectionUpdate:({editor})=>onSelect(editor.state.selection.$from.index(0)),
  });
  useEffect(()=>{editor?.setEditable(!disabled, false);},[editor,disabled]);
