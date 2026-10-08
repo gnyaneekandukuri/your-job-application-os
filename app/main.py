@@ -414,6 +414,16 @@ def create_app(data_dir: Path | None = None):
         return PlainTextResponse(request.app.state.applications.resume(application_id),
             headers={'Content-Disposition': f'attachment; filename="submitted-resume-{application_id}.txt"'})
 
+    @api.get("/api/applications/{application_id}/resume.pdf")
+    def application_pdf(application_id: str, request: Request):
+        return Response(request.app.state.applications.pdf(application_id), media_type='application/pdf',
+            headers={'Content-Disposition':'attachment; filename="submitted-resume.pdf"'})
+
+    @api.get("/api/jobs/{job_id}/tailoring/pdf")
+    def tailoring_pdf(job_id: str, revision: str, request: Request):
+        pdf = request.app.state.tailoring.export_pdf(request.app.state.service.review(job_id).job, revision)
+        return Response(pdf,media_type='application/pdf',headers={'Content-Disposition':'attachment; filename="tailored-resume.pdf"'})
+
     @api.get("/api/jobs/{job_id}/tailoring")
     def tailoring_view(job_id: str, request: Request):
         return request.app.state.tailoring.view(request.app.state.service.review(job_id).job)

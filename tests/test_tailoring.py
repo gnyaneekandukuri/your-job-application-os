@@ -1,10 +1,43 @@
 import json
+import io
 from pathlib import Path
 from types import SimpleNamespace
 import pytest
 from app.tailoring import Tailoring, Generate, Edit, Action, Block, validate_blocks, SKILL
 from app.retrieval import RetrievalService, RetrievalError
 from app.user_workspace import initialize
+from pypdf import PdfReader
+
+def test_pdf_contains_saved_edits_and_keeps_download_version(setup):
+    s,j,p,*_=setup
+    record=generate(s,j)
+    blocks=record['draft']['blocks']
+    blocks[-1]['text']='Built a reporting prototype for 12 users during a pilot. Improved reporting.'
+    saved=s.edit(j,Edit(revision=record['revision'],blocks=blocks))['record']
+    with pytest.raises(RetrievalError): s.export_pdf(j,saved['revision'])
+    s.recheck(j,Action(revision=saved['revision'],confirmed=True));s.worker.join(5)
+    checked=s.view(j)['record']
+    approved=s.approve(j,Action(revision=checked['revision'],confirmed=True))['record']
+    pdf=s.export_pdf(j,approved['revision'])
+    assert 'Improved reporting.' in ''.join(page.extract_text() for page in PdfReader(io.BytesIO(pdf)).pages)
+    assert s.view(j)['exported']['revision']==approved['revision']
+    blocks[-1]['text']='A different later draft.'
+    later=s.edit(j,Edit(revision=approved['revision'],blocks=blocks))['record']
+    assert later['state']=='EDITED'
+    assert s.export_pdf(j,approved['revision'])==pdf
+    with pytest.raises(RetrievalError): s.export_pdf(j,later['revision'])
+    assert s.exported(j,approved['revision'])['record']['draft']['blocks'][-1]['text'].endswith('Improved reporting.')
+
+def test_pdf_pagination_preserves_every_block():
+    from app.resume_pdf import render_resume
+    blocks=[{'kind':'contact','text':'Alex Example','format':{'font_family':'Arial','font_size':14,'bold':True,'align':'center'}}]
+    for n in range(45):
+        blocks.append({'kind':'bullet','text':f'Item {n}: Built an AI → reporting product for 12 users; improved review & delivery. '+('Supported cross-functional work. '*5)})
+    pages=PdfReader(io.BytesIO(render_resume(blocks))).pages
+    assert len(pages)>1
+    text=''.join(page.extract_text() for page in pages)
+    assert all(f'Item {n}:' in text for n in range(45))
+    assert 'AI → reporting' in text
 
 BASE = 'Alex Example\nalex@example.com\nExample Labs | Product Manager | 2022–2025\nBuilt a reporting prototype for 12 users.'
 PASSAGE = 'At Example Labs, Alex built a reporting prototype for 12 users during a pilot.'

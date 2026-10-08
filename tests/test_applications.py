@@ -1,4 +1,5 @@
 import io
+import base64
 import threading
 from types import SimpleNamespace
 from uuid import uuid4
@@ -61,3 +62,18 @@ def test_empty_workbook_and_missing_record(tmp_path):
     with ZipFile(io.BytesIO(store.export())) as workbook:
         assert b'A1:J1' in workbook.read('xl/worksheets/sheet1.xml')
     with pytest.raises(RetrievalError): store.resume('unknown')
+
+
+def test_application_uses_downloaded_pdf_even_after_draft_changes(tmp_path):
+    store=Applications(tmp_path/'applications.sqlite3')
+    pdf=b'%PDF-frozen-content'
+    frozen={'state':'APPROVED','revision':'downloaded-v1','framework':'PAR','draft':{'blocks':[{'kind':'text','text':'Submitted edited text'}]},'context':{}}
+    def current(*args):
+        raise AssertionError('Must not read a later draft for a downloaded version')
+    tailoring=SimpleNamespace(lock=threading.Lock(),current=current,exported=lambda j,r:{'record':frozen,'pdf':base64.b64encode(pdf).decode()} if r=='downloaded-v1' else None)
+    job=SimpleNamespace(id='job-1',company='Example',title='PM',source_url='',model_dump=lambda **kw:{'description':'Saved JD'})
+    row=store.confirm(job,tailoring,ConfirmApplication(revision='downloaded-v1',confirmed=True,applied_date='2026-10-08'))
+    assert row['has_pdf'] is True
+    assert 'resume_pdf' not in row
+    assert store.pdf(row['id'])==pdf
+    assert 'Submitted edited text' in store.resume(row['id'])

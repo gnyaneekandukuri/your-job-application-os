@@ -1,6 +1,7 @@
 """Local, durable application history. No model calls or scan-data dependencies."""
 from contextlib import contextmanager
 import io
+import base64
 import json
 import sqlite3
 from datetime import date, datetime, timezone
@@ -51,7 +52,7 @@ class Applications:
 
     @staticmethod
     def summary(record):
-        return {k: v for k, v in record.items() if k not in ('job_snapshot', 'resume_snapshot', 'assessment_snapshot')}
+        return {k: v for k, v in record.items() if k not in ('job_snapshot', 'resume_snapshot', 'assessment_snapshot', 'resume_pdf')}
 
     def get(self, application_id):
         with self.db() as db:
@@ -63,7 +64,11 @@ class Applications:
     def confirm(self, job, tailoring, data, metadata=None):
         # Lock the resume while freezing it so concurrent edits cannot change the submitted copy.
         with tailoring.lock:
-            _, resume = tailoring.current(job, data.revision)
+            exported = tailoring.exported(job, data.revision) if hasattr(tailoring,'exported') else None
+            if exported:
+                resume = exported['record']
+            else:
+                _, resume = tailoring.current(job, data.revision)
             if resume['state'] != 'APPROVED':
                 raise RetrievalError('Approve the resume used for this application first.', 409)
             record = dict(id=str(uuid4()), job_id=job.id, revision=str(uuid4()),
@@ -72,6 +77,7 @@ class Applications:
                 applied_date=data.applied_date.isoformat(), status='Applied', follow_up_date=None,
                 notes=data.notes, created_at=datetime.now(timezone.utc).isoformat(),
                 resume_revision=resume['revision'], framework=resume['framework'],
+                resume_pdf=exported['pdf'] if exported else None, has_pdf=bool(exported),
                 job_snapshot=job.model_dump(mode='json'), resume_snapshot=resume,
                 assessment_snapshot={k: v for k, v in resume.get('context', {}).items() if k.startswith('assessment_')})
             payload = json.dumps(record)
@@ -100,6 +106,12 @@ class Applications:
         record = self.get(application_id)
         return '\n\n'.join(('• ' if b['kind'] == 'bullet' else '') + b['text']
             for b in record['resume_snapshot']['draft']['blocks']) + '\n'
+
+    def pdf(self, application_id):
+        record = self.get(application_id)
+        if not record.get('resume_pdf'):
+            raise RetrievalError('This older application has a text resume only.',404)
+        return base64.b64decode(record['resume_pdf'])
 
     def export(self):
         # Minimal portable Office Open XML workbook. Inline strings cannot execute formulas.

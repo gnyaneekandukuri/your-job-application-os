@@ -5,11 +5,12 @@ const ResumeDocument=lazy(()=>import('./ResumeDocument').then(module=>({default:
 type Block={change_type?:string;jd_quote?:string;item_id?:string;format?:{font_family:string;font_size:number;bold:boolean;italic:boolean;align:string};kind:'heading'|'contact'|'role'|'bullet'|'text';text:string;citations:{source_id:string;quote:string}[];reason:string};
 type Proposal={after_id:string;id:string;operation:string;status:string;error:string;text:string;reason:string;jd_quote:string;before:Block[];citations:Block["citations"]};
 type RecordValue={quality?:{framework:string;passed:number;total:number;required:number;percent:number|null;meets_threshold:boolean;failures:{block_index:number;reason:string}[]}|null;proposals?:Proposal[];state:string;stage:string;error:string;revision:string;framework:string;policy_version:string;draft:{blocks:Block[];questions:string[]}|null;checks:{findings:{block_index:number;supported:boolean;reason:string}[]}|null;context:{master?:Block[];sources:{id:string;title:string;text:string;employer?:string;start_line?:number}[]}};
-type View={quality_checks_version?:number;framework:string;base_resume:string;base_title:string;configured:boolean;record:RecordValue|null;citation_sources?:RecordValue['context']['sources']};
+type View={job_url?:string;exported?:{revision:string;created_at:string}|null;quality_checks_version?:number;framework:string;base_resume:string;base_title:string;configured:boolean;record:RecordValue|null;citation_sources?:RecordValue['context']['sources']};
 const styles=[['PAR','Recommended · Project, Action, Result'],['XYZ','Metrics-focused · Accomplishment, measurement, method'],['STAR','Context-focused · Concise STAR'],['EXISTING','Keep my existing style']];
 const examples:Record<string,string>={PAR:'Show the work, your contribution, and the supported outcome. Numbers are optional.',XYZ:'Lead with a measured accomplishment, then explain how you achieved it. Use only documented metrics.',STAR:'Briefly explain the problem, your action, and the result.',EXISTING:'Preserve your voice and section structure while improving relevance and clarity.'};
 export function TailorResume({jobId,label}:{jobId:string;label?:string}) {
  const [confirmApplied,setConfirmApplied]=useState(false),[applicationSaved,setApplicationSaved]=useState(false),[appliedDate,setAppliedDate]=useState(()=>{const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;});
+ const finishPending=useRef(false);
  const dialog=useRef<HTMLDialogElement>(null);
  const [open,setOpen]=useState(false),[view,setView]=useState<View|null>(null),[error,setError]=useState(''),[busy,setBusy]=useState(false);
  const [framework,setFramework]=useState('PAR'),[base,setBase]=useState(''),[remember,setRemember]=useState(false),[editing,setEditing]=useState(false),[blocks,setBlocks]=useState<Block[]>([]),[confirmed,setConfirmed]=useState(false);
@@ -23,7 +24,7 @@ export function TailorResume({jobId,label}:{jobId:string;label?:string}) {
  useEffect(()=>{if(!open)return;let live=true;void request().then(data=>{if(live){setView(data);setFramework(data.record?.framework||data.framework);setBase(data.record?.context.sources[0]?.text||data.base_resume);}}).catch(e=>{if(live)setError(String(e));});return()=>{live=false;};},[open,jobId]);
  useEffect(()=>{if(!open||!running)return;let live=true;const timer=setInterval(()=>{void request().then(data=>{if(live)setView(data);}).catch(e=>{if(live)setError(String(e));});},2500);return()=>{live=false;clearInterval(timer);};},[open,running,jobId]);
  async function act(suffix:string,body:unknown){if(busy)return;setBusy(true);setError('');setConfirmed(false);try{setView(await request(suffix,body));setEditing(false);}catch(e){setError(String(e));}finally{setBusy(false);}}
- async function recordApplication(){if(!record||busy)return;setBusy(true);setError('');try{const response=await fetch(`/api/jobs/${jobId}/applications`,{method:'POST',headers:{'Content-Type':'application/json','X-Local-Review':'1'},body:JSON.stringify({revision:record.revision,confirmed:true,applied_date:appliedDate})});const data=await response.json();if(!response.ok)throw Error(typeof data.detail==='string'?data.detail:'Could not record application.');setApplicationSaved(true);setConfirmApplied(false);}catch(e){setError(String(e));}finally{setBusy(false);}}
+ async function recordApplication(){if(!record||busy)return;setBusy(true);setError('');try{const response=await fetch(`/api/jobs/${jobId}/applications`,{method:'POST',headers:{'Content-Type':'application/json','X-Local-Review':'1'},body:JSON.stringify({revision:view?.exported?.revision||record.revision,confirmed:true,applied_date:appliedDate})});const data=await response.json();if(!response.ok)throw Error(typeof data.detail==='string'?data.detail:'Could not record application.');setApplicationSaved(true);setConfirmApplied(false);}catch(e){setError(String(e));}finally{setBusy(false);}}
  useEffect(()=>{if(!open)return;let live=true;void fetch('/api/applications').then(r=>{if(!r.ok)throw Error('Could not load application status.');return r.json();}).then(rows=>{if(live)setApplicationSaved(rows.some((r:{job_id:string})=>r.job_id===jobId));}).catch(e=>{if(live)setError(String(e));});return()=>{live=false;};},[open,jobId]);
  function close(){if(editing&&!window.confirm('Discard unsaved resume edits?'))return;setOpen(false);}
  useEffect(()=>{if(!editing)return;const warn=(event:BeforeUnloadEvent)=>{event.preventDefault();event.returnValue='';};window.addEventListener('beforeunload',warn);return()=>window.removeEventListener('beforeunload',warn);},[editing]);
@@ -31,7 +32,34 @@ export function TailorResume({jobId,label}:{jobId:string;label?:string}) {
  const appliedChanges=visibleBlocks.map((block,index)=>({block,index,original:record?.context.master?.find(item=>item.item_id===block.item_id)})).filter(({block,original})=>changedFromMaster(block,original));
  const selectedBlock=visibleBlocks[selected];
  const selectedFinding=!editing?record?.checks?.findings.find(f=>f.block_index===selected):undefined;
- async function download(){setBusy(true);setError('');try{const response=await fetch(path+`/export?revision=${encodeURIComponent(record!.revision)}`);if(!response.ok){const data=await response.json();throw new Error(data.detail||'Export failed.');}const url=URL.createObjectURL(await response.blob());const a=document.createElement('a');a.href=url;a.download='tailored-resume.txt';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}catch(e){setError(String(e));}finally{setBusy(false);}}
+ async function downloadPdf(revision:string){
+  const response=await fetch(path+`/pdf?revision=${encodeURIComponent(revision)}`);
+  if(!response.ok){const data=await response.json();throw Error(data.detail||'PDF download failed.');}
+  const url=URL.createObjectURL(await response.blob());const a=document.createElement('a');a.href=url;a.download='tailored-resume.pdf';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+  setView(await request());
+ }
+ async function complete(current:View){
+  if(!current.record)throw Error('No saved resume is available.');
+  if(current.record.state==='DRAFT')current=await request('/approve',{revision:current.record.revision,confirmed:true});
+  setView(current);
+  if(current.record?.state!=='APPROVED')throw Error('Resolve the flagged issues before downloading.');
+  await downloadPdf(current.record.revision);
+ }
+ async function finish(){
+  if(busy||running||!view?.record)return;setBusy(true);setError('');setConfirmApplied(false);
+  try{
+   let current=view;
+   if(editing){current=await request('/edit',{revision:view.record.revision,blocks:blocks.filter(b=>b.text.trim())});setView(current);setEditing(false);}
+   if(['DRAFT','APPROVED'].includes(current.record!.state)&&current.record!.quality?.meets_threshold){await complete(current);}
+   else{const checked=await request('/check',{revision:current.record!.revision,confirmed:true});finishPending.current=true;setView(checked);}
+  }catch(e){finishPending.current=false;setError(String(e));}finally{setBusy(false);}
+ }
+ useEffect(()=>{
+  if(!finishPending.current||!record||running)return;
+  finishPending.current=false;
+  if(record.state!=='DRAFT'){setError('Your edits are saved. Resolve the issues shown in the checks before downloading.');return;}
+  setBusy(true);void complete(view!).catch(e=>setError(String(e))).finally(()=>setBusy(false));
+ },[record?.state,record?.revision]);
  return <><button onClick={()=>{setError('');setEditing(false);setConfirmed(false);setOpen(true);}}>Tailor resume</button>
  <dialog ref={dialog} className="skills-dialog tailoring-dialog" onCancel={e=>{e.preventDefault();close();}} aria-label="Tailor resume">
  <div className="skills-dialog-heading"><div><h2>Tailor your resume</h2><p>{label||"Choose an approach, review the evidence, then approve your draft."}</p></div><button onClick={close} aria-label="Close resume tailoring">Close</button></div>
@@ -89,11 +117,12 @@ export function TailorResume({jobId,label}:{jobId:string;label?:string}) {
  <button className="primary" disabled={busy||running||!editing||!blocks.some(b=>b.text.trim())} onClick={()=>void act('/edit',{revision:record.revision,blocks:blocks.filter(b=>b.text.trim())})}>Save changes</button>
  {editing&&<button disabled={busy} onClick={()=>{setEditing(false);setEditorReset(n=>n+1);setSelected(0);}}>Discard edits</button>}
  {!editing&&['EDITED','NEEDS_REVIEW','ERROR','INTERRUPTED'].includes(record.state)&&<button disabled={busy||running||!view.quality_checks_version} onClick={()=>void act('/check',{revision:record.revision,confirmed:true})}>Check changes · API usage</button>}
- {!editing&&record.state==='DRAFT'&&<><label className="tailor-checkbox"><input type="checkbox" checked={confirmed} onChange={e=>setConfirmed(e.target.checked)}/> I reviewed this resume</label><button className="primary" disabled={busy||!confirmed||!record.quality?.meets_threshold||!view.quality_checks_version||record.proposals?.some(p=>p.status==='pending')} onClick={()=>void act('/approve',{revision:record.revision,confirmed:true})}>Approve</button></>}
- {!editing&&record.state==='APPROVED'&&<><button disabled={busy} onClick={()=>void download()}>Download text</button><button className="primary" disabled={busy||applicationSaved} onClick={()=>setConfirmApplied(true)}>{applicationSaved?'Recorded in Applied jobs':'I applied'}</button></>}
+ <button className="primary" disabled={busy||running||record.proposals?.some(p=>p.status==='pending')||!view.quality_checks_version} onClick={()=>void finish()}>Done — save &amp; download PDF</button>
+ <span className="resume-export-note">{editing||!record.quality?'Edited claims are checked before download · API usage applies.':'Uses this saved, checked version.'}</span>
  <button aria-pressed={showEvidence} onClick={()=>setShowEvidence(v=>!v)}>{showEvidence?'Hide evidence':'Show evidence'}</button>
  </div>
- {confirmApplied&&!editing&&record.state==='APPROVED'&&<form className="application-confirmation" onSubmit={e=>{e.preventDefault();void recordApplication();}}><h3>Record your application</h3><p>Confirm you submitted this application using this approved resume. We’ll save this exact version in Your jobs → Applied jobs.</p><label>Application date <input type="date" required value={appliedDate} onChange={e=>setAppliedDate(e.target.value)}/></label><button type="button" disabled={busy} onClick={()=>setConfirmApplied(false)}>Cancel</button> <button className="primary" disabled={busy||!appliedDate}>Confirm I applied</button></form>}
+ {view.exported&&!editing&&<section className="application-confirmation" aria-label="Apply with saved resume"><h3>Your saved PDF</h3><p>Version {view.exported.revision.slice(0,8)} · {new Date(view.exported.created_at).toLocaleString()}{view.exported.revision!==record.revision?' · Earlier downloaded version; finish the current draft to create a new PDF.':''}</p><button disabled={busy||running} onClick={()=>{setBusy(true);setError('');void downloadPdf(view.exported!.revision).catch(e=>setError(String(e))).finally(()=>setBusy(false));}}>Download saved PDF again</button> {view.job_url&&/^https?:\/\//.test(view.job_url)?<a className="primary" href={view.job_url} target="_blank" rel="noreferrer">Open job &amp; apply ↗</a>:<p>No application link was saved for this role. Use the original job listing.</p>} <button disabled={busy||running||applicationSaved} onClick={()=>setConfirmApplied(true)}>{applicationSaved?'Recorded in Applied jobs':'I applied'}</button></section>}
+ {confirmApplied&&view.exported&&!editing&&<form className="application-confirmation" onSubmit={e=>{e.preventDefault();void recordApplication();}}><h3>Record your application</h3><p>Confirm you submitted this application using saved PDF version {view.exported.revision.slice(0,8)}. This exact copy will be kept in Applied jobs.</p><label>Application date <input type="date" required value={appliedDate} onChange={e=>setAppliedDate(e.target.value)}/></label><button type="button" disabled={busy} onClick={()=>setConfirmApplied(false)}>Cancel</button> <button className="primary" disabled={busy||!appliedDate}>Confirm I applied</button></form>}
  <p className="resume-change-legend"><span aria-hidden="true"/> Yellow means this paragraph contains edits or is new. Unchanged words within an edited paragraph are highlighted too. Select one to compare the original and evidence.</p>
  <div className={`resume-workspace ${showEvidence?'with-evidence':''}`}>
  <Suspense fallback={<p>Opening document editor…</p>}><ResumeDocument key={`${record.revision}:${editorReset}`} initial={record.draft.blocks} master={record.context.master} disabled={busy||!!running} onChange={next=>{setBlocks(next);setEditing(JSON.stringify(next)!==JSON.stringify(record.draft!.blocks));setConfirmed(false);}} onSelect={setSelected}/></Suspense>
@@ -108,7 +137,7 @@ export function TailorResume({jobId,label}:{jobId:string;label?:string}) {
  </>}
  </aside>}
  </div>
- <p className="resume-export-note">Changes are saved locally. Download currently exports plain text; Word/PDF export is not included.</p>
+ <p className="resume-export-note">PDFs contain the saved resume text and formatting, without yellow highlights or evidence notes. Downloading or opening the job does not mark it as applied.</p>
  </>}
  </>}
  </>}

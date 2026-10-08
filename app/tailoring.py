@@ -1,5 +1,6 @@
 """Evidence-grounded, explicitly requested resume drafts. No automatic applications."""
 import json
+import base64
 import re
 from pathlib import Path
 from threading import RLock, Thread
@@ -242,7 +243,8 @@ class Tailoring:
         if record and record['state'] == 'RUNNING' and not (self.active == latest and self.worker and self.worker.is_alive()):
             record = {**record, 'state':'INTERRUPTED', 'error':'Tailoring was interrupted. Saved draft work is retained; retry explicitly.'}
         sources, resume = self.baseline()
-        return {'quality_checks_version':1,'framework':self.engine.get('tailoring:framework') or 'PAR',
+        exported = self.engine.get('tailoring:export-latest:' + job.id)
+        return {'job_url':str(getattr(job,'source_url','') or ''),'exported':exported,'quality_checks_version':1,'framework':self.engine.get('tailoring:framework') or 'PAR',
                 'base_resume':resume['text'] if resume else '', 'base_title':resume['title'] if resume else '',
                 'configured':self.engine.provider.configured, 'record':record,
                 'citation_sources':citation_sources(record['context']) if record else []}
@@ -499,6 +501,25 @@ class Tailoring:
         self.ensure_current(job,record)
         if record['state']!='APPROVED': raise RetrievalError('Review and approve this resume before exporting.',409)
         return '\n\n'.join(('• ' if b['kind']=='bullet' else '')+b['text'] for b in record['draft']['blocks'])+'\n'
+
+    def exported(self, job, revision):
+        return self.engine.get('tailoring:pdf:' + job.id + ':' + revision)
+
+    def export_pdf(self, job, revision):
+        from .resume_pdf import render_resume
+        with self.lock:
+            saved = self.exported(job, revision)
+            if saved:
+                return base64.b64decode(saved['pdf'])
+            _, record = self.current(job, revision)
+            self.ensure_current(job, record)
+            if record['state'] != 'APPROVED':
+                raise RetrievalError('Save and finish checking this resume before downloading.',409)
+            pdf = render_resume(record['draft']['blocks'])
+            saved = {'record':record,'pdf':base64.b64encode(pdf).decode('ascii'),'created_at':now(),'revision':revision}
+            self.engine.put('tailoring:pdf:' + job.id + ':' + revision, saved)
+            self.engine.put('tailoring:export-latest:' + job.id, {'revision':revision,'created_at':saved['created_at']})
+            return pdf
 
     def close(self):
         if self.worker: self.worker.join(timeout=2)
