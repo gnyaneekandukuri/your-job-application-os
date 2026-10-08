@@ -2,7 +2,8 @@ import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 const ResumeDocument=lazy(()=>import('./ResumeDocument').then(module=>({default:module.ResumeDocument})));
 
 type Block={item_id?:string;format?:{font_family:string;font_size:number;bold:boolean;italic:boolean;align:string};kind:'heading'|'contact'|'role'|'bullet'|'text';text:string;citations:{source_id:string;quote:string}[];reason:string};
-type RecordValue={state:string;stage:string;error:string;revision:string;framework:string;policy_version:string;draft:{blocks:Block[];questions:string[]}|null;checks:{findings:{block_index:number;supported:boolean;reason:string}[]}|null;context:{master?:Block[];sources:{id:string;title:string;text:string;employer?:string;start_line?:number}[]}};
+type Proposal={after_id:string;id:string;operation:string;status:string;error:string;text:string;reason:string;jd_quote:string;before:Block[];citations:Block["citations"]};
+type RecordValue={proposals?:Proposal[];state:string;stage:string;error:string;revision:string;framework:string;policy_version:string;draft:{blocks:Block[];questions:string[]}|null;checks:{findings:{block_index:number;supported:boolean;reason:string}[]}|null;context:{master?:Block[];sources:{id:string;title:string;text:string;employer?:string;start_line?:number}[]}};
 type View={framework:string;base_resume:string;base_title:string;configured:boolean;record:RecordValue|null;citation_sources?:RecordValue['context']['sources']};
 const styles=[['PAR','Recommended · Project, Action, Result'],['XYZ','Metrics-focused · Accomplishment, measurement, method'],['STAR','Context-focused · Concise STAR'],['EXISTING','Keep my existing style']];
 const examples:Record<string,string>={PAR:'Show the work, your contribution, and the supported outcome. Numbers are optional.',XYZ:'Lead with a measured accomplishment, then explain how you achieved it. Use only documented metrics.',STAR:'Briefly explain the problem, your action, and the result.',EXISTING:'Preserve your voice and section structure while improving relevance and clarity.'};
@@ -35,7 +36,7 @@ export function TailorResume({jobId,label}:{jobId:string;label?:string}) {
  <label>Writing approach<select value={framework} disabled={busy||running} onChange={e=>setFramework(e.target.value)}>{styles.map(([id,label])=><option value={id} key={id}>{label}</option>)}</select></label><p>{examples[framework]}</p>
  <label className="tailor-checkbox"><input type="checkbox" checked={remember} onChange={e=>setRemember(e.target.checked)}/> Remember this approach for future jobs</label>
  <label>Base resume<textarea rows={10} maxLength={22000} value={base} disabled={busy||running} onChange={e=>setBase(e.target.value)} placeholder="Paste your resume here, or add a resume in Your context → Add skills."/></label>
- <p>This edits your master’s existing items, preserving every section and bullet. It uses your JD, relevant saved evidence, and the resume skill. Drafting and claim checking use OpenAI; costs appear in API costs. Your master resume stays unchanged.</p>
+ <p>This improves wording in your master and proposes stronger accomplishments from your stories. Replacements, additions and removals need your acceptance. It uses your JD, relevant saved evidence, and the resume skill. Drafting and claim checking use OpenAI; costs appear in API costs. Your master resume stays unchanged.</p>
  <button className="primary" disabled={busy||running||editing||!view.configured||!base.trim()} onClick={()=>void act('',{consent_to_send:true,framework,base_resume:base,remember,retry:false})}>Prepare draft · API usage</button>
  {!view.configured&&<p role="alert">Connect your OpenAI API key to prepare a draft.</p>}
  </details>
@@ -45,14 +46,26 @@ export function TailorResume({jobId,label}:{jobId:string;label?:string}) {
  {record.error&&<p role="alert">{record.error}</p>}
  {['ERROR','INTERRUPTED'].includes(record.state)&&!record.draft&&!editing&&<button disabled={busy} onClick={()=>void act('',{consent_to_send:true,framework:record.framework,base_resume:record.context.sources[0].text,retry:true})}>Retry unfinished preparation · API usage</button>}
  {record.draft&&<>
- {!record.context.master&&<p>This saved draft used the old layout. <button disabled={busy||running||editing} onClick={()=>void act('',{consent_to_send:true,framework:record.framework,base_resume:record.context.sources[0].text,remember:false,retry:false})}>Rebuild with master structure · API usage</button></p>}
+ {!record.proposals&&<p>This saved draft predates job-specific structural suggestions. <button disabled={busy||running||editing} onClick={()=>void act('',{consent_to_send:true,framework:record.framework,base_resume:record.context.sources[0].text,remember:false,retry:false})}>Prepare updated tailoring · API usage</button></p>}
  {record.draft.questions.length>0&&<details><summary>Questions and missing details ({record.draft.questions.length})</summary><ul>{record.draft.questions.map((q,i)=><li key={i}>{q}</li>)}</ul><p>Add factual details to the relevant experience in Your context, then reassess before generating a new draft.</p></details>}
+ <section className="resume-proposals" aria-label="Tailoring suggestions">
+ {record.proposals&&<h3>Suggested content changes ({record.proposals.filter(p=>p.status==='pending').length} pending)</h3>}
+ {record.proposals?.length===0&&<p>No structural changes proposed. Wording changes appear in yellow below.</p>}
+ {record.proposals?.map(p=><details key={p.id} open={p.status==='pending'}><summary>{p.operation.charAt(0).toUpperCase()+p.operation.slice(1)} a resume point · {p.status}</summary>
+ <p><strong>Why for this job:</strong> {p.reason}</p><p><strong>Job requirement:</strong> {p.jd_quote}</p>
+ <div className="resume-proposal-comparison"><div><h4>Current</h4>{p.before.length?p.before.map(b=><p key={b.item_id}>{b.text}</p>):<p>New point</p>}</div><div><h4>Proposed</h4><p>{p.text|| (p.operation==='remove'?'Remove this point.':'Move this point to the proposed position.')}</p></div></div>
+ {p.after_id&&<p><strong>Place after:</strong> {record.draft?.blocks.find(b=>b.item_id===p.after_id)?.text||p.after_id}</p>}
+ <details><summary>Source evidence</summary>{p.citations.map((ref,i)=><div key={i}><strong>{view.citation_sources?.find(s=>s.id===ref.source_id)?.title||ref.source_id}</strong><blockquote>{ref.quote}</blockquote></div>)}</details>
+ {p.error&&<p role="alert">{p.error}</p>}
+ {p.status==='pending'&&<div className="resume-proposal-actions"><button disabled={busy||running||editing||!!p.error} onClick={()=>void act('/proposal',{revision:record.revision,proposal_id:p.id,decision:'accept'})}>Accept suggestion</button><button disabled={busy||running||editing} onClick={()=>void act('/proposal',{revision:record.revision,proposal_id:p.id,decision:'reject'})}>Keep current resume</button></div>}
+ </details>)}
+ </section>
  <div className="resume-action-toolbar">
  <strong>{editing?'Unsaved edits':record.state==='APPROVED'?'Approved resume':'Your tailored draft'}</strong>
  <button className="primary" disabled={busy||running||!editing||!blocks.some(b=>b.text.trim())} onClick={()=>void act('/edit',{revision:record.revision,blocks:blocks.filter(b=>b.text.trim())})}>Save changes</button>
  {editing&&<button disabled={busy} onClick={()=>{setEditing(false);setEditorReset(n=>n+1);setSelected(0);}}>Discard edits</button>}
  {!editing&&['EDITED','NEEDS_REVIEW','ERROR','INTERRUPTED'].includes(record.state)&&<button disabled={busy||running} onClick={()=>void act('/check',{revision:record.revision,confirmed:true})}>Check changes · API usage</button>}
- {!editing&&record.state==='DRAFT'&&<><label className="tailor-checkbox"><input type="checkbox" checked={confirmed} onChange={e=>setConfirmed(e.target.checked)}/> I reviewed this resume</label><button className="primary" disabled={busy||!confirmed} onClick={()=>void act('/approve',{revision:record.revision,confirmed:true})}>Approve</button></>}
+ {!editing&&record.state==='DRAFT'&&<><label className="tailor-checkbox"><input type="checkbox" checked={confirmed} onChange={e=>setConfirmed(e.target.checked)}/> I reviewed this resume</label><button className="primary" disabled={busy||!confirmed||record.proposals?.some(p=>p.status==='pending')} onClick={()=>void act('/approve',{revision:record.revision,confirmed:true})}>Approve</button></>}
  {!editing&&record.state==='APPROVED'&&<button disabled={busy} onClick={()=>void download()}>Download text</button>}
  <button aria-pressed={showEvidence} onClick={()=>setShowEvidence(v=>!v)}>{showEvidence?'Hide evidence':'Show evidence'}</button>
  </div>

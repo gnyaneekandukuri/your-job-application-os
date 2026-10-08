@@ -24,7 +24,7 @@ class Provider:
         self.calls.append(payload)
         if payload['text']['format']['name']=='resume_draft':
             master=json.loads(payload['input'])['master']
-            result={'edits':[{'item_id':master[-1]['item_id'],'text':'Built a reporting prototype for 12 users during a pilot.','citations':[{'source_id':'e1','quote':PASSAGE}],'reason':'Relevant reporting work.'}], 'questions':['What changed after the pilot?']}
+            result={'proposals':[], 'edits':[{'item_id':master[-1]['item_id'],'text':'Built a reporting prototype for 12 users during a pilot.','citations':[{'source_id':'e1','quote':PASSAGE}],'reason':'Relevant reporting work.'}], 'questions':['What changed after the pilot?']}
             if self.bad_quote: result['edits'][0]['citations'][0]['quote']='Not in the source'
         else:
             if self.fail_check: raise RetrievalError('API timed out; billing unknown.',502)
@@ -245,3 +245,81 @@ def test_pdf_master_uses_visual_order_for_late_text_objects(monkeypatch):
     items=resume_master.pdf_template(b'fixture')
     assert [b['text'] for b in items][4:]==['First bullet stored later in the PDF','Second bullet','ADDITIONAL INFORMATION','Volunteering']
     assert all(b['format']['font_family']=='Times New Roman' for b in items)
+
+
+def test_proposal_accept_requires_new_checks_and_revision(setup):
+    from app.tailoring import ProposalDecision
+    s,j,p,*_=setup;r=generate(s,j)
+    key=s.engine.get('tailoring:latest:'+j.id)
+    original=r['draft']['blocks'][-1]
+    r['proposals']=[{'id':'1','operation':'replace','target_ids':[original['item_id']], 'after_id':'',
+        'text':'Built a reporting prototype for 12 users.', 'citations':original['citations'],
+        'reason':'Shows reporting ownership.', 'jd_quote':'Build reporting tools.',
+        'before':[original],'status':'pending','error':''}]
+    s.engine.put(key,r)
+    with pytest.raises(RetrievalError,match='pending'):s.approve(j,Action(revision=r['revision'],confirmed=True))
+    updated=s.decide_proposal(j,ProposalDecision(revision=r['revision'],proposal_id='1',decision='accept'))['record']
+    assert updated['state']=='EDITED' and updated['checks'] is None
+    assert updated['proposals'][0]['status']=='accepted'
+    assert updated['draft']['blocks'][-1]['text']=='Built a reporting prototype for 12 users.'
+    assert updated['draft']['blocks'][-1]['format']==original['format']
+    assert len(p.calls)==2 # accepting is local; no hidden API call
+    with pytest.raises(RetrievalError):s.export(j,updated['revision'])
+    with pytest.raises(RetrievalError):s.decide_proposal(j,ProposalDecision(revision=r['revision'],proposal_id='1',decision='accept'))
+    s.recheck(j,Action(revision=updated['revision'],confirmed=True));s.worker.join(5)
+    assert s.view(j)['record']['state']=='DRAFT'
+
+
+def test_proposal_operations_preserve_unrelated_items():
+    from app.tailoring import apply_proposal
+    from app.resume_master import text_template
+    rows=text_template('Alex\ncontact@example.com\nEXPERIENCE\nFirst point\nSecond point\nADDITIONAL INFORMATION\nVolunteering')
+    proposal={'operation':'combine','target_ids':['m4','m5'],'after_id':'','text':'Combined point','citations':[], 'reason':'Relevance'}
+    changed=apply_proposal(rows,proposal,'1')
+    assert [b['text'] for b in changed][-2:]==['ADDITIONAL INFORMATION','Volunteering']
+    assert len(changed)==len(rows)-1
+    proposal.update(operation='add',target_ids=[],after_id='m5',text='New point')
+    changed=apply_proposal(rows,proposal,'2')
+    assert changed[5]['text']=='New point' and changed[5]['item_id']=='proposal:2'
+    proposal.update(operation='remove',target_ids=['m1'])
+    with pytest.raises(RetrievalError):apply_proposal(rows,proposal,'3')
+    proposal.update(operation='reorder',target_ids=['m5'],after_id='m3')
+    assert apply_proposal(rows,proposal,'4')[3]['item_id']=='m5'
+
+
+def test_proposal_reject_keeps_draft_and_checks(setup):
+    from app.tailoring import ProposalDecision
+    s,j,p,*_=setup;r=generate(s,j);key=s.engine.get('tailoring:latest:'+j.id)
+    r['proposals']=[{'id':'1','status':'pending','error':'Invalid quote'}];s.engine.put(key,r)
+    updated=s.decide_proposal(j,ProposalDecision(revision=r['revision'],proposal_id='1',decision='reject'))['record']
+    assert updated['draft']==r['draft'] and updated['checks']==r['checks']
+    assert updated['proposals'][0]['status']=='rejected'
+
+
+def test_generation_schema_requires_all_properties():
+    from app.tailoring import TailoringPlan
+    schema=TailoringPlan.model_json_schema()
+    for obj in [schema,*schema.get('$defs',{}).values()]:
+        if obj.get('type')=='object':assert set(obj['required'])==set(obj['properties'])
+
+
+def test_generated_proposals_remain_pending_and_bad_quotes_block_acceptance(setup):
+    s,j,p,*_=setup
+    original=p.request
+    def with_proposal(endpoint,payload):
+        response=original(endpoint,payload)
+        if payload['text']['format']['name']=='resume_draft':
+            result=json.loads(response['output'][0]['content'][0]['text'])
+            result['proposals']=[{'operation':'replace','target_ids':['m4'],'after_id':'',
+                'text':'Built a reporting prototype.', 'citations':[{'source_id':'e1','quote':PASSAGE}],
+                'reason':'Demonstrates reporting ownership.', 'jd_quote':'Build reporting tools.'},
+                {'operation':'add','target_ids':[],'after_id':'m4','text':'Invented evidence',
+                 'citations':[{'source_id':'e1','quote':'not present'}], 'reason':'Claims relevance', 'jd_quote':'Build reporting tools.'}]
+            response['output'][0]['content'][0]['text']=json.dumps(result)
+        return response
+    p.request=with_proposal
+    r=generate(s,j)
+    assert len(r['draft']['blocks'])==4
+    assert r['proposals'][0]['status']=='pending' and not r['proposals'][0]['error']
+    assert r['proposals'][1]['error']
+    assert r['draft']['blocks'][-1]['text']!='Built a reporting prototype.'

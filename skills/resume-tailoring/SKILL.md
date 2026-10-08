@@ -5,7 +5,7 @@ description: Tailor or review an industry resume against a job description using
 
 # Resume tailoring
 
-Policy version: 1.2. Default audience: US industry applications across roles and candidates. Ask about regional conventions when a different market requires them. Do not embed a particular candidate's history, target company, or preferred occupation in these rules.
+Policy version: 1.3. Default audience: US industry applications across roles and candidates. Ask about regional conventions when a different market requires them. Do not embed a particular candidate's history, target company, or preferred occupation in these rules.
 
 ## Load before drafting
 
@@ -95,3 +95,9 @@ These references inform the policy; they are not proof that one framework univer
 - [Greenhouse: documented resume parsing limitations](https://support.greenhouse.io/hc/en-us/articles/200989175-Unsuccessful-resume-parse)
 - [XYZ recruiter guidance reproduced by UT Austin](https://law.utexas.edu/wp-content/uploads/sites/44/2020/09/Google-Recruiters-Say-Using-the-X-Y-Z-Formula-on-Your-Resume-Will-Improve-Your-Odds-of-Getting-Hired-at-Google-_-Inc.com_.pdf)
 - [Hofstra: STAR resume guidance](https://www.hofstra.edu/sites/default/files/2021-02/career-design-development-guide.pdf)
+
+## Job-specific proposal contract
+
+Use the actual JD priorities and completed assessment to select relevant candidate passages. Assessment judgments guide selection; only original candidate sources support resume claims. Do not stop at factual corrections when a stronger documented accomplishment would better demonstrate the target work.
+
+Apply same-accomplishment wording improvements in the draft. Propose replacements, additions, removals, combinations and reordering separately, with original item IDs, an exact JD quotation, a concrete relevance explanation and candidate citations. Keep identity, section headings and role headers intact; ask for clarification if a new employer/project header is needed. Keep proposals independent and do not silently delete valid master content. The candidate accepts or declines each structural proposal. Acceptance invalidates prior claim checks and approval; check the resulting draft once after reviewing the batch. Resolve pending proposals before approval. Highlight applied changes in yellow only in the review editor.

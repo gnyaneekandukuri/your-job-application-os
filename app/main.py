@@ -17,7 +17,7 @@ from .store import Conflict, Missing, Store
 from .workflow import build_graph
 from .retrieval import BuildInput, SearchInput, RetrievalService, RetrievalError, SOURCE
 from .model_provider import OpenAIProvider
-from .tailoring import Tailoring, Generate as TailorGenerate, Edit as TailorEdit, Action as TailorAction
+from .tailoring import Tailoring, Generate as TailorGenerate, Edit as TailorEdit, Action as TailorAction, ProposalDecision as TailorProposalDecision
 from fastapi.responses import PlainTextResponse
 from .job_requirements import ExtractRequirements
 from .jev_requirements import extract as extract_requirements, key_for as jev_requirements_key
@@ -392,6 +392,10 @@ def create_app(data_dir: Path | None = None):
     @api.post("/api/jobs/{job_id}/tailoring/edit")
     def tailoring_edit(job_id: str, data: TailorEdit, request: Request):
         return request.app.state.tailoring.edit(request.app.state.service.review(job_id).job, data)
+
+    @api.post("/api/jobs/{job_id}/tailoring/proposal")
+    def tailoring_proposal(job_id: str, data: TailorProposalDecision, request: Request):
+        return request.app.state.tailoring.decide_proposal(request.app.state.service.review(job_id).job, data)
 
     @api.post("/api/jobs/{job_id}/tailoring/check")
     def tailoring_check(job_id: str, data: TailorAction, request: Request):
