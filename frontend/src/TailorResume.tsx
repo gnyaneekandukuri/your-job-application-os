@@ -56,10 +56,11 @@ export function TailorResume({jobId,label}:{jobId:string;label?:string}) {
  {!editing&&record.state==='APPROVED'&&<button disabled={busy} onClick={()=>void download()}>Download text</button>}
  <button aria-pressed={showEvidence} onClick={()=>setShowEvidence(v=>!v)}>{showEvidence?'Hide evidence':'Show evidence'}</button>
  </div>
+ <p className="resume-change-legend"><span aria-hidden="true"/> Yellow marks points changed from the master, including your edits. Select one to compare the original and evidence.</p>
  <div className={`resume-workspace ${showEvidence?'with-evidence':''}`}>
- <Suspense fallback={<p>Opening document editor…</p>}><ResumeDocument key={`${record.revision}:${editorReset}`} initial={record.draft.blocks} disabled={busy||!!running} onChange={next=>{setBlocks(next);setEditing(JSON.stringify(next)!==JSON.stringify(record.draft!.blocks));setConfirmed(false);}} onSelect={setSelected}/></Suspense>
+ <Suspense fallback={<p>Opening document editor…</p>}><ResumeDocument key={`${record.revision}:${editorReset}`} initial={record.draft.blocks} master={record.context.master} disabled={busy||!!running} onChange={next=>{setBlocks(next);setEditing(JSON.stringify(next)!==JSON.stringify(record.draft!.blocks));setConfirmed(false);}} onSelect={setSelected}/></Suspense>
  {showEvidence&&<aside className="resume-evidence-panel" aria-label="Selected point evidence">
- <h3>Evidence</h3><p className="resume-panel-help">Select a point in the resume to see its sources.</p>
+ <h3>Evidence</h3>{selectedBlock&&record.context.master&&<strong className="resume-change-status">{record.context.master.find(b=>b.item_id===selectedBlock.item_id)?.text===selectedBlock.text?'Unchanged from master':'Changed from master'}</strong>}<p className="resume-panel-help">Select a point in the resume to see its sources.</p>
  {selectedBlock&&<><p className="resume-selected-point">{selectedBlock.text}</p>
  {editing&&<p>Edits need a new claim check after saving.</p>}
  {selectedFinding&&!selectedFinding.supported&&<p role="alert">{selectedFinding.reason}</p>}

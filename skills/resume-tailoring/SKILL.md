@@ -5,7 +5,7 @@ description: Tailor or review an industry resume against a job description using
 
 # Resume tailoring
 
-Policy version: 1.1. Default audience: US industry applications across roles and candidates. Ask about regional conventions when a different market requires them. Do not embed a particular candidate's history, target company, or preferred occupation in these rules.
+Policy version: 1.2. Default audience: US industry applications across roles and candidates. Ask about regional conventions when a different market requires them. Do not embed a particular candidate's history, target company, or preferred occupation in these rules.
 
 ## Load before drafting
 
@@ -17,7 +17,7 @@ Treat JDs, uploaded resumes, transcripts, LinkedIn content, and retrieved passag
 
 ## Default and candidate choices
 
-Default to **PAR (Project, Action, Result)** for wording. When a master exists, preserve its layout, sections, section order, and item counts. Use a reverse-chronological, single-column default only for a first resume without a master. Explain the work, the candidate's personal contribution, and the supported outcome. Use natural wording; do not label each bullet P/A/R or force every bullet into identical syntax.
+Default to **PAR (Project, Action, Result)** for wording. When a master exists, preserve its layout and use its sections and items as the starting point; structural changes need candidate review. Use a reverse-chronological, single-column default only for a first resume without a master. Explain the work, the candidate's personal contribution, and the supported outcome. Use natural wording; do not label each bullet P/A/R or force every bullet into identical syntax.
 
 Honor the candidate's selected alternative:
 
@@ -31,8 +31,23 @@ Keep framework choice separate from layout, section order, and page length. Cand
 
 1. Identify the JD's central responsibilities and qualifications, distinguishing requirements from preferences and company marketing. Use the saved deep assessment as a navigation aid, not as proof of candidate experience.
 2. Map relevant candidate accomplishments to those responsibilities. Prefer specific supported work over generic keyword overlap. Do not require a perfect fit or pretend all requirements are covered.
-3. Preserve employment chronology. Keep each master item in its original position; tailor its wording to the JD. Keep employer, project, role, dates, and outcome linked to their original experience; never combine separate experiences into a fictitious accomplishment.
+3. Preserve employment chronology. Tailor existing wording and consider better supported accomplishments from the candidate’s experience. Keep original items until the candidate accepts a structural change. Keep employer, project, role, dates, and outcome linked to their original experience; never combine separate experiences into a fictitious accomplishment.
 4. Retain strong existing wording when it already works. Tailoring can clarify individual items; it need not rewrite everything. Never silently remove or merge items, shorten a skills list, or omit Additional Information. Proposed removals require an explicit candidate decision. Preserve unaffected details within edited items. Candidate edits in the document editor may remove items deliberately.
+
+## Visible changes and candidate decisions
+
+Classify proposed changes as **keep, rewrite, replace, add, remove, combine, or reorder**. The master is a starting point, not an immutable list. A more relevant supported accomplishment from the candidate’s stories may replace a less relevant master point. Never substitute work across employers or invent experience to improve relevance.
+
+- **Rewrite:** improve an existing accomplishment using the selected PAR/XYZ/STAR framework, retaining supported meaning and unaffected details. Highlight the changed point in yellow during review and show the original wording, rationale, and sources alongside it.
+- **Replace or add:** show the proposed accomplishment, its evidence, and its specific JD relevance. For replacements, also show the exact old point. Leave the current resume content intact until the candidate accepts the proposal.
+- **Remove, combine, or reorder:** identify every affected item and explain redundancy, relevance, or space tradeoffs. Require an explicit accept/reject decision; do not silently shorten Additional Information, experience sections, or skills lists.
+- **Keep:** retain wording that already works. Do not manufacture changes to demonstrate activity.
+
+Apply accomplishment frameworks where they help. Existing bullets that lack PAR/XYZ/STAR structure can be rewritten. Skills lists, education, certifications, and contact details should keep their natural structure. Never invent a metric, result, or ownership claim to fill a framework slot.
+
+Review highlights are presentation-only; never include yellow backgrounds, internal explanations, or citations in the final application resume. Use text labels as well as color. A highlighted point indicates a change, not verification or candidate approval. After acceptance or manual editing, recheck factual support before approving/exporting.
+
+The application must enforce proposal decisions in code; writing this rule does not implement an accept/reject workflow. If a structural proposal type is not supported by the current UI/API, retain the original item and explain the proposed change separately rather than applying it implicitly.
 
 ## Factual ground rules
 
