@@ -24,6 +24,7 @@ export function TailorResume({jobId,label}:{jobId:string;label?:string}) {
  function close(){if(editing&&!window.confirm('Discard unsaved resume edits?'))return;setOpen(false);}
  useEffect(()=>{if(!editing)return;const warn=(event:BeforeUnloadEvent)=>{event.preventDefault();event.returnValue='';};window.addEventListener('beforeunload',warn);return()=>window.removeEventListener('beforeunload',warn);},[editing]);
  const visibleBlocks=editing?blocks:record?.draft?.blocks||[];
+ const appliedChanges=visibleBlocks.map((block,index)=>({block,index,original:record?.context.master?.find(item=>item.item_id===block.item_id)})).filter(({block,original})=>!original||block.text!==original.text||block.kind!==original.kind);
  const selectedBlock=visibleBlocks[selected];
  const selectedFinding=!editing?record?.checks?.findings.find(f=>f.block_index===selected):undefined;
  async function download(){setBusy(true);setError('');try{const response=await fetch(path+`/export?revision=${encodeURIComponent(record!.revision)}`);if(!response.ok){const data=await response.json();throw new Error(data.detail||'Export failed.');}const url=URL.createObjectURL(await response.blob());const a=document.createElement('a');a.href=url;a.download='tailored-resume.txt';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}catch(e){setError(String(e));}finally{setBusy(false);}}
@@ -48,16 +49,25 @@ export function TailorResume({jobId,label}:{jobId:string;label?:string}) {
  {record.draft&&<>
  {!record.proposals&&<p>This saved draft predates job-specific structural suggestions. <button disabled={busy||running||editing} onClick={()=>void act('',{consent_to_send:true,framework:record.framework,base_resume:record.context.sources[0].text,remember:false,retry:false})}>Prepare updated tailoring · API usage</button></p>}
  {record.draft.questions.length>0&&<details><summary>Questions and missing details ({record.draft.questions.length})</summary><ul>{record.draft.questions.map((q,i)=><li key={i}>{q}</li>)}</ul><p>Add factual details to the relevant experience in Your context, then reassess before generating a new draft.</p></details>}
+ <section className="resume-proposals" aria-label="Changes already in the draft">
+ <h3>Changes already in the draft ({appliedChanges.length})</h3>
+ <p>These exact changes are visible in yellow in the resume. Pending suggestions below have not been added.</p>
+ {appliedChanges.map(({block,index,original})=><details key={`${block.item_id}:${index}`}><summary>{block.kind==='role'?'Role details':block.kind==='bullet'?'Resume point':'Resume text'} · {block.text.slice(0,85)}{block.text.length>85?'…':''}</summary>
+ <div className="resume-proposal-comparison"><div><h4>Master resume</h4><p>{original?.text||'New point'}</p></div><div><h4>In your draft now</h4><p>{block.text}</p></div></div>
+ <p><strong>Why:</strong> {block.reason}</p>
+ <button onClick={()=>{setSelected(index);setShowEvidence(true);}}>Show evidence for this change</button>
+ </details>)}
+ </section>
  <section className="resume-proposals" aria-label="Tailoring suggestions">
- {record.proposals&&<h3>Suggested content changes ({record.proposals.filter(p=>p.status==='pending').length} pending)</h3>}
+ {record.proposals&&<h3>Suggestions not yet applied ({record.proposals.filter(p=>p.status==='pending').length})</h3>}
  {record.proposals?.length===0&&<p>No structural changes proposed. Wording changes appear in yellow below.</p>}
- {record.proposals?.map(p=><details key={p.id} open={p.status==='pending'}><summary>{p.operation.charAt(0).toUpperCase()+p.operation.slice(1)} a resume point · {p.status}</summary>
+ {record.proposals?.map(p=><details key={p.id}><summary>{p.operation.charAt(0).toUpperCase()+p.operation.slice(1)} a resume point · {p.status==='pending'?'Not in the draft':p.status==='accepted'?'Applied to draft':'Declined'}</summary>
  <p><strong>Why for this job:</strong> {p.reason}</p><p><strong>Job requirement:</strong> {p.jd_quote}</p>
- <div className="resume-proposal-comparison"><div><h4>Current</h4>{p.before.length?p.before.map(b=><p key={b.item_id}>{b.text}</p>):<p>New point</p>}</div><div><h4>Proposed</h4><p>{p.text|| (p.operation==='remove'?'Remove this point.':'Move this point to the proposed position.')}</p></div></div>
+ <div className="resume-proposal-comparison"><div><h4>Before this suggestion</h4>{p.before.length?p.before.map(b=><p key={b.item_id}>{b.text}</p>):<p>New point</p>}</div><div><h4>{p.status==='accepted'?'Accepted wording':'Proposed wording — not applied'}</h4><p>{p.text|| (p.operation==='remove'?'Remove this point.':'Move this point to the proposed position.')}</p></div></div>
  {p.after_id&&<p><strong>Place after:</strong> {record.draft?.blocks.find(b=>b.item_id===p.after_id)?.text||p.after_id}</p>}
  <details><summary>Source evidence</summary>{p.citations.map((ref,i)=><div key={i}><strong>{view.citation_sources?.find(s=>s.id===ref.source_id)?.title||ref.source_id}</strong><blockquote>{ref.quote}</blockquote></div>)}</details>
  {p.error&&<p role="alert">{p.error}</p>}
- {p.status==='pending'&&<div className="resume-proposal-actions"><button disabled={busy||running||editing||!!p.error} onClick={()=>void act('/proposal',{revision:record.revision,proposal_id:p.id,decision:'accept'})}>Accept suggestion</button><button disabled={busy||running||editing} onClick={()=>void act('/proposal',{revision:record.revision,proposal_id:p.id,decision:'reject'})}>Keep current resume</button></div>}
+ {p.status==='pending'&&<div className="resume-proposal-actions"><button disabled={busy||running||editing||!!p.error} onClick={()=>void act('/proposal',{revision:record.revision,proposal_id:p.id,decision:'accept'})}>Apply this exact change</button><button disabled={busy||running||editing} onClick={()=>void act('/proposal',{revision:record.revision,proposal_id:p.id,decision:'reject'})}>Keep current resume</button></div>}
  </details>)}
  </section>
  <div className="resume-action-toolbar">
