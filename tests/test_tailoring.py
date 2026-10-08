@@ -28,7 +28,8 @@ class Provider:
             if self.bad_quote: result['edits'][0]['citations'][0]['quote']='Not in the source'
         else:
             if self.fail_check: raise RetrievalError('API timed out; billing unknown.',502)
-            result={'findings':[{'block_index':r['block_index'],'supported':not(self.unsupported and r['block_index']==3),'reason':'Ownership needs clarification' if self.unsupported else 'Supported by cited text'} for r in json.loads(payload['input'])['blocks']]}
+            result={'findings':[{'block_index':r['block_index'],'supported':not(self.unsupported and r['block_index']==3),'reason':'Ownership needs clarification' if self.unsupported else 'Supported by cited text','metrics':[{'claim':r['text'],'supported':True,'reason':'Metric meaning and qualifiers supported.'}]} for r in json.loads(payload['input'])['blocks']]}
+            result['framework_findings']=[{'block_index':r['block_index'],'meets_framework':True,'context_quote':r['text'],'action_quote':r['text'],'result_quote':r['text'],'measurement_quote':r['text'],'reason':'Framework supported.'} for r in json.loads(payload['input']).get('experience_bullets',[])]
         return {'status':'completed','usage':{'input_tokens':200,'output_tokens':60},'output':[{'type':'message','content':[{'type':'output_text','text':json.dumps(result)}]}]}
 
 @pytest.fixture
@@ -323,3 +324,34 @@ def test_generated_proposals_remain_pending_and_bad_quotes_block_acceptance(setu
     assert r['proposals'][0]['status']=='pending' and not r['proposals'][0]['error']
     assert r['proposals'][1]['error']
     assert r['draft']['blocks'][-1]['text']!='Built a reporting prototype.'
+
+
+def test_framework_failure_blocks_approval_even_when_claims_pass(setup):
+    s,j,p,*_=setup;original=p.request
+    def fail_framework(endpoint,payload):
+        response=original(endpoint,payload)
+        if payload['text']['format']['name']=='resume_claim_check':
+            result=json.loads(response['output'][0]['content'][0]['text'])
+            for f in result['framework_findings']:f.update(meets_framework=False,reason='Missing supported result')
+            response['output'][0]['content'][0]['text']=json.dumps(result)
+        return response
+    p.request=fail_framework
+    r=generate(s,j,base_resume='Alex Example\nalex@example.com\nPROFESSIONAL EXPERIENCE\n• Built a reporting prototype for 12 users.')
+    assert r['quality']['total']==1 and r['quality']['passed']==0
+    assert r['state']=='NEEDS_REVIEW'
+    assert all(f['supported'] for f in r['checks']['findings'])
+    with pytest.raises(RetrievalError,match='80%'):s.approve(j,Action(revision=r['revision'],confirmed=True))
+
+
+def test_missing_metric_review_flags_bullet_without_losing_other_results(setup):
+    s,j,p,*_=setup;original=p.request
+    def omit_metrics(endpoint,payload):
+        response=original(endpoint,payload)
+        if payload['text']['format']['name']=='resume_claim_check':
+            result=json.loads(response['output'][0]['content'][0]['text'])
+            result['findings'][-1]['metrics']=[]
+            response['output'][0]['content'][0]['text']=json.dumps(result)
+        return response
+    p.request=omit_metrics;r=generate(s,j)
+    assert r['state']=='NEEDS_REVIEW' and r['quality'] is not None
+    assert any(not f['supported'] and 'numeric claim' in f['reason'] for f in r['checks']['findings'])

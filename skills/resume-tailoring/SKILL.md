@@ -5,7 +5,7 @@ description: Tailor or review an industry resume against a job description using
 
 # Resume tailoring
 
-Policy version: 1.3. Default audience: US industry applications across roles and candidates. Ask about regional conventions when a different market requires them. Do not embed a particular candidate's history, target company, or preferred occupation in these rules.
+Policy version: 1.4. Default audience: US industry applications across roles and candidates. Ask about regional conventions when a different market requires them. Do not embed a particular candidate's history, target company, or preferred occupation in these rules.
 
 ## Load before drafting
 
@@ -101,3 +101,9 @@ These references inform the policy; they are not proof that one framework univer
 Use the actual JD priorities and completed assessment to select relevant candidate passages. Assessment judgments guide selection; only original candidate sources support resume claims. Do not stop at factual corrections when a stronger documented accomplishment would better demonstrate the target work.
 
 Apply same-accomplishment wording improvements in the draft. Propose replacements, additions, removals, combinations and reordering separately, with original item IDs, an exact JD quotation, a concrete relevance explanation and candidate citations. Keep identity, section headings and role headers intact; ask for clarification if a new employer/project header is needed. Keep proposals independent and do not silently delete valid master content. The candidate accepts or declines each structural proposal. Acceptance invalidates prior claim checks and approval; check the resulting draft once after reviewing the batch. Resolve pending proposals before approval. Highlight applied changes in yellow only in the review editor.
+
+## Required quality gates
+
+At least 80% of professional-experience bullets must meet the selected framework before approval, rounded up to a whole bullet. Evaluate unchanged master bullets too. Exclude contact details, role headers, education, skills lists and other sections. PAR needs project/problem, personal action and a supported result; concise STAR also makes the situation/task clear. XYZ needs accomplishment, a documented measurement and method. Existing-style drafts keep their voice but still need action and supported result for the same 80% threshold. Qualitative results count except where the candidate selected XYZ. Never invent an outcome or metric to pass; flag the missing component and ask for evidence.
+
+For every numeric claim, check the metric meaning, unit, baseline, period, personal/team scope and whether it is projected, identified, backtested, piloted or realized. Cross-check candidate stories and fact/conflict rules even when the old resume contains the number. Product revenue is not necessarily ARR; investment is not revenue; profit opportunity is not achieved profit. An unresolved metric conflict fails the claim check regardless of framework coverage. Return exact draft excerpts for each framework component and numeric claim. The application verifies coverage, and displays failures before approval.

@@ -44,7 +44,8 @@ def failure_message(response):
 
 
 class OpenAIProvider:
-    def __init__(self, allow_generation=True, allow_embeddings=True):
+    def __init__(self, allow_generation=True, allow_embeddings=True, request_timeout=60):
+        self.request_timeout = request_timeout
         self.allow_generation = allow_generation
         self.allow_embeddings = allow_embeddings
 
@@ -61,7 +62,7 @@ class OpenAIProvider:
             raise RetrievalError("Unsupported model endpoint.")
         try:
             # No redirects, environment proxies, automatic retries or tools.
-            with httpx.Client(timeout=httpx.Timeout(60, connect=10), trust_env=False,
+            with httpx.Client(timeout=httpx.Timeout(self.request_timeout, connect=10), trust_env=False,
                               follow_redirects=False) as client:
                 response = client.post("https://api.openai.com/v1/" + endpoint,
                                        headers={"Authorization": "Bearer " + os.environ["OPENAI_API_KEY"]},

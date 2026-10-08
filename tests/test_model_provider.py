@@ -43,3 +43,17 @@ def test_provider_does_not_retry_or_leak_error_body(monkeypatch):
     with pytest.raises(RetrievalError,match='quota is unavailable'):
         OpenAIProvider().request('responses',{'input':'test'})
     assert len(calls)==1
+
+
+def test_tailoring_can_allow_longer_single_request(monkeypatch):
+    timeouts=[]
+    class Client:
+        def __init__(self,**kw):timeouts.append(kw['timeout'].read)
+        def __enter__(self):return self
+        def __exit__(self,*args):pass
+        def post(self,*args,**kw):return httpx.Response(200,json={'ok':True})
+    monkeypatch.setenv('OPENAI_API_KEY','test-key')
+    monkeypatch.setattr('app.model_provider.httpx.Client',Client)
+    OpenAIProvider(request_timeout=120).request('responses',{})
+    OpenAIProvider().request('responses',{})
+    assert timeouts==[120,60]
