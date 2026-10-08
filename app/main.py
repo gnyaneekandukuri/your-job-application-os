@@ -1,10 +1,12 @@
 import os
+import json
 import sqlite3
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request, Query
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
+from .applications import Applications, ConfirmApplication, UpdateApplication
 from fastapi.staticfiles import StaticFiles
 from langgraph.checkpoint.sqlite import SqliteSaver
 from starlette.middleware.trustedhost import TrustedHostMiddleware
@@ -53,6 +55,7 @@ def create_app(data_dir: Path | None = None):
     @asynccontextmanager
     async def lifespan(api):
         store = Store(private_dir / "reviews.sqlite3")
+        api.state.applications = Applications(private_dir / "applications.sqlite3")
         connection = sqlite3.connect(private_dir / "checkpoints.sqlite3", check_same_thread=False)
         connection.execute("PRAGMA journal_mode=WAL")
         saver = SqliteSaver(connection)
@@ -380,6 +383,36 @@ def create_app(data_dir: Path | None = None):
         view = request.app.state.analysis.view(job)
         return {'context_version':view['input_version'], 'ready':view['ready'], 'unready_sources':view['unready_sources'],
                 'result':(view['run'] or {}).get('results', {}).get(requirement_id), 'usage':view['usage']}
+
+    @api.get("/api/applications")
+    def applications_list(request: Request):
+        return request.app.state.applications.list()
+
+    @api.get("/api/applications/export")
+    def applications_export(request: Request):
+        return Response(request.app.state.applications.export(),
+            media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            headers={'Content-Disposition': 'attachment; filename="applied-jobs.xlsx"'})
+
+    @api.post("/api/jobs/{job_id}/applications")
+    def application_confirm(job_id: str, data: ConfirmApplication, request: Request):
+        job = request.app.state.service.review(job_id).job
+        metadata = {}
+        with request.app.state.discovery.db() as db:
+            row = db.execute('SELECT id,payload FROM opportunities WHERE job_id=?', (job_id,)).fetchone()
+            if row:
+                metadata['location'] = json.loads(row['payload']).get('location', '')
+                metadata['boards'] = [r[0] for r in db.execute('SELECT DISTINCT board FROM sightings WHERE opportunity_id=?', (row['id'],))]
+        return request.app.state.applications.confirm(job, request.app.state.tailoring, data, metadata)
+
+    @api.post("/api/applications/{application_id}")
+    def application_update(application_id: str, data: UpdateApplication, request: Request):
+        return request.app.state.applications.update(application_id, data)
+
+    @api.get("/api/applications/{application_id}/resume")
+    def application_resume(application_id: str, request: Request):
+        return PlainTextResponse(request.app.state.applications.resume(application_id),
+            headers={'Content-Disposition': f'attachment; filename="submitted-resume-{application_id}.txt"'})
 
     @api.get("/api/jobs/{job_id}/tailoring")
     def tailoring_view(job_id: str, request: Request):

@@ -1088,3 +1088,20 @@ button.text-button { border: 0; background: transparent; padding: .2rem .25rem; 
 .resume-proposals>details{border:1px solid #d8e1da;border-radius:8px;padding:16px;margin:12px 0}.resume-proposal-comparison{display:grid;grid-template-columns:1fr 1fr;gap:20px}.resume-proposal-comparison>div:last-child{background:#fff5c7;padding:12px}.resume-proposal-actions{display:flex;gap:12px;margin-top:16px}@media(max-width:850px){.resume-proposal-comparison{grid-template-columns:1fr}}
 
 .pending-comparison>div:last-child{background:#eef3f8}
+
+.applications-panel {background:white;border:1px solid #dce4dc;border-radius:16px;padding:28px;min-width:0;}
+.applications-heading {display:flex;align-items:center;justify-content:space-between;gap:20px;flex-wrap:wrap;}
+.applications-heading h2 {margin:0;}
+.applications-filters {display:flex;gap:20px;align-items:end;flex-wrap:wrap;margin:24px 0;}
+.applications-filters label,.application-dialog label {display:flex;flex-direction:column;gap:8px;}
+.applications-filters input,.applications-filters select,.application-dialog input,.application-dialog select {min-height:46px;padding:10px;border:1px solid #cad6ce;border-radius:8px;font:inherit;}
+.applications-table-wrap {overflow-x:auto;}
+.applications-table {width:100%;min-width:1050px;border-collapse:collapse;font-size:15px;}
+.applications-table th,.applications-table td {padding:16px 12px;text-align:left;vertical-align:top;border-bottom:1px solid #e1e7e1;}
+.applications-table th {background:#f3f6f2;white-space:nowrap;}
+.applications-table small {display:block;color:#68786c;margin-top:8px;}
+.application-notes {min-width:180px;max-width:300px;white-space:pre-wrap;overflow-wrap:anywhere;}
+.application-dialog {max-width:620px;}
+.application-dialog label {margin:18px 0;}
+.application-confirmation {padding:20px;border:1px solid #bdcec1;border-radius:12px;margin:18px 0;background:#f4f8f3;}
+.application-confirmation label {display:block;margin:12px 0;}
