@@ -10,7 +10,6 @@ const styles=[['PAR','Recommended · Project, Action, Result'],['XYZ','Metrics-f
 const examples:Record<string,string>={PAR:'Show the work, your contribution, and the supported outcome. Numbers are optional.',XYZ:'Lead with a measured accomplishment, then explain how you achieved it. Use only documented metrics.',STAR:'Briefly explain the problem, your action, and the result.',EXISTING:'Preserve your voice and section structure while improving relevance and clarity.'};
 export function TailorResume({jobId,label}:{jobId:string;label?:string}) {
  const [confirmApplied,setConfirmApplied]=useState(false),[applicationSaved,setApplicationSaved]=useState(false),[appliedDate,setAppliedDate]=useState(()=>{const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;});
- const finishPending=useRef(false);
  const dialog=useRef<HTMLDialogElement>(null);
  const [open,setOpen]=useState(false),[view,setView]=useState<View|null>(null),[error,setError]=useState(''),[busy,setBusy]=useState(false);
  const [framework,setFramework]=useState('PAR'),[base,setBase]=useState(''),[remember,setRemember]=useState(false),[editing,setEditing]=useState(false),[blocks,setBlocks]=useState<Block[]>([]),[confirmed,setConfirmed]=useState(false);
@@ -38,31 +37,17 @@ export function TailorResume({jobId,label}:{jobId:string;label?:string}) {
   const url=URL.createObjectURL(await response.blob());const a=document.createElement('a');a.href=url;a.download='tailored-resume.pdf';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
   setView(await request());
  }
- async function complete(current:View){
-  if(!current.record)throw Error('No saved resume is available.');
-  if(current.record.state==='DRAFT')current=await request('/approve',{revision:current.record.revision,confirmed:true});
-  setView(current);
-  if(current.record?.state!=='APPROVED')throw Error('Resolve the flagged issues before downloading.');
-  await downloadPdf(current.record.revision);
- }
  async function finish(){
   if(busy||running||!view?.record)return;setBusy(true);setError('');setConfirmApplied(false);
   try{
    let current=view;
    if(editing){current=await request('/edit',{revision:view.record.revision,blocks:blocks.filter(b=>b.text.trim())});setView(current);setEditing(false);}
-   if(['DRAFT','APPROVED'].includes(current.record!.state)&&current.record!.quality?.meets_threshold){await complete(current);}
-   else{const checked=await request('/check',{revision:current.record!.revision,confirmed:true});finishPending.current=true;setView(checked);}
-  }catch(e){finishPending.current=false;setError(String(e));}finally{setBusy(false);}
+   await downloadPdf(current.record!.revision);
+  }catch(e){setError(String(e));}finally{setBusy(false);}
  }
- useEffect(()=>{
-  if(!finishPending.current||!record||running)return;
-  finishPending.current=false;
-  if(record.state!=='DRAFT'){setError('Your edits are saved. Resolve the issues shown in the checks before downloading.');return;}
-  setBusy(true);void complete(view!).catch(e=>setError(String(e))).finally(()=>setBusy(false));
- },[record?.state,record?.revision]);
  return <><button onClick={()=>{setError('');setEditing(false);setConfirmed(false);setOpen(true);}}>Tailor resume</button>
  <dialog ref={dialog} className="skills-dialog tailoring-dialog" onCancel={e=>{e.preventDefault();close();}} aria-label="Tailor resume">
- <div className="skills-dialog-heading"><div><h2>Tailor your resume</h2><p>{label||"Choose an approach, review the evidence, then approve your draft."}</p></div><button onClick={close} aria-label="Close resume tailoring">Close</button></div>
+ <div className="skills-dialog-heading"><div><h2>Tailor your resume</h2><p>{label||"Review the draft, make your edits, then save and download."}</p></div><button onClick={close} aria-label="Close resume tailoring">Close</button></div>
  {error&&<p role="alert">{error}</p>}
  {!view?<p>Loading your resume…</p>:<>
  <details open={!record}><summary>Resume and writing approach</summary>
@@ -82,9 +67,8 @@ export function TailorResume({jobId,label}:{jobId:string;label?:string}) {
  <section aria-label="Resume quality checks" className="resume-quality">
  <h3>Experience bullet quality</h3>
  {!view.quality_checks_version&&<p>The stronger checks need the server update to finish. Existing scan work is being preserved.</p>}
- {record.quality?<><p><strong>{record.quality.passed} of {record.quality.total} bullets meet {record.quality.framework}</strong> · {record.quality.required} required (80%). {record.quality.meets_threshold?'Coverage requirement met.':'Improve the flagged bullets before approval.'}</p>
- {record.quality.failures.length>0&&<details><summary>Bullets needing work ({record.quality.failures.length})</summary>{record.quality.failures.map(f=><div key={f.block_index}><p><strong>{record.draft?.blocks[f.block_index]?.text}</strong></p><p>{f.reason}</p></div>)}</details>}</>:<p>Framework coverage and impact meaning have not been checked for this version.</p>}
- {!running&&!editing&&!record.quality&&!!view.quality_checks_version&&<button disabled={busy} onClick={()=>void act('/check',{revision:record.revision,confirmed:true})}>Run stronger checks · API usage</button>}
+ {record.quality?<><p><strong>{record.quality.passed} of {record.quality.total} bullets meet {record.quality.framework}</strong> · {record.quality.required} required (80%). {record.quality.meets_threshold?'Coverage requirement met.':'Suggestions for the AI draft; you can edit and download your version.'}</p>
+ {record.quality.failures.length>0&&<details><summary>Bullets needing work ({record.quality.failures.length})</summary>{record.quality.failures.map(f=><div key={f.block_index}><p><strong>{record.draft?.blocks[f.block_index]?.text}</strong></p><p>{f.reason}</p></div>)}</details>}</>:<p>Your edits are saved as your own resume wording.</p>}
  {record.checks?.findings.some(f=>!f.supported)&&<details><summary>Impact or evidence issues ({record.checks.findings.filter(f=>!f.supported).length})</summary>{record.checks.findings.filter(f=>!f.supported).map(f=><div key={f.block_index}><p><strong>{record.draft?.blocks[f.block_index]?.text}</strong></p><p>{f.reason}</p></div>)}</details>}
  </section>
  {!record.proposals&&<p>This saved draft predates job-specific structural suggestions. <button disabled={busy||running||editing} onClick={()=>void act('',{consent_to_send:true,framework:record.framework,base_resume:record.context.sources[0].text,remember:false,retry:false})}>Prepare updated tailoring · API usage</button></p>}
@@ -116,9 +100,8 @@ export function TailorResume({jobId,label}:{jobId:string;label?:string}) {
  <strong>{editing?'Unsaved edits':record.state==='APPROVED'?'Approved resume':'Your tailored draft'}</strong>
  <button className="primary" disabled={busy||running||!editing||!blocks.some(b=>b.text.trim())} onClick={()=>void act('/edit',{revision:record.revision,blocks:blocks.filter(b=>b.text.trim())})}>Save changes</button>
  {editing&&<button disabled={busy} onClick={()=>{setEditing(false);setEditorReset(n=>n+1);setSelected(0);}}>Discard edits</button>}
- {!editing&&['EDITED','NEEDS_REVIEW','ERROR','INTERRUPTED'].includes(record.state)&&<button disabled={busy||running||!view.quality_checks_version} onClick={()=>void act('/check',{revision:record.revision,confirmed:true})}>Check changes · API usage</button>}
- <button className="primary" disabled={busy||running||record.proposals?.some(p=>p.status==='pending')||!view.quality_checks_version} onClick={()=>void finish()}>Done — save &amp; download PDF</button>
- <span className="resume-export-note">{editing||!record.quality?'Edited claims are checked before download · API usage applies.':'Uses this saved, checked version.'}</span>
+ <button className="primary" disabled={busy||running} onClick={()=>void finish()}>Done — save &amp; download PDF</button>
+ <span className="resume-export-note">Saves your edits and downloads this version. No API usage.</span>
  <button aria-pressed={showEvidence} onClick={()=>setShowEvidence(v=>!v)}>{showEvidence?'Hide evidence':'Show evidence'}</button>
  </div>
  {view.exported&&!editing&&<section className="application-confirmation" aria-label="Apply with saved resume"><h3>Your saved PDF</h3><p>Version {view.exported.revision.slice(0,8)} · {new Date(view.exported.created_at).toLocaleString()}{view.exported.revision!==record.revision?' · Earlier downloaded version; finish the current draft to create a new PDF.':''}</p><button disabled={busy||running} onClick={()=>{setBusy(true);setError('');void downloadPdf(view.exported!.revision).catch(e=>setError(String(e))).finally(()=>setBusy(false));}}>Download saved PDF again</button> {view.job_url&&/^https?:\/\//.test(view.job_url)?<a className="primary" href={view.job_url} target="_blank" rel="noreferrer">Open job &amp; apply ↗</a>:<p>No application link was saved for this role. Use the original job listing.</p>} <button disabled={busy||running||applicationSaved} onClick={()=>setConfirmApplied(true)}>{applicationSaved?'Recorded in Applied jobs':'I applied'}</button></section>}
@@ -129,7 +112,7 @@ export function TailorResume({jobId,label}:{jobId:string;label?:string}) {
  {showEvidence&&<aside className="resume-evidence-panel" aria-label="Selected point evidence">
  <h3>Evidence</h3>{selectedBlock&&record.context.master&&<strong className="resume-change-status">{changedFromMaster(selectedBlock,record.context.master.find(b=>b.item_id===selectedBlock.item_id))?'Changed from master':'Unchanged from master'}</strong>}<p className="resume-panel-help">Select a point in the resume to see its sources.</p>
  {selectedBlock&&<><p className="resume-selected-point">{selectedBlock.text}</p>
- {editing&&<p>Edits need a new claim check after saving.</p>}
+ {editing&&<p>Your edits will be included in the saved PDF.</p>}
  {selectedFinding&&!selectedFinding.supported&&<p role="alert">{selectedFinding.reason}</p>}
  {selectedBlock.reason&&<><h4>Why this wording</h4><p>{selectedBlock.reason}</p>{selectedBlock.jd_quote&&<blockquote><strong>JD requirement:</strong> {selectedBlock.jd_quote}</blockquote>}</>}
  {record.context.master&&selectedBlock.item_id&&<details><summary>Original master item</summary><p>{record.context.master.find(b=>b.item_id===selectedBlock.item_id)?.text}</p></details>}

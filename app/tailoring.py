@@ -431,11 +431,11 @@ class Tailoring:
     def edit(self, job, data):
         with self.lock:
             key, record = self.current(job,data.revision)
-            # Save work in progress; claim checks and approval remain a separate gate.
+            # Candidate edits are saved locally without requesting a claim check.
             # Keep prior revisions; edits never inherit source-check or approval status.
             self.engine.put(key+':revision:'+record['revision'],record)
             record.update(draft={'blocks':[b.model_dump() for b in data.blocks],'questions':record['draft']['questions']},
-                          quality=None,state='EDITED',stage='Edits saved; check claims before approval',checks=None,error='',revision=str(uuid4()),updated_at=now())
+                          quality=None,state='EDITED',stage='Your edits are saved',checks=None,error='',revision=str(uuid4()),updated_at=now())
             record.pop('approved_at',None)
             self.engine.put(key,record)
             return self.view(job)
@@ -512,9 +512,10 @@ class Tailoring:
             if saved:
                 return base64.b64decode(saved['pdf'])
             _, record = self.current(job, revision)
-            self.ensure_current(job, record)
-            if record['state'] != 'APPROVED':
-                raise RetrievalError('Save and finish checking this resume before downloading.',409)
+            # Candidate-authored changes do not need model approval or matching source evidence.
+            # current() still rejects stale revisions and an actively running writer.
+            if not record.get('draft') or not record['draft'].get('blocks'):
+                raise RetrievalError('Save a resume before downloading.',409)
             pdf = render_resume(record['draft']['blocks'])
             saved = {'record':record,'pdf':base64.b64encode(pdf).decode('ascii'),'created_at':now(),'revision':revision}
             self.engine.put('tailoring:pdf:' + job.id + ':' + revision, saved)

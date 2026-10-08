@@ -14,19 +14,22 @@ def test_pdf_contains_saved_edits_and_keeps_download_version(setup):
     blocks=record['draft']['blocks']
     blocks[-1]['text']='Built a reporting prototype for 12 users during a pilot. Improved reporting.'
     saved=s.edit(j,Edit(revision=record['revision'],blocks=blocks))['record']
-    with pytest.raises(RetrievalError): s.export_pdf(j,saved['revision'])
-    s.recheck(j,Action(revision=saved['revision'],confirmed=True));s.worker.join(5)
-    checked=s.view(j)['record']
-    approved=s.approve(j,Action(revision=checked['revision'],confirmed=True))['record']
-    pdf=s.export_pdf(j,approved['revision'])
+    calls_before=len(p.calls)
+    # No context refresh, generation, or quality gate is allowed on a candidate download.
+    s.ensure_current=lambda *args: (_ for _ in ()).throw(AssertionError('No evidence gate'))
+    pdf=s.export_pdf(j,saved['revision'])
+    assert len(p.calls)==calls_before
     assert 'Improved reporting.' in ''.join(page.extract_text() for page in PdfReader(io.BytesIO(pdf)).pages)
-    assert s.view(j)['exported']['revision']==approved['revision']
-    blocks[-1]['text']='A different later draft.'
-    later=s.edit(j,Edit(revision=approved['revision'],blocks=blocks))['record']
+    assert s.view(j)['exported']['revision']==saved['revision']
+    blocks[-1]['text']='New candidate detail absent from all saved evidence.'
+    later=s.edit(j,Edit(revision=saved['revision'],blocks=blocks))['record']
     assert later['state']=='EDITED'
-    assert s.export_pdf(j,approved['revision'])==pdf
-    with pytest.raises(RetrievalError): s.export_pdf(j,later['revision'])
-    assert s.exported(j,approved['revision'])['record']['draft']['blocks'][-1]['text'].endswith('Improved reporting.')
+    assert s.export_pdf(j,saved['revision'])==pdf
+    new_pdf=s.export_pdf(j,later['revision'])
+    assert 'New candidate detail' in ''.join(page.extract_text() for page in PdfReader(io.BytesIO(new_pdf)).pages)
+    assert len(p.calls)==calls_before
+    assert s.exported(j,saved['revision'])['record']['draft']['blocks'][-1]['text'].endswith('Improved reporting.')
+
 
 def test_pdf_pagination_preserves_every_block():
     from app.resume_pdf import render_resume

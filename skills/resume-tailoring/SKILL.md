@@ -111,3 +111,8 @@ For every numeric claim, check the metric meaning, unit, baseline, period, perso
 ## Explain each edit
 
 Record whether an applied rewrite is driven by a job requirement, a factual correction, or the selected writing framework. Job-driven edits must quote the exact JD text that motivates the change and explain how the supported new wording addresses it. Factual/date corrections and framework-only improvements need not have a JD quotation; do not manufacture a job motivation. Preserve this explanation alongside the actual saved block, including when accepting structural suggestions. Older drafts lacking this record must say it was not recorded, not reconstruct a supposedly original rationale.
+
+
+## Candidate control of the final resume
+
+Evidence and framework checks guard AI-generated claims. They do not gate candidate-authored edits or PDF downloads. Candidates may add details absent from their context library. Save their exact wording without rewriting it, automatically rechecking it, charging for a model call, or requiring source approval. Do not label unchecked candidate text as AI-verified. Pending AI suggestions remain unapplied and must not block download. Save before exporting; failed saves must never fall back to an older draft. Keep the exported PDF immutable and link an application to that version. Resume edits do not update the context library unless the candidate separately requests it. These rules take precedence over approval-gate language above for candidate editing and export.

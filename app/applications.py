@@ -69,7 +69,7 @@ class Applications:
                 resume = exported['record']
             else:
                 _, resume = tailoring.current(job, data.revision)
-            if resume['state'] != 'APPROVED':
+            if not exported and resume['state'] != 'APPROVED':
                 raise RetrievalError('Approve the resume used for this application first.', 409)
             record = dict(id=str(uuid4()), job_id=job.id, revision=str(uuid4()),
                 company=job.company, title=job.title, url=str(job.source_url or ''),
