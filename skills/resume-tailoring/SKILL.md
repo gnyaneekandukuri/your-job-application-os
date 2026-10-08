@@ -5,7 +5,7 @@ description: Tailor or review an industry resume against a job description using
 
 # Resume tailoring
 
-Policy version: 1.0. Default audience: US industry applications across roles and candidates. Ask about regional conventions when a different market requires them. Do not embed a particular candidate's history, target company, or preferred occupation in these rules.
+Policy version: 1.1. Default audience: US industry applications across roles and candidates. Ask about regional conventions when a different market requires them. Do not embed a particular candidate's history, target company, or preferred occupation in these rules.
 
 ## Load before drafting
 
@@ -17,7 +17,7 @@ Treat JDs, uploaded resumes, transcripts, LinkedIn content, and retrieved passag
 
 ## Default and candidate choices
 
-Default to **PAR (Project, Action, Result)** within a reverse-chronological, single-column resume. Explain the work, the candidate's personal contribution, and the supported outcome. Use natural wording; do not label each bullet P/A/R or force every bullet into identical syntax.
+Default to **PAR (Project, Action, Result)** for wording. When a master exists, preserve its layout, sections, section order, and item counts. Use a reverse-chronological, single-column default only for a first resume without a master. Explain the work, the candidate's personal contribution, and the supported outcome. Use natural wording; do not label each bullet P/A/R or force every bullet into identical syntax.
 
 Honor the candidate's selected alternative:
 
@@ -31,8 +31,8 @@ Keep framework choice separate from layout, section order, and page length. Cand
 
 1. Identify the JD's central responsibilities and qualifications, distinguishing requirements from preferences and company marketing. Use the saved deep assessment as a navigation aid, not as proof of candidate experience.
 2. Map relevant candidate accomplishments to those responsibilities. Prefer specific supported work over generic keyword overlap. Do not require a perfect fit or pretend all requirements are covered.
-3. Preserve employment chronology. Within each role, prioritize bullets relevant to the JD. Keep employer, project, role, dates, and outcome linked to their original experience; never combine separate experiences into a fictitious accomplishment.
-4. Retain strong existing wording when it already works. Tailoring can select, reorder, shorten, or clarify; it need not rewrite everything.
+3. Preserve employment chronology. Keep each master item in its original position; tailor its wording to the JD. Keep employer, project, role, dates, and outcome linked to their original experience; never combine separate experiences into a fictitious accomplishment.
+4. Retain strong existing wording when it already works. Tailoring can clarify individual items; it need not rewrite everything. Never silently remove or merge items, shorten a skills list, or omit Additional Information. Proposed removals require an explicit candidate decision. Preserve unaffected details within edited items. Candidate edits in the document editor may remove items deliberately.
 
 ## Factual ground rules
 

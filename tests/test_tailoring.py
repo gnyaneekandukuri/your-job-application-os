@@ -23,8 +23,9 @@ class Provider:
         assert endpoint=='responses'
         self.calls.append(payload)
         if payload['text']['format']['name']=='resume_draft':
-            result=draft()
-            if self.bad_quote: result['blocks'][3]['citations'][0]['quote']='Not in the source'
+            master=json.loads(payload['input'])['master']
+            result={'edits':[{'item_id':master[-1]['item_id'],'text':'Built a reporting prototype for 12 users during a pilot.','citations':[{'source_id':'e1','quote':PASSAGE}],'reason':'Relevant reporting work.'}], 'questions':['What changed after the pilot?']}
+            if self.bad_quote: result['edits'][0]['citations'][0]['quote']='Not in the source'
         else:
             if self.fail_check: raise RetrievalError('API timed out; billing unknown.',502)
             result={'findings':[{'block_index':r['block_index'],'supported':not(self.unsupported and r['block_index']==3),'reason':'Ownership needs clarification' if self.unsupported else 'Supported by cited text'} for r in json.loads(payload['input'])['blocks']]}
@@ -199,3 +200,48 @@ def test_unverified_edits_can_save_but_cannot_be_approved(setup):
     assert r['state']=='NEEDS_REVIEW'
     assert any(f['block_index']==3 and not f['supported'] for f in r['checks']['findings'])
     assert 3 not in [b['block_index'] for b in json.loads(p.calls[-1]['input'])['blocks']]
+
+
+def test_master_inventory_preserved_even_when_model_edits_only_one_item():
+    from app.resume_master import text_template
+    from app.tailoring import MasterChanges, apply_master_changes
+    master=text_template('Alex Example\nalex@example.com\nEXPERIENCE\n• First item\n• Second item\nADDITIONAL INFORMATION\n• Volunteering\n• Patent\n• Languages')
+    changes=MasterChanges(edits=[{'item_id':'m4','text':'First item clarified','citations':[{'source_id':'master:4','quote':'First item'}],'reason':'Clarity'}],questions=[])
+    result=apply_master_changes(master,changes)
+    assert len(result.blocks)==len(master)
+    assert [b.item_id for b in result.blocks]==[b['item_id'] for b in master]
+    assert [b.text for b in result.blocks][-4:]==['ADDITIONAL INFORMATION','Volunteering','Patent','Languages']
+    changes.edits[0].item_id='missing'
+    with pytest.raises(RetrievalError):apply_master_changes(master,changes)
+
+
+def test_master_fixed_headers_cannot_be_deleted_or_rewritten():
+    from app.resume_master import text_template
+    from app.tailoring import MasterChanges, apply_master_changes
+    master=text_template('Alex Example\nalex@example.com\nEDUCATION\nA degree')
+    change={'item_id':'m3','text':'EXPERIENCE','citations':[{'source_id':'master:3','quote':'EDUCATION'}],'reason':'Reorder'}
+    with pytest.raises(RetrievalError):apply_master_changes(master,MasterChanges(edits=[change],questions=[]))
+
+
+def test_master_uses_original_file_despite_pdf_replacement_character(setup,monkeypatch):
+    s,j,p,*_=setup
+    folder=s.analysis.library.root/'sources/master';folder.mkdir(parents=True,exist_ok=True)
+    (folder/'resume.pdf').write_bytes(b'fixture')
+    from app import resume_master
+    monkeypatch.setattr(resume_master,'file_template',lambda name,raw:[{'kind':'text','text':'Positioned master item'}])
+    resume={'id':'current-resume','path':'sources/master/resume.pdf','text':'Alex Example \ufffd Experience'}
+    assert s.master('Alex Example Experience',resume)[0]['text']=='Positioned master item'
+
+
+def test_pdf_master_uses_visual_order_for_late_text_objects(monkeypatch):
+    from app import resume_master
+    class Page:
+        mediabox=type('Box',(),{'width':612,'height':792})()
+        def get_contents(self):return None
+        def extract_text(self,visitor_text):
+            for text,y,bold in [('Alex Example',750,True),('alex@example.com',730,False),('EXPERIENCE',700,True),('Example Labs',680,True),('• Second bullet',640,False),('ADDITIONAL INFORMATION',610,True),('• Volunteering',590,False),('• First bullet stored later in the PDF',660,False)]:
+                visitor_text(text,[1,0,0,1,40,y],[1,0,0,1,0,0],{'/BaseFont':'TimesNewRoman-Bold' if bold else 'TimesNewRoman'},10)
+    monkeypatch.setattr(resume_master,'PdfReader',lambda _:type('Reader',(),{'is_encrypted':False,'pages':[Page()]})())
+    items=resume_master.pdf_template(b'fixture')
+    assert [b['text'] for b in items][4:]==['First bullet stored later in the PDF','Second bullet','ADDITIONAL INFORMATION','Volunteering']
+    assert all(b['format']['font_family']=='Times New Roman' for b in items)

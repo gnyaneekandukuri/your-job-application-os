@@ -10,6 +10,10 @@ def main():
     raw = sys.stdin.buffer.read(2_000_001)
     if len(raw) > 2_000_000:
         raise ValueError("size")
+    if "--resume-template" in sys.argv:
+        from .resume_master import pdf_template
+        print(json.dumps({"blocks":pdf_template(raw)}))
+        return
     reader = PdfReader(io.BytesIO(raw))
     if reader.is_encrypted or len(reader.pages) > 40:
         raise ValueError("unsupported PDF")

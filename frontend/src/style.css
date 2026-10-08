@@ -1071,3 +1071,11 @@ button.text-button { border: 0; background: transparent; padding: .2rem .25rem; 
 @media(max-width:850px){.resume-workspace.with-evidence{grid-template-columns:minmax(0,1fr);}.resume-evidence-panel{position:static;max-height:320px;}.resume-paper{padding:28px;}.resume-workspace{padding:12px;}.resume-action-toolbar{top:-16px;}}
 
 .resume-action-toolbar .tailor-checkbox {flex-direction:row;align-items:center;}
+
+.resume-paper {line-height:1.2;}
+.resume-paper p {margin-bottom:5px;}
+.resume-paper p[data-kind="heading"] {border-top:1.5px solid #222;border-bottom:0;margin:12px 0 6px;padding-top:3px;padding-bottom:0;}
+.resume-paper p[data-kind="role"] {margin:8px 0 3px;}
+.resume-paper p[data-kind="role"] + p[data-kind="role"] {margin-top:0;}
+.resume-right-field {float:right;margin-left:14px;}
+.resume-paper p::after {content:'';display:block;clear:both;}

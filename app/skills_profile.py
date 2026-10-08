@@ -243,9 +243,12 @@ class SkillsProfile:
         except ValueError:raise RetrievalError('Invalid file encoding.') from None
         text=extract_document(data.filename,raw)
         if not text.strip() or len(text)>120000:raise RetrievalError('Resume must contain text and be under 120,000 characters.')
+        from .resume_master import file_template
+        try:template=file_template(data.filename,raw)
+        except Exception:raise RetrievalError('Resume layout could not be read. Upload a clean DOCX or text-based PDF.') from None
         with self.lock:
             self.engine.put('skills:resume',{'id':'skills-resume','title':data.filename,'employer':'See resume','project':'Resume',
-                                           'path':'Local resume upload','text':text})
+                                           'path':'Local resume upload','text':text,'resume_template':template})
         self.start()
         return {'saved':True}
 

@@ -1,21 +1,22 @@
 import { useEffect } from 'react';
 import { EditorContent, useEditor } from '@tiptap/react';
-import { Extension } from '@tiptap/core';
+import { Extension, Mark } from '@tiptap/core';
 import StarterKit from '@tiptap/starter-kit';
 
-export type ResumeBlock={kind:'heading'|'contact'|'role'|'bullet'|'text';text:string;citations:{source_id:string;quote:string}[];reason:string};
+export type ResumeBlock={item_id?:string;format?:{font_family:string;font_size:number;bold:boolean;italic:boolean;align:string};kind:'heading'|'contact'|'role'|'bullet'|'text';text:string;citations:{source_id:string;quote:string}[];reason:string};
 const Metadata=Extension.create({name:'resumeMetadata',addGlobalAttributes(){return [{types:['paragraph'],attributes:{
- origin:{default:null,rendered:false},kind:{default:'text',renderHTML:attrs=>({'data-kind':attrs.kind})}
+ origin:{default:null,rendered:false},format:{default:null,renderHTML:attrs=>attrs.format?{style:`font-family:${attrs.format.font_family};font-size:${attrs.format.font_size}pt;font-weight:${attrs.format.bold?700:400};font-style:${attrs.format.italic?'italic':'normal'};text-align:${attrs.format.align};`}:{}},kind:{default:'text',renderHTML:attrs=>({'data-kind':attrs.kind})}
 }}];}});
+const RightField=Mark.create({name:'resumeRight',renderHTML(){return ['span',{class:'resume-right-field'},0];}});
 export function ResumeDocument({initial,disabled,onChange,onSelect}:{initial:ResumeBlock[];disabled:boolean;onChange:(blocks:ResumeBlock[])=>void;onSelect:(index:number)=>void}) {
  const editor=useEditor({
   shouldRerenderOnTransaction:true,
-  extensions:[StarterKit.configure({heading:false,bulletList:false,orderedList:false,listItem:false,listKeymap:false,blockquote:false,codeBlock:false,horizontalRule:false,bold:false,italic:false,strike:false,code:false,link:false,underline:false,trailingNode:false}),Metadata],
-  content:{type:'doc',content:initial.map((b,i)=>({type:'paragraph',attrs:{origin:i,kind:b.kind},content:b.text?[{type:'text',text:b.text}]:[]}))},
+  extensions:[StarterKit.configure({heading:false,bulletList:false,orderedList:false,listItem:false,listKeymap:false,blockquote:false,codeBlock:false,horizontalRule:false,bold:false,italic:false,strike:false,code:false,link:false,underline:false,trailingNode:false}),Metadata,RightField],
+  content:{type:'doc',content:initial.map((b,i)=>({type:'paragraph',attrs:{origin:i,kind:b.kind,format:b.format||null},content:b.text?b.text.split('\t').filter(Boolean).map((text,j)=>({type:'text',text,marks:j?[{type:'resumeRight'}]:[]})):[]}))},
   editorProps:{attributes:{class:'resume-paper',role:'textbox','aria-label':'Resume document','aria-multiline':'true'},
    // Paste text only: outside HTML cannot inject source identifiers or formatting.
    handlePaste(view,event){const text=event.clipboardData?.getData('text/plain');if(text===undefined)return false;event.preventDefault();view.dispatch(view.state.tr.insertText(text));return true;}},
-  onUpdate:({editor,transaction})=>{if(!transaction.docChanged)return;const next:ResumeBlock[]=[];editor.state.doc.forEach(node=>{const source=initial[node.attrs.origin];next.push({kind:node.attrs.kind,text:node.textBetween(0,node.content.size,'\n','\n'),citations:source?.citations||[],reason:source?.reason||'Added during editing; needs supporting evidence.'});});onChange(next);},
+  onUpdate:({editor,transaction})=>{if(!transaction.docChanged)return;const next:ResumeBlock[]=[];editor.state.doc.forEach(node=>{const source=initial[node.attrs.origin];let text='',right=false;node.forEach(child=>{const isRight=child.marks.some(m=>m.type.name==='resumeRight');if(isRight&&!right)text+='\t';right=isRight;text+=child.isText?child.text||'':'\n';});next.push({...source,kind:node.attrs.kind,text,citations:source?.citations||[],reason:source?.reason||'Added during editing; needs supporting evidence.'});});onChange(next);},
   onSelectionUpdate:({editor})=>onSelect(editor.state.selection.$from.index(0)),
  });
  useEffect(()=>{editor?.setEditable(!disabled, false);},[editor,disabled]);

@@ -1,8 +1,8 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 const ResumeDocument=lazy(()=>import('./ResumeDocument').then(module=>({default:module.ResumeDocument})));
 
-type Block={kind:'heading'|'contact'|'role'|'bullet'|'text';text:string;citations:{source_id:string;quote:string}[];reason:string};
-type RecordValue={state:string;stage:string;error:string;revision:string;framework:string;policy_version:string;draft:{blocks:Block[];questions:string[]}|null;checks:{findings:{block_index:number;supported:boolean;reason:string}[]}|null;context:{sources:{id:string;title:string;text:string;employer?:string;start_line?:number}[]}};
+type Block={item_id?:string;format?:{font_family:string;font_size:number;bold:boolean;italic:boolean;align:string};kind:'heading'|'contact'|'role'|'bullet'|'text';text:string;citations:{source_id:string;quote:string}[];reason:string};
+type RecordValue={state:string;stage:string;error:string;revision:string;framework:string;policy_version:string;draft:{blocks:Block[];questions:string[]}|null;checks:{findings:{block_index:number;supported:boolean;reason:string}[]}|null;context:{master?:Block[];sources:{id:string;title:string;text:string;employer?:string;start_line?:number}[]}};
 type View={framework:string;base_resume:string;base_title:string;configured:boolean;record:RecordValue|null;citation_sources?:RecordValue['context']['sources']};
 const styles=[['PAR','Recommended · Project, Action, Result'],['XYZ','Metrics-focused · Accomplishment, measurement, method'],['STAR','Context-focused · Concise STAR'],['EXISTING','Keep my existing style']];
 const examples:Record<string,string>={PAR:'Show the work, your contribution, and the supported outcome. Numbers are optional.',XYZ:'Lead with a measured accomplishment, then explain how you achieved it. Use only documented metrics.',STAR:'Briefly explain the problem, your action, and the result.',EXISTING:'Preserve your voice and section structure while improving relevance and clarity.'};
@@ -35,7 +35,7 @@ export function TailorResume({jobId,label}:{jobId:string;label?:string}) {
  <label>Writing approach<select value={framework} disabled={busy||running} onChange={e=>setFramework(e.target.value)}>{styles.map(([id,label])=><option value={id} key={id}>{label}</option>)}</select></label><p>{examples[framework]}</p>
  <label className="tailor-checkbox"><input type="checkbox" checked={remember} onChange={e=>setRemember(e.target.checked)}/> Remember this approach for future jobs</label>
  <label>Base resume<textarea rows={10} maxLength={22000} value={base} disabled={busy||running} onChange={e=>setBase(e.target.value)} placeholder="Paste your resume here, or add a resume in Your context → Add skills."/></label>
- <p>This uses your JD, base resume, relevant saved evidence, and the resume skill. Drafting and claim checking use OpenAI; costs appear in API costs. Your master resume stays unchanged.</p>
+ <p>This edits your master’s existing items, preserving every section and bullet. It uses your JD, relevant saved evidence, and the resume skill. Drafting and claim checking use OpenAI; costs appear in API costs. Your master resume stays unchanged.</p>
  <button className="primary" disabled={busy||running||editing||!view.configured||!base.trim()} onClick={()=>void act('',{consent_to_send:true,framework,base_resume:base,remember,retry:false})}>Prepare draft · API usage</button>
  {!view.configured&&<p role="alert">Connect your OpenAI API key to prepare a draft.</p>}
  </details>
@@ -45,6 +45,7 @@ export function TailorResume({jobId,label}:{jobId:string;label?:string}) {
  {record.error&&<p role="alert">{record.error}</p>}
  {['ERROR','INTERRUPTED'].includes(record.state)&&!record.draft&&!editing&&<button disabled={busy} onClick={()=>void act('',{consent_to_send:true,framework:record.framework,base_resume:record.context.sources[0].text,retry:true})}>Retry unfinished preparation · API usage</button>}
  {record.draft&&<>
+ {!record.context.master&&<p>This saved draft used the old layout. <button disabled={busy||running||editing} onClick={()=>void act('',{consent_to_send:true,framework:record.framework,base_resume:record.context.sources[0].text,remember:false,retry:false})}>Rebuild with master structure · API usage</button></p>}
  {record.draft.questions.length>0&&<details><summary>Questions and missing details ({record.draft.questions.length})</summary><ul>{record.draft.questions.map((q,i)=><li key={i}>{q}</li>)}</ul><p>Add factual details to the relevant experience in Your context, then reassess before generating a new draft.</p></details>}
  <div className="resume-action-toolbar">
  <strong>{editing?'Unsaved edits':record.state==='APPROVED'?'Approved resume':'Your tailored draft'}</strong>
@@ -63,6 +64,7 @@ export function TailorResume({jobId,label}:{jobId:string;label?:string}) {
  {editing&&<p>Edits need a new claim check after saving.</p>}
  {selectedFinding&&!selectedFinding.supported&&<p role="alert">{selectedFinding.reason}</p>}
  {selectedBlock.reason&&<><h4>Why this wording</h4><p>{selectedBlock.reason}</p></>}
+ {record.context.master&&selectedBlock.item_id&&<details><summary>Original master item</summary><p>{record.context.master.find(b=>b.item_id===selectedBlock.item_id)?.text}</p></details>}
  <h4>Sources</h4>{selectedBlock.citations.length===0?<p>{selectedBlock.kind==='heading'?'Section headings do not need evidence.':'No source attached. Add factual details to Your context and prepare a new draft, or use existing supported wording.'}</p>:selectedBlock.citations.map((ref,j)=>{const source=(view.citation_sources||record.context.sources).find(s=>s.id===ref.source_id);return <div className="resume-source" key={j}><strong>{source?.title||ref.source_id}</strong>{source?.start_line&&<p>Passage starts at line {source.start_line}</p>}<blockquote>{ref.quote}</blockquote></div>;})}
  </>}
  </aside>}
