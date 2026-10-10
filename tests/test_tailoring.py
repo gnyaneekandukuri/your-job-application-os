@@ -65,6 +65,7 @@ class Provider:
         else:
             if self.fail_check: raise RetrievalError('API timed out; billing unknown.',502)
             result={'findings':[{'block_index':r['block_index'],'supported':not(self.unsupported and r['block_index']==3),'reason':'Ownership needs clarification' if self.unsupported else 'Supported by cited text','metrics':[{'claim':r['text'],'supported':True,'reason':'Metric meaning and qualifiers supported.'}]} for r in json.loads(payload['input'])['blocks']]}
+            result['job_review']={'summary':'Reporting experience addresses this job.','priorities':[{'jd_quote':'Build reporting tools','status':'clear','block_indices':[3],'reason':'Reporting prototype is present.','improvement':''}],'readability':[],'preservation':[]}
             result['framework_findings']=[{'block_index':r['block_index'],'meets_framework':True,'context_quote':r['text'],'action_quote':r['text'],'result_quote':r['text'],'measurement_quote':r['text'],'reason':'Framework supported.'} for r in json.loads(payload['input']).get('experience_bullets',[])]
         return {'status':'completed','usage':{'input_tokens':200,'output_tokens':60},'output':[{'type':'message','content':[{'type':'output_text','text':json.dumps(result)}]}]}
 
@@ -408,3 +409,20 @@ def test_fabricated_jd_quote_stops_generation(setup):
         return response
     p.request=wrong_quote;r=generate(s,j)
     assert r['state']=='ERROR' and 'not in the JD' in r['error']
+
+
+def test_jd_review_uses_full_draft_and_clears_after_candidate_edit(setup):
+    service,job,provider,*_=setup
+    record=generate(service,job)
+    assert record['job_review']['priorities'][0]['status']=='clear'
+    assert len(provider.calls)==2
+    audit=json.loads(provider.calls[1]['input'])
+    assert audit['job']['description']==job.description
+    assert audit['full_draft']==record['draft']['blocks']
+    assert audit['master']==record['context']['master']
+    assert 'Pending proposals are NOT in the draft' in provider.calls[1]['instructions']
+    assert 'Lack of JD relevance alone is not a removal reason' in provider.calls[0]['instructions']
+    edited=service.edit(job,Edit(revision=record['revision'],blocks=record['draft']['blocks']))['record']
+    assert edited['job_review'] is None
+    service.export_pdf(job,edited['revision'])
+    assert len(provider.calls)==2

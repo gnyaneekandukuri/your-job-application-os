@@ -116,3 +116,10 @@ Record whether an applied rewrite is driven by a job requirement, a factual corr
 ## Candidate control of the final resume
 
 Evidence and framework checks guard AI-generated claims. They do not gate candidate-authored edits or PDF downloads. Candidates may add details absent from their context library. Save their exact wording without rewriting it, automatically rechecking it, charging for a model call, or requiring source approval. Do not label unchecked candidate text as AI-verified. Pending AI suggestions remain unapplied and must not block download. Save before exporting; failed saves must never fall back to an older draft. Keep the exported PDF immutable and link an application to that version. Resume edits do not update the context library unless the candidate separately requests it. These rules take precedence over approval-gate language above for candidate editing and export.
+
+
+## JD effectiveness and breadth
+
+Review the actual AI-generated draft against the full JD alongside the existing evidence check. Identify core responsibilities with exact JD quotations and the resume points demonstrating them; distinguish clear, weak and missing demonstrations. Assess accomplishment selection, emphasis, readability, buried examples and unsupported implications. Pending proposals do not count as coverage. Give concrete suggestions without inventing a hiring probability. This review is advisory and never gates candidate edits or PDF downloads.
+
+Preserve Additional Information, volunteering, leadership, languages, interests and other experiences by default. Their lack of direct JD relevance is not a reason for removal. Propose removal only with a concrete duplication, outdated-information or explicitly established space reason; require candidate acceptance. Do not infer a one-page limit. Focus individual bullets without silently removing the candidate's breadth.
