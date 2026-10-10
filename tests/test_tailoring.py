@@ -426,3 +426,19 @@ def test_jd_review_uses_full_draft_and_clears_after_candidate_edit(setup):
     assert edited['job_review'] is None
     service.export_pdf(job,edited['revision'])
     assert len(provider.calls)==2
+
+
+@pytest.mark.parametrize('operation',['add','replace'])
+def test_accept_saved_suggestion_after_rules_change(setup,operation):
+    from app.tailoring import ProposalDecision
+    s,j,p,*_=setup;r=generate(s,j)
+    key=s.engine.get('tailoring:latest:'+j.id)
+    original=r['draft']['blocks'][-1]
+    r['policy_hash']='older-policy'
+    r['proposals']=[{'id':'1','operation':operation,'target_ids':[original['item_id']] if operation=='replace' else [],'after_id':original['item_id'] if operation=='add' else '', 'text':'An exact saved suggestion.', 'citations':original['citations'],'reason':'Relevant example.','jd_quote':'Build reporting tools','before':[original] if operation=='replace' else [],'status':'pending','error':''}]
+    s.engine.put(key,r)
+    updated=s.decide_proposal(j,ProposalDecision(revision=r['revision'],proposal_id='1',decision='accept'))['record']
+    assert updated['draft']['blocks'][-1]['text']=='An exact saved suggestion.'
+    assert len(updated['draft']['blocks'])==len(r['draft']['blocks'])+(operation=='add')
+    assert s.view(j)['record']['draft']==updated['draft']
+    assert len(p.calls)==2

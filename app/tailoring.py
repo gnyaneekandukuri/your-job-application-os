@@ -470,7 +470,8 @@ class Tailoring:
     def decide_proposal(self, job, data):
         with self.lock:
             key, record = self.current(job,data.revision)
-            self.ensure_current(job,record)
+            # Accepting saved wording is a candidate edit, not a new generation.
+            # Rule updates must not invalidate consent to this exact saved proposal.
             proposal=next((p for p in record.get('proposals',[]) if p['id']==data.proposal_id),None)
             if not proposal or proposal['status']!='pending':
                 raise RetrievalError('This proposal is no longer pending.',409)
@@ -484,7 +485,7 @@ class Tailoring:
             proposal['status']='accepted' if updated is not None else 'rejected'
             if updated is not None:
                 record['draft']['blocks']=updated
-                record.update(state='EDITED',job_review=None,checks=None,quality=None,stage='Suggestions applied; check claims before approval')
+                record.update(state='EDITED',job_review=None,checks=None,quality=None,stage='Your accepted suggestion is saved in the resume')
                 record.pop('approved_at',None)
             record.update(revision=str(uuid4()),updated_at=now())
             self.engine.put(key,record)

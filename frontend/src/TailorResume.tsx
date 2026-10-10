@@ -10,6 +10,7 @@ const styles=[['PAR','Recommended · Project, Action, Result'],['XYZ','Metrics-f
 const examples:Record<string,string>={PAR:'Show the work, your contribution, and the supported outcome. Numbers are optional.',XYZ:'Lead with a measured accomplishment, then explain how you achieved it. Use only documented metrics.',STAR:'Briefly explain the problem, your action, and the result.',EXISTING:'Preserve your voice and section structure while improving relevance and clarity.'};
 export function TailorResume({jobId,label}:{jobId:string;label?:string}) {
  const [confirmApplied,setConfirmApplied]=useState(false),[applicationSaved,setApplicationSaved]=useState(false),[appliedDate,setAppliedDate]=useState(()=>{const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;});
+ const [proposalFeedback,setProposalFeedback]=useState<{id:string;message:string;error:boolean}|null>(null);
  const dialog=useRef<HTMLDialogElement>(null);
  const [open,setOpen]=useState(false),[view,setView]=useState<View|null>(null),[error,setError]=useState(''),[busy,setBusy]=useState(false);
  const [framework,setFramework]=useState('PAR'),[base,setBase]=useState(''),[remember,setRemember]=useState(false),[editing,setEditing]=useState(false),[blocks,setBlocks]=useState<Block[]>([]),[confirmed,setConfirmed]=useState(false);
@@ -25,6 +26,11 @@ export function TailorResume({jobId,label}:{jobId:string;label?:string}) {
  async function act(suffix:string,body:unknown){if(busy)return;setBusy(true);setError('');setConfirmed(false);try{setView(await request(suffix,body));setEditing(false);}catch(e){setError(String(e));}finally{setBusy(false);}}
  async function recordApplication(){if(!record||busy)return;setBusy(true);setError('');try{const response=await fetch(`/api/jobs/${jobId}/applications`,{method:'POST',headers:{'Content-Type':'application/json','X-Local-Review':'1'},body:JSON.stringify({revision:view?.exported?.revision||record.revision,confirmed:true,applied_date:appliedDate})});const data=await response.json();if(!response.ok)throw Error(typeof data.detail==='string'?data.detail:'Could not record application.');setApplicationSaved(true);setConfirmApplied(false);}catch(e){setError(String(e));}finally{setBusy(false);}}
  useEffect(()=>{if(!open)return;let live=true;void fetch('/api/applications').then(r=>{if(!r.ok)throw Error('Could not load application status.');return r.json();}).then(rows=>{if(live)setApplicationSaved(rows.some((r:{job_id:string})=>r.job_id===jobId));}).catch(e=>{if(live)setError(String(e));});return()=>{live=false;};},[open,jobId]);
+ async function decideProposal(id:string,decision:'accept'|'reject'){
+  if(busy||!record)return;setBusy(true);setError('');setProposalFeedback(null);
+  try{const next=await request('/proposal',{revision:record.revision,proposal_id:id,decision});setView(next);setEditing(false);setEditorReset(n=>n+1);setProposalFeedback({id,message:decision==='accept'?'Applied and saved in your resume below. Changed or added paragraphs are highlighted yellow.':'Suggestion declined. Your resume is unchanged.',error:false});}
+  catch(e){setProposalFeedback({id,message:String(e),error:true});}finally{setBusy(false);}
+ }
  function close(){if(editing&&!window.confirm('Discard unsaved resume edits?'))return;setOpen(false);}
  useEffect(()=>{if(!editing)return;const warn=(event:BeforeUnloadEvent)=>{event.preventDefault();event.returnValue='';};window.addEventListener('beforeunload',warn);return()=>window.removeEventListener('beforeunload',warn);},[editing]);
  const visibleBlocks=editing?blocks:record?.draft?.blocks||[];
@@ -94,7 +100,9 @@ export function TailorResume({jobId,label}:{jobId:string;label?:string}) {
  {p.after_id&&<p><strong>Place after:</strong> {record.draft?.blocks.find(b=>b.item_id===p.after_id)?.text||p.after_id}</p>}
  <details><summary>Source evidence</summary>{p.citations.map((ref,i)=><div key={i}><strong>{view.citation_sources?.find(s=>s.id===ref.source_id)?.title||ref.source_id}</strong><blockquote>{ref.quote}</blockquote></div>)}</details>
  {p.error&&<p role="alert">{p.error}</p>}
- {p.status==='pending'&&<div className="resume-proposal-actions"><button disabled={busy||running||editing||!!p.error} onClick={()=>void act('/proposal',{revision:record.revision,proposal_id:p.id,decision:'accept'})}>Apply this exact change</button><button disabled={busy||running||editing} onClick={()=>void act('/proposal',{revision:record.revision,proposal_id:p.id,decision:'reject'})}>Keep current resume</button></div>}
+ {proposalFeedback?.id===p.id&&<p role={proposalFeedback.error?"alert":"status"}>{proposalFeedback.message}</p>}
+ {editing&&p.status==='pending'&&<p>Save your current resume edits first to apply this suggestion.</p>}
+ {p.status==='pending'&&<div className="resume-proposal-actions"><button disabled={busy||running||editing||!!p.error} onClick={()=>void decideProposal(p.id,'accept')}>Apply this exact change</button><button disabled={busy||running||editing} onClick={()=>void decideProposal(p.id,'reject')}>Keep current resume</button></div>}
  </details>)}
  </section>
  <div className="resume-action-toolbar">
