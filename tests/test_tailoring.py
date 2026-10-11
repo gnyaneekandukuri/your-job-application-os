@@ -266,13 +266,22 @@ def test_api_generate_review_approve_export(setup,tmp_path):
         assert len(provider.calls)==2
 
 
-def test_verifier_must_cover_every_block(setup,monkeypatch):
-    from app.tailoring import Checks
+def test_partial_verifier_preserves_draft_without_extra_call(setup,monkeypatch):
     s,j,p,*_=setup
     original=s.call
-    monkeypatch.setattr(s,'call',lambda job,stage,*args:Checks(findings=[]) if stage=='claim_check' else original(job,stage,*args))
+    def partial(job,stage,*args):
+        result=original(job,stage,*args)
+        if stage=='claim_check':
+            result.findings=result.findings[1:]+[result.findings[-1]]
+            result.framework_findings=[]
+        return result
+    monkeypatch.setattr(s,'call',partial)
     r=generate(s,j)
-    assert r['state']=='ERROR' and 'omitted' in r['error']
+    assert r['state']=='NEEDS_REVIEW' and not r['error']
+    assert r['review_warnings']
+    assert any(f['reason'].startswith('Not checked:') for f in r['checks']['findings'])
+    assert len(p.calls)==2
+    assert s.export_pdf(j,r['revision']).startswith(b'%PDF')
 
 
 def test_saved_fact_citations_and_whitespace_are_valid_sources():

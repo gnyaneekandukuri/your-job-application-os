@@ -12,7 +12,7 @@ from .job_requirements import Strict
 from .retrieval import RetrievalError, RetrievalService, MODEL, digest, now
 from .cost_tracking import usage_scope
 from .user_workspace import control_documents
-from .resume_quality import QualityChecks, experience_indices, metric_coverage, framework_summary, recurring_revenue_conflict
+from .resume_quality import QualityChecks, experience_indices, metric_coverage, framework_summary, recurring_revenue_conflict, reconcile_audit
 
 SKILL = Path(__file__).resolve().parents[1] / 'skills/resume-tailoring/SKILL.md'
 VERSION = 'tailoring-compact-context-v8'
@@ -270,6 +270,8 @@ class Tailoring:
     def view(self, job):
         latest = self.engine.get('tailoring:latest:' + job.id)
         record = self.engine.get(latest) if latest else None
+        if record and record.get('error','').startswith('Claim checking omitted or duplicated'):
+            record = {**record, 'error':'The draft is saved. The model returned an incomplete claim review, so some statements are not verified. You can still edit, check JD match, and download; no automatic retry or charge.'}
         if record and record['state'] == 'RUNNING' and not (self.active == latest and self.worker and self.worker.is_alive()):
             record = {**record, 'state':'INTERRUPTED', 'error':'Tailoring was interrupted. Saved draft work is retained; retry explicitly.'}
         sources, resume = self.baseline()
@@ -460,9 +462,7 @@ class Tailoring:
                 'framework':record['framework'],'candidate_sources':body['sources'][1:],
                 'source_metadata':[{k:v for k,v in source.items() if k!='text'} for source in sources],
                 'candidate_fact_rules':body['candidate_fact_rules']},TailoringReview,14000)
-            ids = [f.block_index for f in checks.findings]
-            if len(set(ids)) != len(ids) or set(ids) != {b['block_index'] for b in audit}:
-                raise RetrievalError('Claim checking omitted or duplicated resume statements. The draft is saved but cannot be approved yet.',502)
+            record['review_warnings'] = reconcile_audit(checks, [b['block_index'] for b in audit], experience)
             for priority in checks.job_review.priorities:
                 if normalized_quote(priority.jd_quote) not in normalized_quote(body['job']['description']):
                     raise RetrievalError('JD review quoted a requirement absent from this job.',502)
@@ -470,6 +470,7 @@ class Tailoring:
                     raise RetrievalError('JD review referenced an unavailable resume point.',502)
             record['job_review']=checks.job_review.model_dump()
             for finding in checks.findings:
+                if finding.reason.startswith('Not checked:'): continue
                 block=draft.blocks[finding.block_index]
                 if block.kind not in ('contact','role'):
                     try:metric_coverage(finding,block.text)

@@ -29,6 +29,32 @@ class QualityChecks(Strict):
     findings: list[AuditedFinding]
     framework_findings: list[FrameworkFinding]
 
+
+def reconcile_audit(checks, expected, experience):
+    """Retain unambiguous checks; missing/duplicate entries stay explicitly unchecked."""
+    warnings = []
+    def reconcile(rows, indices, fallback, label):
+        grouped = {}
+        for row in rows:
+            grouped.setdefault(row.block_index, []).append(row)
+        if set(grouped) - set(indices):
+            warnings.append(f'{label}: review returned unrelated statement indices; those entries were ignored.')
+        result = []
+        for index in indices:
+            entries = grouped.get(index, [])
+            if len(entries) == 1:
+                result.append(entries[0])
+            else:
+                reason = f'Not checked: the model returned {"duplicate checks" if entries else "no check"} for this statement. This is a review error, not proof the statement is false.'
+                warnings.append(f'Statement {index+1}: {reason}')
+                result.append(fallback(index, reason))
+        return result
+    checks.findings = reconcile(checks.findings, expected,
+        lambda i,r: AuditedFinding(block_index=i,supported=False,reason=r,metrics=[]), 'Claim review')
+    checks.framework_findings = reconcile(checks.framework_findings, experience,
+        lambda i,r: FrameworkFinding(block_index=i,meets_framework=False,context_quote='',action_quote='',result_quote='',measurement_quote='',reason=r), 'Framework review')
+    return warnings
+
 EXPERIENCE={'experience','professional experience','work experience','employment','employment history','professional history','career history'}
 NUMBER=re.compile(r'\d+(?:[.,]\d+)*(?:%|[kKmMbB]\b)?')
 
