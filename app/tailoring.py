@@ -15,7 +15,32 @@ from .user_workspace import control_documents
 from .resume_quality import QualityChecks, experience_indices, metric_coverage, framework_summary, recurring_revenue_conflict, reconcile_audit
 
 SKILL = Path(__file__).resolve().parents[1] / 'skills/resume-tailoring/SKILL.md'
-VERSION = 'tailoring-compact-context-v8'
+VERSION = 'tailoring-compact-context-v9'
+REQUEST_BYTE_LIMIT = 512000
+
+
+def model_context(body):
+    """Compact only the wire copy; preserve the editable/citable original locally."""
+    result = dict(body)
+    master = body.get('master')
+    if not master:
+        return result
+    result['master'] = [{k: b[k] for k in ('item_id', 'kind', 'text') if k in b} |
+                        {'source_id': 'master:' + str(i + 1)} for i, b in enumerate(master)]
+    # Remove the plain-text copy only when the ordered items contain all of it.
+    # If parsing lost any content, keep both rather than silently dropping text.
+    def content(text):
+        return ' '.join(re.sub(r'(?m)^\s*[•▪●*-]\s+', '', text).split())
+    joined = '\n'.join(b['text'] for b in master)
+    result['sources'] = [
+        {k: v for k, v in source.items() if k != 'text'} |
+        {'text_location': 'Complete resume text is in master, in order. Cite each item using its source_id.'}
+        if source.get('id') == 'resume' and content(source.get('text', '')) == content(joined)
+        else source for source in body.get('sources', [])
+    ] if 'sources' in body else result.get('sources', [])
+    if 'sources' not in body:
+        result.pop('sources', None)
+    return result
 Framework = Literal['PAR', 'XYZ', 'STAR', 'EXISTING']
 
 class Generate(Strict):
@@ -360,16 +385,14 @@ class Tailoring:
                 # Navigation is a label, not another copy of quoted evidence and
                 # dimension-level judgments. Original passages are in sources.
                 'assessment_navigation_only':[{ 'requirement_id':rid, 'support':result.get('judgment',{}).get('support') } for rid,result in run.get('results',{}).items()]}
-        if len(json.dumps(body, ensure_ascii=False).encode('utf-8')) > 125000:
-            sizes = {k:len(json.dumps(v, ensure_ascii=False).encode('utf-8')) for k,v in body.items()}
-            largest = ', '.join(f'{k}: {v//1000} KB' for k,v in sorted(sizes.items(),key=lambda item:-item[1])[:3])
-            raise RetrievalError('Combined tailoring context exceeds the local request limit ('+largest+'). Nothing was sent or charged. The context needs reducing; this is not necessarily a resume or JD problem.', 422)
         return policy, body, run['input_version']
 
     def call(self, job_id, stage, instructions, body, schema, tokens):
         payload = {'model':MODEL,'store':False,'max_output_tokens':tokens,'reasoning':{'effort':'none'},
-                   'instructions':instructions,'input':json.dumps(body, ensure_ascii=False),
+                   'instructions':instructions,'input':json.dumps(model_context(body), ensure_ascii=False),
                    'text':{'format':{'type':'json_schema','name':'resume_'+stage,'strict':True,'schema':schema.model_json_schema()}}}
+        if len(json.dumps(payload, ensure_ascii=False).encode('utf-8')) > REQUEST_BYTE_LIMIT:
+            raise RetrievalError('Tailoring request exceeds the 512 KB local limit, including instructions and output schema. Nothing was sent or charged. Saved context is unchanged.', 422)
         with usage_scope(job_id, 'resume_'+stage):
             return parse_response(self.engine.paid('tailoring',payload), schema)
 

@@ -158,8 +158,10 @@ def test_large_repeated_analysis_does_not_duplicate_evidence_in_draft_request(se
     body=json.loads(p.calls[0]['input'])
     assert body['assessment_navigation_only']==[{'requirement_id':'r1','support':'DIRECT'}]
     assert body['positioning_guidance'][0]['text']==guidance
-    assert body['sources'][0]['text']==BASE
-    assert any(source['text']==PASSAGE for source in body['sources'])
+    assert r['context']['sources'][0]['text']==BASE
+    assert 'text' not in body['sources'][0]
+    assert '\n'.join(b['text'] for b in body['master'])==BASE
+    assert any(source.get('text')==PASSAGE for source in body['sources'])
     assert 'Repeated' not in p.calls[0]['input']
     assert len(p.calls)==2
 
@@ -575,3 +577,41 @@ def test_keep_original_rule_reaches_tailoring_model(setup):
     s,j,p,*_=setup
     generate(s,j)
     assert 'Keep each original point unless' in p.calls[0]['instructions']
+
+
+def test_wire_context_removes_only_redundant_resume_copies(setup):
+    from app.tailoring import model_context
+    s,j,*_=setup
+    _,body,_=s.context(j,BASE)
+    before=json.dumps(body,sort_keys=True)
+    wire=model_context(body)
+    assert json.dumps(body,sort_keys=True)==before
+    assert 'text' not in wire['sources'][0]
+    assert all('citations' not in b and 'reason' not in b and 'format' not in b for b in wire['master'])
+    assert [b['text'] for b in wire['master']]==[b['text'] for b in body['master']]
+    for name in ['job','positioning_guidance','candidate_fact_rules','assessment_requirements']:
+        assert wire[name]==body[name]
+    assert wire['sources'][1:]==body['sources'][1:]
+    body['master']=body['master'][:-1]
+    assert model_context(body)['sources'][0]['text']==BASE
+
+
+def test_context_above_old_limit_preserves_all_coaching_in_existing_two_calls(setup):
+    s,j,p,*_=setup
+    s.analysis.library.entries=lambda:[{'id':'coach','title':'Positioning','source_class':'COACHING_ANALYSIS_PENDING_USER_REVIEW'}]
+    guidance='Candidate positioning with full supporting context. '*3000
+    s.analysis.library.describe=lambda entry,include_text=False:{'text':guidance}
+    r=generate(s,j)
+    assert r['state']=='DRAFT',r.get('error')
+    assert len(p.calls)==2
+    assert json.loads(p.calls[0]['input'])['positioning_guidance'][0]['text']==guidance
+
+
+def test_actual_request_limit_includes_instructions_and_schema_before_charge(setup):
+    from app.tailoring import TailoringPlan, REQUEST_BYTE_LIMIT
+    s,j,p,*_=setup
+    with pytest.raises(RetrievalError,match='512 KB'):
+        s.call(j.id,'draft','x'*REQUEST_BYTE_LIMIT,{},TailoringPlan,14000)
+    assert not p.calls
+    with s.engine.connect() as db:
+        assert db.execute('select count(*) from calls').fetchone()[0]==0
