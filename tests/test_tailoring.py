@@ -118,6 +118,25 @@ def test_coaching_is_positioning_input_not_citable_evidence(setup):
     assert len(p.calls)==2
 
 
+def test_large_repeated_analysis_does_not_duplicate_evidence_in_draft_request(setup):
+    s,j,p,run,*_=setup
+    run['results']['r1']['judgment'].update(support='DIRECT', explanation='Repeated analysis. '*15000,
+                                          assessment={'details':'Repeated dimensions. '*10000})
+    run['requirements']=[{'id':'r1','category':'requirement','quote':'Build reporting tools','explanation':'Repeated interpretation. '*10000}]
+    s.analysis.library.entries=lambda:[{'id':'coach','title':'Positioning','source_class':'COACHING_ANALYSIS_PENDING_USER_REVIEW'}]
+    guidance='Candidate positioning notes. '*1200
+    s.analysis.library.describe=lambda entry,include_text=False:{'text':guidance}
+    r=generate(s,j)
+    assert r['state']=='DRAFT'
+    body=json.loads(p.calls[0]['input'])
+    assert body['assessment_navigation_only']==[{'requirement_id':'r1','support':'DIRECT'}]
+    assert body['positioning_guidance'][0]['text']==guidance
+    assert body['sources'][0]['text']==BASE
+    assert any(source['text']==PASSAGE for source in body['sources'])
+    assert 'Repeated' not in p.calls[0]['input']
+    assert len(p.calls)==2
+
+
 def test_optional_summary_is_inserted_only_after_acceptance(setup,monkeypatch):
     from app.tailoring import ExplainedEdit, ProposalDecision
     s,j,p,*_=setup

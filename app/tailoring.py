@@ -15,7 +15,7 @@ from .user_workspace import control_documents
 from .resume_quality import QualityChecks, experience_indices, metric_coverage, framework_summary, recurring_revenue_conflict
 
 SKILL = Path(__file__).resolve().parents[1] / 'skills/resume-tailoring/SKILL.md'
-VERSION = 'tailoring-coaching-summary-v7'
+VERSION = 'tailoring-compact-context-v8'
 Framework = Literal['PAR', 'XYZ', 'STAR', 'EXISTING']
 
 class Generate(Strict):
@@ -329,10 +329,14 @@ class Tailoring:
         body = {'job':{'title':job.title,'company':job.company,'description':job.description},
                 'positioning_guidance':guidance,
                 'sources':evidence,'candidate_fact_rules':rules,'master':self.master(base,resume),
-                'assessment_requirements':run.get('requirements',[]),
-                'assessment_navigation_only':[{ 'requirement_id':rid, 'judgment':result.get('judgment',{}) } for rid,result in run.get('results',{}).items()]}
-        if len(json.dumps(body).encode('utf-8')) > 125000:
-            raise RetrievalError('Tailoring inputs exceed the safe request size. Shorten the base resume or JD; nothing was sent.', 422)
+                'assessment_requirements':[{k:r[k] for k in ('id','category','quote') if k in r} for r in run.get('requirements',[])],
+                # Navigation is a label, not another copy of quoted evidence and
+                # dimension-level judgments. Original passages are in sources.
+                'assessment_navigation_only':[{ 'requirement_id':rid, 'support':result.get('judgment',{}).get('support') } for rid,result in run.get('results',{}).items()]}
+        if len(json.dumps(body, ensure_ascii=False).encode('utf-8')) > 125000:
+            sizes = {k:len(json.dumps(v, ensure_ascii=False).encode('utf-8')) for k,v in body.items()}
+            largest = ', '.join(f'{k}: {v//1000} KB' for k,v in sorted(sizes.items(),key=lambda item:-item[1])[:3])
+            raise RetrievalError('Combined tailoring context exceeds the local request limit ('+largest+'). Nothing was sent or charged. The context needs reducing; this is not necessarily a resume or JD problem.', 422)
         return policy, body, run['input_version']
 
     def call(self, job_id, stage, instructions, body, schema, tokens):
