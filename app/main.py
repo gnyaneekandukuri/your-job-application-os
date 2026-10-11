@@ -6,6 +6,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, Request, Query
 from fastapi.responses import JSONResponse, Response
+from . import team_message
 from .applications import Applications, ConfirmApplication, UpdateApplication
 from .job_retention import KeepJob, WatchCompany, keep, watch, watchlist, status as retention_status
 from fastapi.staticfiles import StaticFiles
@@ -448,6 +449,18 @@ def create_app(data_dir: Path | None = None):
     @api.post("/api/jobs/{job_id}/tailoring/prepare-download")
     def tailoring_prepare_download(job_id: str, data: TailorAction, request: Request):
         return request.app.state.tailoring.prepare_download(request.app.state.service.review(job_id).job, data)
+
+    @api.get("/api/jobs/{job_id}/team-message")
+    def team_message_view(job_id: str, request: Request):
+        return team_message.view(request.app.state.retrieval, request.app.state.service.review(job_id).job)
+
+    @api.post("/api/jobs/{job_id}/team-message/draft")
+    def team_message_draft(job_id: str, data: team_message.DraftInput, request: Request):
+        return team_message.generate(request.app.state.tailoring, request.app.state.service.review(job_id).job, data)
+
+    @api.post("/api/jobs/{job_id}/team-message/save")
+    def team_message_save(job_id: str, data: team_message.SaveInput, request: Request):
+        return team_message.save(request.app.state.retrieval, request.app.state.service.review(job_id).job, data)
 
     @api.get("/api/jobs/{job_id}/tailoring")
     def tailoring_view(job_id: str, request: Request):

@@ -1,6 +1,6 @@
 export type Explanation={summary:string;strengths:{requirement_id:string;requirement:string;alignment:string;tentative:boolean;citations:{source_title:string;source_path:string;start_line:number;quote:string}[]}[];gaps:{requirement_id:string;requirement:string;detail:string;tentative:boolean}[];decision_basis:{label:string;passed:boolean;detail:string}[]};
 export type Assessment = {assessed_at?:string|null;explanation?:Explanation;state:string;score:number|null;provisional?:boolean;listing_changed?:boolean;recommendation:string|null;rationale?:string;choice?:string|null;stage?:string;error?:string;recommendation_error?:string};
-export type Result = {last_scan_id?:number|null;last_scanned_at?:string|null;job_id:string;opportunity_id?:string|null;company:string;title:string;url:string;assessment:Assessment};
+export type Result = {yc_listing?:boolean;last_scan_id?:number|null;last_scanned_at?:string|null;job_id:string;opportunity_id?:string|null;company:string;title:string;url:string;assessment:Assessment};
 export function queueGroup(r:Result):string {
  const a=r.assessment;
  if(a.state==='RUNNING')return 'running';
