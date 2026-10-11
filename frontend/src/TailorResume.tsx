@@ -6,7 +6,7 @@ type Block={change_type?:string;jd_quote?:string;item_id?:string;format?:{font_f
 type Proposal={after_id:string;id:string;operation:string;status:string;error:string;text:string;reason:string;jd_quote:string;before:Block[];citations:Block["citations"]};
 type RecordValue={review_warnings?:string[];include_summary?:boolean;job_review?:{summary:string;priorities:{jd_quote:string;status:string;block_indices:number[];reason:string;improvement:string}[];readability:string[];preservation:string[]}|null;quality?:{framework:string;passed:number;total:number;required:number;percent:number|null;meets_threshold:boolean;failures:{block_index:number;reason:string}[]}|null;proposals?:Proposal[];state:string;stage:string;error:string;revision:string;framework:string;policy_version:string;draft:{blocks:Block[];questions:string[]}|null;checks:{findings:{block_index:number;supported:boolean;reason:string}[]}|null;context:{master?:Block[];sources:{id:string;title:string;text:string;employer?:string;start_line?:number}[]}};
 type FinalReview={score:number|null;summary:string;strengths:string[];gaps:string[];improvements:string[];dimensions:{name:string;points:number;maximum:number}[];rubric:string};
-type View={final_review_supported?:boolean;final_review?:FinalReview|null;summary_supported?:boolean;job_url?:string;exported?:{revision:string;created_at:string}|null;quality_checks_version?:number;framework:string;base_resume:string;base_title:string;configured:boolean;record:RecordValue|null;citation_sources?:RecordValue['context']['sources']};
+type View={resume_options?:{id:string;title:string;text:string;date:string}[];base_source?:{title:string;version:string;selected_at:string}|null;final_review_supported?:boolean;final_review?:FinalReview|null;summary_supported?:boolean;job_url?:string;exported?:{revision:string;created_at:string}|null;quality_checks_version?:number;framework:string;base_resume:string;base_title:string;configured:boolean;record:RecordValue|null;citation_sources?:RecordValue['context']['sources']};
 const styles=[['PAR','Recommended · Project, Action, Result'],['XYZ','Metrics-focused · Accomplishment, measurement, method'],['STAR','Context-focused · Concise STAR'],['EXISTING','Keep my existing style']];
 const examples:Record<string,string>={PAR:'Show the work, your contribution, and the supported outcome. Include a supported metric in each experience bullet; missing numbers are flagged for your input, never invented.',XYZ:'Lead with a measured accomplishment, then explain how you achieved it. Use only documented metrics.',STAR:'Briefly explain the problem, your action, and the result.',EXISTING:'Preserve your voice and section structure while improving relevance and clarity.'};
 export function TailorResume({jobId,label}:{jobId:string;label?:string}) {
@@ -18,6 +18,7 @@ export function TailorResume({jobId,label}:{jobId:string;label?:string}) {
  const [framework,setFramework]=useState('PAR'),[base,setBase]=useState(''),[remember,setRemember]=useState(false),[editing,setEditing]=useState(false),[blocks,setBlocks]=useState<Block[]>([]),[confirmed,setConfirmed]=useState(false);
  const [checkingFinal,setCheckingFinal]=useState(false);
  const [includeSummary,setIncludeSummary]=useState(false);
+ const [baseSource,setBaseSource]=useState('');
  const [selected,setSelected]=useState(0),[showEvidence,setShowEvidence]=useState(true),[editorReset,setEditorReset]=useState(0);
  const path=`/api/jobs/${jobId}/tailoring`,record=view?.record,running=record?.state==='RUNNING';
  async function request(suffix='',body?:unknown):Promise<View>{
@@ -25,7 +26,7 @@ export function TailorResume({jobId,label}:{jobId:string;label?:string}) {
   const data=await response.json();if(!response.ok)throw new Error(typeof data.detail==='string'?data.detail:'Could not save this resume. Check the fields and try again.');return data;
  }
  useEffect(()=>{if(open)dialog.current?.showModal();else dialog.current?.close();},[open]);
- useEffect(()=>{if(!open)return;let live=true;void request().then(data=>{if(live){setView(data);setFramework(data.record?.framework||data.framework);setBase(data.record?.context.sources[0]?.text||data.base_resume);}}).catch(e=>{if(live)setError(String(e));});return()=>{live=false;};},[open,jobId]);
+ useEffect(()=>{if(!open)return;let live=true;void request().then(data=>{if(live){setView(data);setFramework(data.record?.framework||data.framework);setBase(data.record?.context.sources[0]?.text||data.base_resume);setBaseSource(data.resume_options?.find(o=>o.id.startsWith(data.record?'original:':'profile:'))?.id||'');}}).catch(e=>{if(live)setError(String(e));});return()=>{live=false;};},[open,jobId]);
  useEffect(()=>{if(!open||!running)return;let live=true;const timer=setInterval(()=>{void request().then(data=>{if(live)setView(data);}).catch(e=>{if(live)setError(String(e));});},2500);return()=>{live=false;clearInterval(timer);};},[open,running,jobId]);
  async function act(suffix:string,body:unknown){if(busy)return;setBusy(true);setError('');setConfirmed(false);try{setView(await request(suffix,body));setEditing(false);}catch(e){setError(String(e));}finally{setBusy(false);}}
  async function checkFinal(){
@@ -71,13 +72,19 @@ export function TailorResume({jobId,label}:{jobId:string;label?:string}) {
  {error&&<p role="alert">{error}</p>}
  {!view?<p>Loading your resume…</p>:<>
  {record?.draft&&<div className="resume-score-entry"><button className="primary" disabled={busy||running||!view.final_review_supported} onClick={()=>void checkFinal()}>{checkingFinal?'Checking resume…':view.final_review&&!editing?'View final resume check':'Final resume check'}</button>{!view.final_review_supported&&<span>The server needs updating to enable scoring.</span>}</div>}
- <details open={!record}><summary>Resume and writing approach</summary>
+ <p><strong>Starting resume:</strong> {view.base_source?`${view.base_source.title} (version ${view.base_source.version})`:record?'Earlier saved starting resume':view.base_title||'Choose a resume below'}</p>
+ <details open={!record}><summary>Choose resume and writing approach</summary>
+ {view.resume_options&&<label>Resume to tailor<select value={baseSource} disabled={busy||running||editing} onChange={e=>{const id=e.target.value;setBaseSource(id);const option=view.resume_options?.find(o=>o.id===id);if(option)setBase(option.text);}}>
+ {(view.resume_options||[]).map(o=><option key={o.id} value={o.id}>{o.title}{o.date?` - ${new Date(o.date).toLocaleString()}`:''}</option>)}
+ <option value="">Paste or edit a different resume</option>
+ </select></label>}
+ {record&&<p>Changing this selection does not change your saved draft until you choose Prepare draft.</p>}
  <label>Writing approach<select value={framework} disabled={busy||running} onChange={e=>setFramework(e.target.value)}>{styles.map(([id,label])=><option value={id} key={id}>{label}</option>)}</select></label><p>{examples[framework]}</p>
  <label className="tailor-checkbox"><input type="checkbox" checked={remember} onChange={e=>setRemember(e.target.checked)}/> Remember this approach for future jobs</label>
  {view.summary_supported&&<label className="tailor-checkbox"><input type="checkbox" checked={includeSummary} disabled={busy||running} onChange={e=>setIncludeSummary(e.target.checked)}/> Propose a professional summary (you choose whether to add it)</label>}
- <label>Base resume<textarea rows={10} maxLength={22000} value={base} disabled={busy||running} onChange={e=>setBase(e.target.value)} placeholder="Paste your resume here, or add a resume in Your context → Add skills."/></label>
+ <label>Base resume<textarea rows={10} maxLength={22000} value={base} disabled={busy||running} onChange={e=>{setBase(e.target.value);setBaseSource('');}} placeholder="Paste your resume here, or add a resume in Your context → Add skills."/></label>
  <p>This improves wording in your master and proposes stronger accomplishments from your stories. Replacements, additions and removals need your acceptance. It uses your JD, relevant saved evidence, and the resume skill. Drafting and claim checking use OpenAI; costs appear in API costs. Your master resume stays unchanged.</p>
- <button className="primary" disabled={busy||running||editing||!view.configured||!view.quality_checks_version||!base.trim()} onClick={()=>void act('',{consent_to_send:true,framework,base_resume:base,remember,retry:false,...(view.summary_supported?{include_summary:includeSummary}:{})})}>Prepare draft · API usage</button>
+ <button className="primary" disabled={busy||running||editing||!view.configured||!view.quality_checks_version||!base.trim()} onClick={()=>void act('',{consent_to_send:true,framework,base_resume:base,...(view.resume_options?{base_source_id:baseSource}:{}),remember,retry:false,...(view.summary_supported?{include_summary:includeSummary}:{})})}>Prepare draft · API usage</button>
  {!view.configured&&<p role="alert">Connect your OpenAI API key to prepare a draft.</p>}
  </details>
  <details><summary>Ground rules included</summary><p>PAR by default, with XYZ, concise STAR, or your existing style. Every claim needs candidate evidence. Preserve ownership, dates, titles, numbers, and project context. Never invent qualifications or copy requirements as experience. Use plain language, relevant accomplishments, and readable formatting. Review changes before approval; no automatic applications.</p><p>Citation checks and an AI claim review help catch errors; they are not independent verification of your experience.</p></details>

@@ -23,6 +23,7 @@ class Generate(Strict):
     framework: Framework = 'PAR'
     remember: bool = False
     base_resume: str = Field(default='', max_length=22000)
+    base_source_id: str = Field(default='', max_length=100)
     retry: bool = False
     include_summary: bool = False
 
@@ -250,6 +251,26 @@ class Tailoring:
         if uploaded: resume = uploaded
         return sources, resume
 
+    def resume_options(self, job):
+        _, resume = self.baseline()
+        key = self.engine.get('tailoring:latest:' + job.id)
+        record = self.engine.get(key) if key else None
+        options = []
+        def add(kind, title, text, blocks=None, date=''):
+            if text.strip():
+                options.append({'id':kind+':'+digest(text), 'title':title, 'text':text,
+                                'date':date, 'blocks':blocks})
+        if resume:
+            add('profile', 'Current profile resume: '+resume['title'], resume['text'])
+        if record:
+            add('original', 'Original resume used for this draft', record['context']['sources'][0]['text'],
+                record['context'].get('master'), record.get('created_at',''))
+            if record.get('draft'):
+                blocks = record['draft']['blocks']
+                add('draft', 'Latest saved resume for this job', '\n'.join(b['text'] for b in blocks),
+                    blocks, record.get('updated_at', record.get('created_at','')))
+        return options
+
     def master(self, base, resume):
         from .resume_master import file_template, text_template
         clean=lambda value: normalized_quote(re.sub(r'(?m)^[ \t]*[\u2022\u25aa\u25cf][ \t]*$', '', value.replace('\ufffd','')))
@@ -278,7 +299,7 @@ class Tailoring:
         exported = self.engine.get('tailoring:export-latest:' + job.id)
         from .resume_jd_review import cache_key
         final_review = self.engine.get(cache_key(job, record)) if record and record.get('draft') else None
-        return {'final_review_supported':True,'final_review':final_review,'summary_supported':True,'job_url':str(getattr(job,'source_url','') or ''),'exported':exported,'quality_checks_version':1,'framework':self.engine.get('tailoring:framework') or 'PAR',
+        return {'resume_options':[{k:v for k,v in option.items() if k!='blocks'} for option in self.resume_options(job)],'base_source':record.get('base_source') if record else None,'final_review_supported':True,'final_review':final_review,'summary_supported':True,'job_url':str(getattr(job,'source_url','') or ''),'exported':exported,'quality_checks_version':1,'framework':self.engine.get('tailoring:framework') or 'PAR',
                 'base_resume':resume['text'] if resume else '', 'base_title':resume['title'] if resume else '',
                 'configured':self.engine.provider.configured, 'record':record,
                 'citation_sources':citation_sources(record['context']) if record else []}
@@ -353,7 +374,15 @@ class Tailoring:
             if self.worker and self.worker.is_alive():
                 if self.active and self.engine.get(self.active)['job_id'] == job.id: return self.view(job)
                 raise RetrievalError('Another resume is being prepared. Let it finish first.',409)
+            selected = None
+            if data.base_source_id:
+                selected = next((o for o in self.resume_options(job) if o['id']==data.base_source_id), None)
+                if not selected or selected['text'] != data.base_resume:
+                    raise RetrievalError('The selected resume changed. Reopen the resume selector before preparing a draft.',409)
             policy, body, version = self.context(job, data.base_resume)
+            if selected and selected['blocks']:
+                from .resume_master import finish
+                body['master'] = finish(json.loads(json.dumps(selected['blocks'])))
             fingerprint = digest(json.dumps([VERSION,MODEL,policy,body,version,data.framework,data.include_summary],sort_keys=True))
             key = 'tailoring:run:' + job.id + ':' + fingerprint
             old = self.engine.get(key)
@@ -365,6 +394,7 @@ class Tailoring:
             record = old or {'job_id':job.id,'created_at':now(),'framework':data.framework,
                 'policy_version':re.search(r'Policy version: ([\d.]+)',policy)[1].rstrip('.'),'policy_hash':digest(policy),'policy_text':policy,
                 'input_version':version,'context':body,'draft':None,'checks':None,'include_summary':data.include_summary}
+            record['base_source'] = {'title':selected['title'] if selected else 'Candidate-provided resume text', 'version':digest(body['sources'][0]['text'])[:10], 'selected_at':now()}
             record.update(state='RUNNING',stage='Checking saved work' if record['draft'] else 'Writing resume',error='',revision=str(uuid4()))
             if data.remember: self.engine.put('tailoring:framework',data.framework)
             self.engine.put(key,record); self.engine.put('tailoring:latest:'+job.id,key)
@@ -381,6 +411,7 @@ class Tailoring:
                 prompt = policy + '\nTailor this resume for the actual responsibilities in job.description. Use the retrieved deep-analysis passages to identify stronger, relevant accomplishments beyond the master. ' \
                     'Assessment judgments are navigation aids, not candidate facts; cite original sources only. ' \
                     'Each edit must identify change_type: job_alignment, fact_correction or framework. Job alignment requires an exact jd_quote. Factual corrections and framework-only improvements may use an empty jd_quote; do not invent a job motivation. The reason must connect old wording, new wording and the actual requirement or correction. ' \
+                    'Keep each original point unless the edit improves JD relevance, clarity, or factual accuracy without losing useful supported details. If no concrete improvement is possible, omit the edit. Do not rewrite merely to satisfy a stylistic preference. '\
                     'edits are same-accomplishment rewrites and documented factual corrections only, keyed by existing item_id. Preserve headings, contacts, tabs and all supported details. ' \
                     'Use proposals for replacing an accomplishment, adding a new bullet, removing, combining or reordering bullets. Those operations require candidate acceptance and are NOT automatically applied. ' \
                     'Every proposal needs an exact jd_quote explaining its relevance, a specific reason, target_ids, and after_id for add/reorder (empty otherwise). ' \

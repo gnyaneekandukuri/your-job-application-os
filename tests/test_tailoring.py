@@ -551,3 +551,27 @@ def test_pdf_del_bullets_keep_separate_accomplishments(monkeypatch):
     monkeypatch.setattr(resume_master,'PdfReader',lambda _:type('Reader',(),{'is_encrypted':False,'pages':[Page()]})())
     items=resume_master.pdf_template(b'fixture')
     assert [(b['kind'],b['text']) for b in items[-2:]]==[('bullet','Led discovery with customers'),('bullet','Built a prototype')]
+
+
+def test_resume_options_preserve_latest_edits_and_reject_stale_selection(setup):
+    s,j,p,*_=setup
+    r=generate(s,j)
+    choices=s.resume_options(j)
+    original=next(o for o in choices if o['id'].startswith('original:'))
+    latest=next(o for o in choices if o['id'].startswith('draft:'))
+    assert original['text']==r['context']['sources'][0]['text']
+    assert latest['blocks']==r['draft']['blocks']
+    assert 'blocks' not in s.view(j)['resume_options'][-1]
+    blocks=r['draft']['blocks'];blocks[-1]['text']='Candidate changed this accomplishment.'
+    s.edit(j,Edit(revision=r['revision'],blocks=blocks))
+    before=len(p.calls)
+    with pytest.raises(RetrievalError,match='selected resume changed'):
+        s.start(j,Generate(consent_to_send=True,base_resume=latest['text'],base_source_id=latest['id']))
+    assert len(p.calls)==before
+    assert next(o for o in s.resume_options(j) if o['id'].startswith('draft:'))['id']!=latest['id']
+
+
+def test_keep_original_rule_reaches_tailoring_model(setup):
+    s,j,p,*_=setup
+    generate(s,j)
+    assert 'Keep each original point unless' in p.calls[0]['instructions']
