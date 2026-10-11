@@ -10,7 +10,7 @@ type Match = { judgment: { assessment?: Assessment | null; support: string; expl
 type Dimension = {id:string;label:string;percent:number|null;weight_percent:number;contribution:number;items:{requirement_id:string;anchor:string;reason:string;earned:number;maximum:number}[]};
 type Score = { review_required_ids?: string[]; method: string; dimensions: Dimension[]; coverage_percent?:number; assessed?:number; total?:number; version: string; percent: number | null; earned: number; maximum: number; pending: number; provisional: boolean; excluded_ambiguous: number; required_attention: string[]; items: {requirement_id: string; weight: number; earned: number}[] };
 type Update = { state: string; message: string; source_title: string };
-type State = { workflow?: {status:string;input_version:string;next:string[]}; experience_update: Update | null; previous_run: State["run"]; previous_score: Score | null; score: Score | null; input_version: string; ready: boolean; unready_sources: string[]; previous_result_outdated: boolean; usage: { cap_usd: number | null }; run: null | { state: string; stage: string; error: string; requirements: Requirement[]; results: Record<string, Match>; warnings: { explanation: string; quote: string }[]; empty_reason: string } };
+type State = { queue?:{state:string;error:string}; workflow?: {status:string;input_version:string;next:string[]}; experience_update: Update | null; previous_run: State["run"]; previous_score: Score | null; score: Score | null; input_version: string; ready: boolean; unready_sources: string[]; previous_result_outdated: boolean; usage: { cap_usd: number | null }; run: null | { state: string; stage: string; error: string; requirements: Requirement[]; results: Record<string, Match>; warnings: { explanation: string; quote: string }[]; empty_reason: string } };
 export function Requirements({ jobId }: { jobId: string }) {
   const [state, setState] = useState<State | null>(null);
   const [learningNotice,setLearningNotice] = useState("");
@@ -94,6 +94,8 @@ export function Requirements({ jobId }: { jobId: string }) {
   const relationships = {similar_work: "Similar work", transferable: "Transferable experience", not_established: "Relationship not established"};
   return <section className="assessment" aria-label="Whole-role evidence report">
     <div className="eyebrow">REQUIREMENTS + YOUR EVIDENCE</div>
+    {state?.queue?.state==='QUEUED'&&<p role="status"><strong>Queued for deep analysis.</strong> Starts automatically when the current role finishes. You can leave this page.</p>}
+    {state?.queue?.state==='NEEDS_ATTENTION'&&<p role="alert">{state.queue.error}</p>}
     <h3>{run?.state === "COMPLETE" ? "Your evidence report" : "Analyze this role"}</h3>
     <p>Your evidence score and pursuit recommendation are prepared in one analysis. Review or correct either here.</p>
     <details><summary>The same experience rubric for every role</summary><p>Alignment: strong, partial, or not enough evidence. Transferability is separate: experience in a different context can still be strongly aligned.</p><p>Evidence confidence describes how clearly the sources establish your actions, ownership and scope. It is not a hiring probability. Each row explains outcomes, gaps and how dates affected evidence selection.</p><p>The documented fit score summarizes alignment. Review the cited reasoning and gaps alongside it; evidence confidence is shown separately and does not multiply the score.</p></details>
@@ -107,7 +109,7 @@ export function Requirements({ jobId }: { jobId: string }) {
     {state && !state.ready && <p className="error">Prepare current stories first: {state.unready_sources.join(", ") || "No stories available"}.</p>}
     {state && !running && !updating && state.experience_update?.state !== 'PENDING' && (outdated || run?.state !== "COMPLETE") && <>
       <p className="muted">Jev assesses your JD against retrieved experience and saved preferences. TypeSafe usage is tracked under API costs. OpenAI is used only for search embeddings; Jev evaluates the evidence. Uncertain classifications stay provisional for your review.</p>
-      <button disabled={busy || !state.ready} onClick={() => void start()}>{busy ? "Startingâ€¦" : run ? "Resume unfinished analysis" : "Analyze this role"}</button>
+      <button disabled={busy || !state.ready || state.queue?.state==='QUEUED'} onClick={() => void start()}>{busy ? "Startingâ€¦" : run ? "Resume unfinished analysis" : "Analyze this role"}</button>
     </>}
     {run && <>
       <p role="status">{run.stage}</p>

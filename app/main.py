@@ -69,6 +69,10 @@ def create_app(data_dir: Path | None = None):
         if data_dir is None:
             Thread(target=api.state.skills.watch, daemon=True).start()
         api.state.analysis = RoleAnalysis(api.state.retrieval, api.state.library)
+        from .manual_analysis_queue import ManualAnalysisQueue
+        api.state.manual_queue = ManualAnalysisQueue(api.state.analysis, lambda job_id: store.read(job_id)[0])
+        api.state.analysis.manual_queue = api.state.manual_queue
+        api.state.manual_queue.start()
         api.state.tailoring = Tailoring(api.state.analysis, api.state.skills, OpenAIProvider(allow_generation=True, allow_embeddings=False, request_timeout=120))
         api.state.discovery = Discovery(private_dir / "discovery.sqlite3", api.state.service, api.state.analysis, sources=lambda: library_sources(api.state.library), skills=api.state.skills)
         from .job_list import JobList
@@ -81,6 +85,7 @@ def create_app(data_dir: Path | None = None):
         try:
             yield
         finally:
+            api.state.manual_queue.close()
             api.state.job_list.close()
             api.state.skills.close()
             api.state.discovery.close()
@@ -594,7 +599,7 @@ def create_app(data_dir: Path | None = None):
 
     @api.post("/api/jobs/{job_id}/analysis")
     def analyze_role(job_id: str, data: AnalyzeInput, request: Request):
-        return request.app.state.analysis.start(request.app.state.service.review(job_id).job, data)
+        return request.app.state.manual_queue.enqueue(request.app.state.service.review(job_id).job, data)
 
     @api.post("/api/jobs/{job_id}/requirements/{requirement_id}/evidence")
     def check_evidence(job_id: str, requirement_id: str, data: EvidenceInput, request: Request):

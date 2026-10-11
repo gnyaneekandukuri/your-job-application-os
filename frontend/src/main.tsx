@@ -212,7 +212,7 @@ function App() {
     setNotice("Job saved. Starting requirement extraction and evidence matching…");
     const preview = await api<{ input_version: string }>(`/jobs/${jobId}/analysis`);
     await api(`/jobs/${jobId}/analysis`, { consent_to_send: true, input_version: preview.input_version });
-    setNotice("Deep analysis started. Find this role in Analyzed jobs, then tailor your resume or open the application.");
+    setNotice("Deep analysis requested. Find its queue or progress status in Analyzed jobs.");
     if (addingFromNewJobs) {
       setAddingFromNewJobs(false);
       setAssessmentTab("all");

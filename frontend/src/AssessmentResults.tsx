@@ -12,14 +12,15 @@ export function AssessmentResults({onOpen,onDiscover,onUpdatedJD,initialTab="all
  const [data,setData]=useState<State|null>(null),[filter,setFilter]=useState(filters.some(([id])=>id===initialTab)?initialTab:'all'),[error,setError]=useState(''),[saving,setSaving]=useState<string|null>(null),[notice,setNotice]=useState('');
  const [choices,setChoices]=useState<Record<string,'SKIP'|'CASUAL'>>({});
  const status=useQuery({queryKey:['job-list-status'],queryFn:async({signal})=>{const r=await fetch('/api/discovery/status',{signal});if(!r.ok)throw new Error('Could not check saved results.');return r.json() as Promise<{ready:boolean;revision:string;refreshing:boolean;error:string|null}>;},refetchInterval:4000,refetchIntervalInBackground:true});
- useEffect(()=>{if(!status.data?.ready)return;let live=true;const controller=new AbortController();
+ useEffect(()=>{let live=true;const controller=new AbortController();
  const load=async()=>{try{const r=await fetch('/api/assessments/saved',{signal:controller.signal});if(!r.ok)throw new Error('Could not load analyzed jobs.');const value=await r.json();if(live){if(value.ready)setData(value);setError('');}}catch(e){if(live)setError(String(e));}};
- void load();return()=>{live=false;controller.abort();};},[status.data?.revision]);
+ void load();return()=>{live=false;controller.abort();};},[status.dataUpdatedAt]);
  const applications=useQuery({queryKey:['applications'],queryFn:async()=>{const r=await fetch('/api/applications');if(!r.ok)throw Error('Could not load application status.');return r.json() as Promise<{job_id:string;url:string}[]>;}});
  const all=(data?.items??[]).map(r=>choices[r.job_id]?{...r,assessment:{...r.assessment,choice:choices[r.job_id]}}:r).filter(r=>!applications.data?.some(a=>a.job_id===r.job_id||(a.url&&a.url.replace(/\/$/,'')===r.url?.replace(/\/$/,'')))),items=all.filter(r=>analysisFilter(r,filter)).sort(recentResultsFirst);
  const active=all.filter(r=>r.assessment.state==='RUNNING');
- const processing=all.filter(r=>processingStatus(r)&&r.assessment.state!=='RUNNING');
- const pending=(data?.queued_count??0)+active.length;
+ const queued=all.filter(r=>r.assessment.state==='QUEUED');
+ const processing=all.filter(r=>processingStatus(r)&&!['RUNNING','QUEUED'].includes(r.assessment.state));
+ const pending=(data?.queued_count??0)+active.length+queued.length;
  const open=async(id:string)=>{try{await onOpen(id);}catch(e){setError(String(e));}};
  async function choose(r:Result,choice:'SKIP'|'CASUAL') {
   setSaving(r.job_id);setError('');setNotice('');
@@ -35,7 +36,8 @@ export function AssessmentResults({onOpen,onDiscover,onUpdatedJD,initialTab="all
  }
  return <section className="panel discovery analyzed-jobs">
  {data&&pending>0&&<section className="discovery-preferences" aria-label="Analysis progress" role="status">
-  <strong>{active.length} analyzing now · {data.queued_count} queued</strong>
+  <strong>{active.length} analyzing now · {(data.queued_count??0)+queued.length} queued</strong>
+  {queued.map(r=><p key={r.job_id}><strong>{r.company} · {r.title}</strong> — Queued for deep analysis</p>)}
   {active.map(r=><p key={r.job_id}><strong>{r.company} · {r.title}</strong><br/>{r.assessment.stage?.replace('Matching evidence:', 'Requirements checked for this job:')||'Preparing analysis…'} <button className="text-action" onClick={()=>void open(r.job_id)}>View progress</button></p>)}
   <p>Analysis continues on the local server when you refresh or leave this page. The counter starts at zero for each new job; completed results appear below.</p>
  </section>}

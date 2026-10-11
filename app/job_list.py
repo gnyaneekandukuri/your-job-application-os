@@ -220,14 +220,17 @@ class JobList:
     def assessments(self):
         with closing(self.connect()) as db:
             row = db.execute('SELECT metadata,revision FROM snapshot WHERE id=1').fetchone()
-        if not row: return {'ready':False,'items':[]}
-        result = json.loads(row['metadata']).get('assessment_results',{})
+        result = json.loads(row['metadata']).get('assessment_results',{}) if row else {'items':[], 'settings':{}, 'queued_count':0}
+        queue=getattr(self.discovery.analysis,'manual_queue',None)
+        if queue:
+            live={r['job_id']:r for r in queue.display_items()}
+            result['items']=[r for r in result.get('items',[]) if r['job_id'] not in live]+list(live.values())
         result.pop('scans',None)
         ids, urls = self.applied_keys()
         result['items'] = [r for r in result.get('items',[]) if r.get('job_id') not in ids and (r.get('url') or '').rstrip('/') not in urls]
         if 'counts' in result:
             result['counts']['complete'] = sum(r.get('assessment',{}).get('state')=='COMPLETE' for r in result['items'])
-        return {**result,'ready':True,'revision':row['revision']}
+        return {**result,'ready':bool(row or result.get('items')),'revision':row['revision'] if row else ''}
 
     def detail(self, oid):
         from .store import Missing

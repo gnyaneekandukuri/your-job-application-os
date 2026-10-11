@@ -221,3 +221,13 @@ def test_exact_duplicate_grouping_and_applied_alias_without_rebuild(model):
     assert [r['id'] for r in m.page()['items']]==['3']
     assert identity({**one,'location':'Other city'})!=identity(one)
     assert identity({**one,'description':''}) is None
+
+def test_manual_queue_visible_before_snapshot_exists(model):
+    m,source,d=model
+    item={'job_id':'manual','company':'Disney','title':'PM','url':'https://example.org','assessment':{'state':'QUEUED','score':None,'recommendation':None}}
+    d.analysis.manual_queue=SimpleNamespace(display_items=lambda:[item])
+    assert m.assessments()['items']==[item]
+    assert m.assessments()['ready']
+    source['assessment_results']['items']=[{**item,'assessment':{'state':'NOT_STARTED'}}]
+    m.refresh()
+    assert m.assessments()['items']==[item]

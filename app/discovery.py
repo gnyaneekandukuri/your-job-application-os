@@ -340,6 +340,10 @@ class Discovery:
     def saved_assessment(self, job_id):
         from .retrieval import RetrievalError
         from .pursuit import PursuitService
+        queued=self.analysis.engine.get('manual-analysis-queue:'+job_id)
+        if queued and queued['state'] in ('QUEUED','NEEDS_ATTENTION'):
+            return {'state':queued['state'],'stage':'Queued for deep analysis' if queued['state']=='QUEUED' else 'Analysis needs attention',
+                    'error':queued.get('error',''),'score':None,'recommendation':None}
         try:
             # Polling must not reconcile the review graph or compete for its lock.
             job = self.saved_job(job_id)
@@ -595,7 +599,7 @@ class Discovery:
         self.queued_ids = {item['id'] for item in candidates if self.auto_eligible(item)}
         last_job = None
         for item in candidates:
-            while not self.stop.is_set() and self.settings()['auto_assess'] and self.analysis.worker and self.analysis.worker.is_alive():
+            while not self.stop.is_set() and self.settings()['auto_assess'] and ((self.analysis.worker and self.analysis.worker.is_alive()) or (getattr(self.analysis,'manual_queue',None) and self.analysis.manual_queue.pending())):
                 self.stop.wait(2)
             if self.stop.is_set() or not self.settings()['auto_assess']: break
             if last_job:

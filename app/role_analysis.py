@@ -173,7 +173,7 @@ class RoleAnalysis:
             return {"run":record, "previous_result_outdated":bool(self.engine.get("role-analysis-latest:" + job.id)) and record is None,
                     "previous_score":score_report(previous),
                     "score":score_report(record) if SCORING_ENABLED else None}
-        return {"workflow": self.workflow.status(job, version), "previous_run": previous, "previous_score": score_report(previous),
+        return {"queue":self.engine.get('manual-analysis-queue:'+job.id), "workflow": self.workflow.status(job, version), "previous_run": previous, "previous_score": score_report(previous),
                 "experience_update": latest(self, job), "input_version": version, "ready": bool(stories) and all(s["ready"] for s in stories),
                 "unready_sources": [s["title"] for s in stories if not s["ready"]], "run": record,
                 "previous_result_outdated": bool(self.engine.get("role-analysis-latest:" + job.id)) and record is None,
