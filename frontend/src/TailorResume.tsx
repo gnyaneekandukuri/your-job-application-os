@@ -5,7 +5,7 @@ const ResumeDocument=lazy(()=>import('./ResumeDocument').then(module=>({default:
 type Block={change_type?:string;jd_quote?:string;item_id?:string;format?:{font_family:string;font_size:number;bold:boolean;italic:boolean;align:string};kind:'heading'|'contact'|'role'|'bullet'|'text';text:string;citations:{source_id:string;quote:string}[];reason:string};
 type Proposal={after_id:string;id:string;operation:string;status:string;error:string;text:string;reason:string;jd_quote:string;before:Block[];citations:Block["citations"]};
 type RecordValue={review_warnings?:string[];include_summary?:boolean;job_review?:{summary:string;priorities:{jd_quote:string;status:string;block_indices:number[];reason:string;improvement:string}[];readability:string[];preservation:string[]}|null;quality?:{framework:string;passed:number;total:number;required:number;percent:number|null;meets_threshold:boolean;failures:{block_index:number;reason:string}[]}|null;proposals?:Proposal[];state:string;stage:string;error:string;revision:string;framework:string;policy_version:string;draft:{blocks:Block[];questions:string[]}|null;checks:{findings:{block_index:number;supported:boolean;reason:string}[]}|null;context:{master?:Block[];sources:{id:string;title:string;text:string;employer?:string;start_line?:number}[]}};
-type FinalReview={score:number|null;low:number|null;high:number|null;uncertain_count:number;rubric:string;rows:{jd_quote:string;category:string;weight:number;status:string;reason:string;resume_quote:string;points:number|null}[]};
+type FinalReview={score:number|null;summary:string;strengths:string[];gaps:string[];improvements:string[];dimensions:{name:string;points:number;maximum:number}[];rubric:string};
 type View={final_review_supported?:boolean;final_review?:FinalReview|null;summary_supported?:boolean;job_url?:string;exported?:{revision:string;created_at:string}|null;quality_checks_version?:number;framework:string;base_resume:string;base_title:string;configured:boolean;record:RecordValue|null;citation_sources?:RecordValue['context']['sources']};
 const styles=[['PAR','Recommended · Project, Action, Result'],['XYZ','Metrics-focused · Accomplishment, measurement, method'],['STAR','Context-focused · Concise STAR'],['EXISTING','Keep my existing style']];
 const examples:Record<string,string>={PAR:'Show the work, your contribution, and the supported outcome. Include a supported metric in each experience bullet; missing numbers are flagged for your input, never invented.',XYZ:'Lead with a measured accomplishment, then explain how you achieved it. Use only documented metrics.',STAR:'Briefly explain the problem, your action, and the result.',EXISTING:'Preserve your voice and section structure while improving relevance and clarity.'};
@@ -124,14 +124,16 @@ export function TailorResume({jobId,label}:{jobId:string;label?:string}) {
  </details>)}
  </section>
  {view.final_review_supported&&<section ref={finalReviewPanel} className="resume-quality" aria-label="Final resume against JD" style={{scrollMarginTop:120}}>
- <h3>Final JD match score</h3>
- <p>Checks your final resume against the job description.</p>
- {checkingFinal&&<p role="status">Comparing the saved resume with the job requirements…</p>}
- {editing&&<p>Save changes to check this version. Any score below is for the previous saved version.</p>}
- {view.final_review&&<><p><strong>{view.final_review.score!==null?`Resume coverage: ${view.final_review.score}/100`:view.final_review.low===0&&view.final_review.high===100?'Could not establish a useful score':view.final_review.low!==null?`Provisional coverage: ${view.final_review.low}–${view.final_review.high}/100 · needs review`:'Not enough clear JD requirements to score'}</strong></p>
- {view.final_review.uncertain_count>0&&<p>{view.final_review.uncertain_count} criteria need review; uncertainty is not a rejection.</p>}
- <details><summary>How the score works</summary><p>{view.final_review.rubric}</p></details>
- {view.final_review.rows.map((row,i)=><details key={i}><summary>{row.status==='clear'?'Clearly demonstrated':row.status==='partial'?'Partially demonstrated':row.status==='missing'?'Not demonstrated':'Needs review'} · {row.jd_quote}</summary><p>{row.reason} {row.weight?`${row.points===null?'Unresolved':row.points} / ${row.weight} weighted points.`:'Ambiguous requirement; not scored.'}</p>{row.resume_quote&&<blockquote>{row.resume_quote}</blockquote>}</details>)}
+ <h3>Final resume check</h3>
+ {checkingFinal&&<p role="status">Reviewing your final resume against the job description...</p>}
+ {editing&&view.final_review&&<p>This result is for your previous saved version. Run Final resume check to include your edits.</p>}
+ {view.final_review&&<>
+ <p><strong>{view.final_review.score!==null?`Resume-fit score: ${view.final_review.score}/100`:'Could not assess this resume'}</strong></p>
+ <p>{view.final_review.summary}</p>
+ {view.final_review.strengths.length>0&&<><h4>Strongest matches</h4><ul>{view.final_review.strengths.map((text,i)=><li key={i}>{text}</li>)}</ul></>}
+ {view.final_review.gaps.length>0&&<><h4>Important gaps</h4><ul>{view.final_review.gaps.map((text,i)=><li key={i}>{text}</li>)}</ul></>}
+ {view.final_review.improvements.length>0&&<><h4>Before applying</h4><ul>{view.final_review.improvements.map((text,i)=><li key={i}>{text}</li>)}</ul></>}
+ <details><summary>How the score adds up</summary>{view.final_review.dimensions.map(d=><p key={d.name}>{d.name}: {d.points}/{d.maximum}</p>)}<p>{view.final_review.rubric}</p></details>
  </>}
  </section>}
  <div className="resume-action-toolbar">
