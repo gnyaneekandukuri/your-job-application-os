@@ -109,16 +109,17 @@ export function TailorResume({jobId,label}:{jobId:string;label?:string}) {
  </details>)}
  </section>
  <section className="resume-proposals" aria-label="Tailoring suggestions">
- {record.proposals&&<h3>Suggestions not yet applied ({record.proposals.filter(p=>p.status==='pending').length})</h3>}
+ {record.proposals&&<h3>Tailoring suggestions · {record.proposals.filter(p=>p.status==='pending').length} pending</h3>}
  {record.proposals?.length===0&&<p>No structural changes proposed. Wording changes appear in yellow below.</p>}
  {record.proposals?.map(p=><details key={p.id}><summary>{p.operation==='summary'?'Add professional summary':p.operation.charAt(0).toUpperCase()+p.operation.slice(1)+' a resume point'} · {p.status==='pending'?'Not in the draft':p.status==='accepted'?'Applied to draft':'Declined'}</summary>
  <p><strong>Why for this job:</strong> {p.reason}</p><p><strong>Job requirement:</strong> {p.jd_quote}</p>
- <div className="resume-proposal-comparison pending-comparison"><div><h4>Before this suggestion</h4>{p.before.length?p.before.map(b=><p key={b.item_id}>{b.text}</p>):<p>New point</p>}</div><div><h4>{p.status==='accepted'?'Accepted wording':'Proposed wording — not applied'}</h4><p>{p.text|| (p.operation==='remove'?'Remove this point.':'Move this point to the proposed position.')}</p></div></div>
+ <div className="resume-proposal-comparison pending-comparison"><div><h4>Before this suggestion</h4>{p.before.length?p.before.map(b=><p key={b.item_id}>{b.text}</p>):<p>New point</p>}</div><div><h4>{p.status==='accepted'?'Previously applied wording':p.status==='rejected'?'Declined wording':'Proposed wording — not applied'}</h4><p>{p.text|| (p.operation==='remove'?'Remove this point.':'Move this point to the proposed position.')}</p></div></div>
  {p.after_id&&<p><strong>Place after:</strong> {record.draft?.blocks.find(b=>b.item_id===p.after_id)?.text||p.after_id}</p>}
  <details><summary>Source evidence</summary>{p.citations.map((ref,i)=><div key={i}><strong>{view.citation_sources?.find(s=>s.id===ref.source_id)?.title||ref.source_id}</strong><blockquote>{ref.quote}</blockquote></div>)}</details>
  {p.error&&<p role="alert">{p.error}</p>}
  {proposalFeedback?.id===p.id&&<p role={proposalFeedback.error?"alert":"status"}>{proposalFeedback.message}</p>}
  {editing&&p.status==='pending'&&<p>Save your current resume edits first to apply this suggestion.</p>}
+ {p.status==='accepted'&&<p role="status"><strong>{p.text&&visibleBlocks.some(b=>b.text===p.text)?'Applied and saved in your resume.':p.operation==='remove'?'Removal applied.':'Applied earlier; the resume may have been edited since.'}</strong> No need to apply it again.</p>}
  {p.status==='pending'&&<div className="resume-proposal-actions"><button disabled={busy||running||editing||!!p.error} onClick={()=>void decideProposal(p.id,'accept')}>Apply this exact change</button><button disabled={busy||running||editing} onClick={()=>void decideProposal(p.id,'reject')}>Keep current resume</button></div>}
  </details>)}
  </section>
