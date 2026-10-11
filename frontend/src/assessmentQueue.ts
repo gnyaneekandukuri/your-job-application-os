@@ -1,6 +1,6 @@
 export type Explanation={summary:string;strengths:{requirement_id:string;requirement:string;alignment:string;tentative:boolean;citations:{source_title:string;source_path:string;start_line:number;quote:string}[]}[];gaps:{requirement_id:string;requirement:string;detail:string;tentative:boolean}[];decision_basis:{label:string;passed:boolean;detail:string}[]};
 export type Assessment = {assessed_at?:string|null;explanation?:Explanation;state:string;score:number|null;provisional?:boolean;listing_changed?:boolean;recommendation:string|null;rationale?:string;choice?:string|null;stage?:string;error?:string;recommendation_error?:string};
-export type Result = {job_id:string;opportunity_id?:string|null;company:string;title:string;url:string;assessment:Assessment};
+export type Result = {last_scan_id?:number|null;last_scanned_at?:string|null;job_id:string;opportunity_id?:string|null;company:string;title:string;url:string;assessment:Assessment};
 export function queueGroup(r:Result):string {
  const a=r.assessment;
  if(a.state==='RUNNING')return 'running';
@@ -43,10 +43,12 @@ export function analysisFilter(r:Result,filter:string):boolean {
  return filter==='consider_passing'&&a.recommendation==='SKIP';
 }
 
-/** Most recently completed analysis first. Scores never hide newer work. */
+/** Most recent scan first, highest score within that scan; unscanned roles follow. */
 export function recentResultsFirst(a:Result,b:Result):number {
  const stamp=(s?:string|null)=>{const n=s?Date.parse(s):0;return Number.isFinite(n)?n:0;};
- return stamp(b.assessment.assessed_at)-stamp(a.assessment.assessed_at)
+ return (b.last_scan_id??0)-(a.last_scan_id??0)
+  || (b.assessment.score??-1)-(a.assessment.score??-1)
+  || stamp(b.assessment.assessed_at)-stamp(a.assessment.assessed_at)
   || a.company.localeCompare(b.company)
   || a.job_id.localeCompare(b.job_id);
 }

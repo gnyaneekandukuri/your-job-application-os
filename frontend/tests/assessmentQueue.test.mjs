@@ -51,10 +51,12 @@ test('recommendation groups partition completed results independently of persona
  }
 });
 
-test('newly completed analyses come first regardless of score or scan sightings',()=>{
- const old={...role({score:99,assessed_at:'2026-10-07T10:00:00Z'}),job_id:'old',last_scanned_at:'2026-10-08T10:00:00Z'};
- const seen={...role({score:70,assessed_at:'2026-10-06T10:00:00Z'}),job_id:'seen',in_latest_scan:true,last_scanned_at:'2026-10-10T10:00:00Z'};
+test('scan recency outranks score, score outranks analysis date within a scan',()=>{
+ const old={...role({score:99,assessed_at:'2026-10-10T12:00:00Z'}),job_id:'old',last_scan_id:44};
+ const seen={...role({score:70,assessed_at:'2026-10-06T10:00:00Z'}),job_id:'seen',last_scan_id:45};
  const fresh={...seen,job_id:'fresh',assessment:{...seen.assessment,score:60,assessed_at:'2026-10-10T11:00:00Z'}};
- assert.deepEqual([old,seen,fresh].sort(recentResultsFirst).map(r=>r.job_id),['fresh','old','seen']);
+ const manual={...old,job_id:'manual',last_scan_id:null};
+ const unknown={...seen,job_id:'unknown',assessment:{...seen.assessment,score:null}};
+ assert.deepEqual([manual,old,fresh,unknown,seen].sort(recentResultsFirst).map(r=>r.job_id),['seen','fresh','unknown','old','manual']);
  assert.equal(seen.assessment.assessed_at,'2026-10-06T10:00:00Z');
 });

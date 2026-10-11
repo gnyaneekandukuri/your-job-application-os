@@ -165,6 +165,11 @@ class Discovery:
         """All saved deep analyses, including roles entered without discovery."""
         with self.db() as db:
             discovered = {r['job_id']: dict(r) for r in db.execute('SELECT * FROM opportunities WHERE job_id IS NOT NULL')}
+            scans = {r['opportunity_id']: dict(r) for r in db.execute('''
+                SELECT sr.opportunity_id, s.id AS last_scan_id, s.started AS last_scanned_at
+                FROM scan_roles sr JOIN scans s ON s.id=sr.scan_id
+                WHERE sr.scan_id=(SELECT MAX(recent.scan_id) FROM scan_roles recent
+                                  WHERE recent.opportunity_id=sr.opportunity_id)''')}
         items = []
         for job_id in self.service.store.ids():
             job = self.saved_job(job_id)
@@ -178,7 +183,7 @@ class Discovery:
                 if summary['state'] == 'NOT_STARTED':
                     summary.update(state='JD_CHANGED', stage='Review the updated listing before assessment.')
             if summary['state'] == 'NOT_STARTED': continue
-            items.append({'job_id':job_id,'opportunity_id':row['id'] if row else None,'company':job.company,'title':job.title,'url':str(job.source_url or ''),'assessment':summary})
+            items.append({'job_id':job_id,'opportunity_id':row['id'] if row else None,'company':job.company,'title':job.title,'url':str(job.source_url or ''),'assessment':summary, **(scans.get(row['id'], {}) if row else {})})
         with self.db() as db:
             manual = {r[0] for r in db.execute("SELECT opportunity_id FROM selected_assessments WHERE state='QUEUED'")}
         counts = dict(complete=0, running=0, attention=0, previous=0)
