@@ -76,6 +76,7 @@ function App() {
   const [filter, setFilter] = useState("all");
   const [entryMode, setEntryMode] = useState<"link" | "manual">("link");
   const [link, setLink] = useState("");
+  const [addingFromNewJobs, setAddingFromNewJobs] = useState(false);
   const [extraction, setExtraction] = useState<ExtractionDraft | null>(null);
   const [draft, setDraft] = useState({
     company: "",
@@ -98,12 +99,12 @@ function App() {
     );
   }
   useEffect(() => {
-    if (page !== "queue" || roleOpen) return;
+    if (page !== "queue" || roleOpen || creating) return;
     setLoading(true);
     refresh()
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  }, [page, roleOpen]);
+  }, [page, roleOpen, creating]);
 
   function replace(row: Review) {
     setJobs((current) => [
@@ -176,9 +177,13 @@ function App() {
         description: "",
         source_url: link.trim(),
       });
-      const result = await api<ExtractionDraft>("/extractions", {
-        url: link.trim(),
-      });
+      let result: ExtractionDraft;
+      try {
+        result = await api<ExtractionDraft>("/extractions", {url: link.trim()});
+      } catch (error) {
+        setEntryMode("manual");
+        throw new Error(`Could not read this listing. Paste the job description below to continue. ${error instanceof Error ? error.message : ""}`);
+      }
       setExtraction(result);
       setDraft({
         company: result.company,
@@ -207,7 +212,12 @@ function App() {
     setNotice("Job saved. Starting requirement extraction and evidence matching…");
     const preview = await api<{ input_version: string }>(`/jobs/${jobId}/analysis`);
     await api(`/jobs/${jobId}/analysis`, { consent_to_send: true, input_version: preview.input_version });
-    setNotice("Analysis started. All requirements will be matched automatically below.");
+    setNotice("Deep analysis started. Find this role in Analyzed jobs, then tailor your resume or open the application.");
+    if (addingFromNewJobs) {
+      setAddingFromNewJobs(false);
+      setAssessmentTab("all");
+      setPage("assessments");
+    }
   }
 
   function decide(decision: Decision) {
@@ -267,7 +277,7 @@ function App() {
           <button aria-pressed={page === "retrieval"} onClick={() => { setAddContext(false); setPage("retrieval"); }}>Your context</button>
         </nav>
         {(page==='discovery'||page==='assessments'||page==='applications')&&<header className="jobs-heading"><h1>Your jobs</h1><p>Find a job → Understand the fit → Decide whether to tailor.</p><nav className="decision-tabs" aria-label="Job stages"><button aria-pressed={page==='discovery'} onClick={()=>{setOpportunityToReview(null);setPage('discovery');}}>New jobs</button><button aria-pressed={page==='assessments'} onClick={()=>{setAssessmentTab('all');setPage('assessments');}}>Analyzed jobs</button><button aria-pressed={page==='applications'} onClick={()=>setPage('applications')}>Applied jobs</button></nav></header>}
-        {page === "applications" ? <AppliedJobs /> : page === "usage" ? <Usage /> : page === "assessments" ? <AssessmentResults onUpdatedJD={id=>{setOpportunityToReview(id);setPage("discovery");}} key={assessmentTab} onDiscover={()=>{setOpportunityToReview(null);setPage("discovery");}} initialTab={assessmentTab} onOpen={async (id) => { replace(await api<Review>(`/jobs/${id}`)); setLoading(false); setPage("queue"); }} /> : page === "discovery" || page === "discovery-runs" ? <Discovery initialReviewId={opportunityToReview} onResults={(tab="all") => {setAssessmentTab(tab);setPage("assessments");}} view={page === "discovery-runs" ? "runs" : "opportunities"} onOpen={async (id) => { replace(await api<Review>(`/jobs/${id}`)); setLoading(false); setPage("queue"); }} /> : page === "retrieval" ? <Retrieval initialAdd={addContext} /> : <>
+        {page === "applications" ? <AppliedJobs /> : page === "usage" ? <Usage /> : page === "assessments" ? <AssessmentResults onUpdatedJD={id=>{setOpportunityToReview(id);setPage("discovery");}} key={assessmentTab} onDiscover={()=>{setOpportunityToReview(null);setPage("discovery");}} initialTab={assessmentTab} onOpen={async (id) => { replace(await api<Review>(`/jobs/${id}`)); setLoading(false); setPage("queue"); }} /> : page === "discovery" || page === "discovery-runs" ? <Discovery onAdd={()=>{setAddingFromNewJobs(true);setCreating(true);setLoading(false);setRoleOpen(false);setEntryMode("link");setError("");setNotice("");setPage("queue");}} initialReviewId={opportunityToReview} onResults={(tab="all") => {setAssessmentTab(tab);setPage("assessments");}} view={page === "discovery-runs" ? "runs" : "opportunities"} onOpen={async (id) => { replace(await api<Review>(`/jobs/${id}`)); setLoading(false); setPage("queue"); }} /> : page === "retrieval" ? <Retrieval initialAdd={addContext} /> : <>
         {roleOpen && <button className="text-action" onClick={()=>{setAssessmentTab("all");setPage("assessments");}}>← Back to analyzed jobs</button>}
         <header>
           <div>
@@ -334,7 +344,7 @@ function App() {
                 <div className="eyebrow">START WITH ONE ROLE</div>
                 <h2>Add a role</h2>
               </div>
-              <button disabled={busy} onClick={() => setCreating(false)}>
+              <button disabled={busy} onClick={() => {setCreating(false);if(addingFromNewJobs){setAddingFromNewJobs(false);setPage("discovery");}}}>
                 Cancel
               </button>
             </div>
@@ -399,7 +409,7 @@ function App() {
                         the JD, your stories and fact/conflict rules with usage tracking. No application is submitted.
                       </span>
                       <button className="primary" type="submit">
-                        {busy ? "Working…" : "Extract & analyze role"}
+                        {busy ? "Working…" : "Add & analyze deeply · API usage"}
                       </button>
                     </div>
                   </fieldset>
@@ -495,7 +505,7 @@ function App() {
                     <button className="primary" type="submit">
                       {busy
                         ? "Saving…"
-                        : "Save & analyze role"}
+                        : "Save & analyze deeply · API usage"}
                     </button>
                   </div>
                 </fieldset>

@@ -23,7 +23,7 @@ async function request<T>(path="",body?:unknown,signal?:AbortSignal):Promise<T> 
 const statusLabel=(state:string):string=>({complete:"Completed",incomplete:"Incomplete coverage",failed:"Failed",blocked:"Access denied / limited",partial:"Partial coverage",checked:"Checked",login_required:"Sign in to YC",busy:"YC browser busy"} as Record<string,string>)[state]??state;
 const when=(date:string)=>new Date(date).toLocaleString();
 const freshnessLabel=(item:Item)=>item.date_basis==="hiring_comment_timestamp"?"Vacancy date unknown (HN comment dated below)":item.freshness==="within_24h"?"Source reports <24h":item.freshness==="older"?"Older than 24h":item.freshness==="date_only"?"Date only - age uncertain":"Date unknown";
-export function Discovery({onOpen,onResults,initialReviewId,view="opportunities"}:{initialReviewId?:string|null;onResults:(tab?:string)=>void;view?:"runs"|"opportunities";onOpen:(jobId:string)=>Promise<void>}) {
+export function Discovery({onOpen,onResults,onAdd,initialReviewId,view="opportunities"}:{onAdd:()=>void;initialReviewId?:string|null;onResults:(tab?:string)=>void;view?:"runs"|"opportunities";onOpen:(jobId:string)=>Promise<void>}) {
  const queryClient=useQueryClient();
  const [selected,setSelected]=useState<Record<string,string>>({});
  const [selectionNotice,setSelectionNotice]=useState("");
@@ -74,6 +74,7 @@ export function Discovery({onOpen,onResults,initialReviewId,view="opportunities"
  const currentPage=state?.page??page;
  const pageRows=state?.items??[];
  return <section className="panel discovery">
+  {view==='opportunities'&&<div className="section-heading"><div><h2>New jobs</h2><p>Found a role elsewhere? Add its link for deep analysis.</p></div><button className="primary" onClick={onAdd}>+ Add a job</button></div>}
   {view==="runs"&&<div className="section-heading"><div><div className="eyebrow">LOCAL JOB DISCOVERY</div><h1>{view==="runs"?"Discovery runs":"New opportunities"}</h1><p>{view==="runs"?"Check job boards and review the latest run.":"Find roles that overlap with your experience and what you want to do next."}</p></div>
   {view==="runs"&&<button className="primary" disabled={busy||state?.running} onClick={()=>void act(async()=>setState(await request<State>("/check",{})))}>{state?.running?(state.automatic_running||state.scan?.payload.phase==="assessing"?"Assessing High priority jobs...":"Checking boards..."):"Check now"}</button>}</div>}
   {view==='opportunities'&&<CompanyWatchlist company={watchCompany} onClose={()=>setWatchCompany(null)}/>}
