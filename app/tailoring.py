@@ -15,7 +15,7 @@ from .user_workspace import control_documents
 from .resume_quality import QualityChecks, experience_indices, metric_coverage, framework_summary, recurring_revenue_conflict, reconcile_audit
 
 SKILL = Path(__file__).resolve().parents[1] / 'skills/resume-tailoring/SKILL.md'
-VERSION = 'tailoring-compact-context-v9'
+VERSION = 'tailoring-plain-layout-v10'
 REQUEST_BYTE_LIMIT = 512000
 
 
@@ -566,6 +566,25 @@ class Tailoring:
                           job_review=None,quality=None,state='EDITED',stage='Your edits are saved',checks=None,error='',revision=str(uuid4()),updated_at=now())
             record.pop('approved_at',None)
             self.engine.put(key,record)
+            return self.view(job)
+
+    def format_draft(self, job, data):
+        """Explicit, free layout repair; preserve prior revisions and wording."""
+        from .resume_master import format_text_blocks
+        with self.lock:
+            key, record = self.current(job, data.revision)
+            if not record.get('draft'):
+                raise RetrievalError('Prepare a draft before formatting it.', 409)
+            protected = {item for p in record.get('proposals', []) if p.get('status') == 'pending'
+                         for item in p.get('target_ids', []) if item}
+            aliases = {}
+            blocks = format_text_blocks(record['draft']['blocks'], protected, aliases)
+            self.edit(job, Edit(revision=data.revision, blocks=blocks))
+            updated = self.engine.get(key)
+            for proposal in updated.get('proposals', []):
+                if proposal.get('status') == 'pending':
+                    proposal['after_id'] = aliases.get(proposal.get('after_id'), proposal.get('after_id',''))
+            self.engine.put(key, updated)
             return self.view(job)
 
     def decide_proposal(self, job, data):

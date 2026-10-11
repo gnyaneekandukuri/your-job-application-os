@@ -31,6 +31,13 @@ export function TailorResume({jobId,label}:{jobId:string;label?:string}) {
  useEffect(()=>{if(!open)return;let live=true;void request().then(data=>{if(live){setView(data);setFramework(data.record?.framework||data.framework);setBase(data.record?.context.sources[0]?.text||data.base_resume);setBaseSource(data.resume_options?.find(o=>o.id.startsWith(data.record?'original:':'profile:'))?.id||'');}}).catch(e=>{if(live)setError(String(e));});return()=>{live=false;};},[open,jobId]);
  useEffect(()=>{if(!open||!running)return;let live=true;const timer=setInterval(()=>{void request().then(data=>{if(live)setView(data);}).catch(e=>{if(live)setError(String(e));});},2500);return()=>{live=false;clearInterval(timer);};},[open,running,jobId]);
  async function act(suffix:string,body:unknown){if(busy)return;setBusy(true);setError('');setConfirmed(false);try{setView(await request(suffix,body));setEditing(false);}catch(e){setError(String(e));}finally{setBusy(false);}}
+ async function formatDraft(){
+  if(busy||running||!record)return;setBusy(true);setError('');
+  try{let current=view!;
+   if(editing)current=await request('/edit',{revision:record.revision,blocks:blocks.filter(b=>b.text.trim())});
+   setView(await request('/format',{revision:current.record!.revision,confirmed:true}));setEditing(false);setEditorReset(n=>n+1);
+  }catch(e){setError(String(e));}finally{setBusy(false);}
+ }
  async function checkFinal(){
   if(busy||running||!record)return;
   finalReviewPanel.current?.scrollIntoView({behavior:'smooth',block:'start'});
@@ -84,7 +91,7 @@ export function TailorResume({jobId,label}:{jobId:string;label?:string}) {
  <label>Writing approach<select value={framework} disabled={busy||running} onChange={e=>setFramework(e.target.value)}>{styles.map(([id,label])=><option value={id} key={id}>{label}</option>)}</select></label><p>{examples[framework]}</p>
  <label className="tailor-checkbox"><input type="checkbox" checked={remember} onChange={e=>setRemember(e.target.checked)}/> Remember this approach for future jobs</label>
  {view.summary_supported&&<label className="tailor-checkbox"><input type="checkbox" checked={includeSummary} disabled={busy||running} onChange={e=>setIncludeSummary(e.target.checked)}/> Propose a professional summary (you choose whether to add it)</label>}
- <label>Base resume<textarea rows={10} maxLength={22000} value={base} disabled={busy||running} onChange={e=>{setBase(e.target.value);setBaseSource('');}} placeholder="Paste your resume here, or add a resume in Your context → Add skills."/></label>
+ <label>Base resume<textarea rows={10} maxLength={22000} value={base} disabled={busy||running} onChange={e=>{setBase(e.target.value);setBaseSource('');}} placeholder="Paste resume text for automatic formatting, or upload a DOCX/PDF in Your context → Add skills."/></label>
  <p>This improves wording in your master and proposes stronger accomplishments from your stories. Replacements, additions and removals need your acceptance. It uses your JD, relevant saved evidence, and the resume skill. Drafting and claim checking use OpenAI; costs appear in API costs. Your master resume stays unchanged.</p>
  <button className="primary" disabled={busy||running||editing||!view.configured||!view.quality_checks_version||!base.trim()} onClick={()=>void act('',{consent_to_send:true,framework,base_resume:base,...(view.resume_options?{base_source_id:baseSource}:{}),remember,retry:false,...(view.summary_supported?{include_summary:includeSummary}:{})})}>Prepare draft · API usage</button>
  {!view.configured&&<p role="alert">Connect your OpenAI API key to prepare a draft.</p>}
@@ -147,6 +154,7 @@ export function TailorResume({jobId,label}:{jobId:string;label?:string}) {
  </section>}
  <div className="resume-action-toolbar">
  <strong>{editing?'Unsaved edits':record.state==='APPROVED'?'Approved resume':'Your tailored draft'}</strong>
+ <button disabled={busy||!!running} onClick={()=>void formatDraft()}>Format resume</button>
  <button className="primary" disabled={busy||running||!editing||!blocks.some(b=>b.text.trim())} onClick={()=>void act('/edit',{revision:record.revision,blocks:blocks.filter(b=>b.text.trim())})}>Save changes</button>
  {editing&&<button disabled={busy} onClick={()=>{setEditing(false);setEditorReset(n=>n+1);setSelected(0);}}>Discard edits</button>}
  {view.final_review_supported&&<button disabled={busy||running} title={editing?'Save your edits and check this version':'Check your final resume against the job description'} onClick={()=>void checkFinal()}>{checkingFinal?'Checking resume…':view.final_review&&!editing?'View final resume check':'Final resume check'}</button>}

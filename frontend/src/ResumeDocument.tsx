@@ -37,7 +37,7 @@ export function ResumeDocument({initial,master,disabled,onChange,onSelect}:{init
  return <div className="resume-document-container"><div className="resume-format-toolbar" aria-label="Document formatting">
   <button disabled={disabled||!editor.can().undo()} onClick={()=>editor.chain().focus().undo().run()}>Undo</button>
   <button disabled={disabled||!editor.can().redo()} onClick={()=>editor.chain().focus().redo().run()}>Redo</button>
-  <label>Paragraph style<select disabled={disabled} value={editor.getAttributes('paragraph').kind||'text'} onChange={e=>editor.chain().focus().updateAttributes('paragraph',{kind:e.target.value}).run()}>
+  <label>Paragraph style<select disabled={disabled} value={editor.getAttributes('paragraph').kind||'text'} onChange={e=>editor.chain().focus().updateAttributes('paragraph',{kind:e.target.value,format:{font_family:'Times New Roman',font_size:10,italic:false,...editor.getAttributes('paragraph').format,bold:['heading','role'].includes(e.target.value),align:e.target.value==='contact'?'center':'left'}}).run()}>
    <option value="text">Text</option><option value="contact">Name / contact</option><option value="heading">Section heading</option><option value="role">Company / role</option><option value="bullet">Bullet</option>
   </select></label><span>Click the resume to edit</span>
  </div><EditorContent editor={editor}/></div>;

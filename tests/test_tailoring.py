@@ -160,7 +160,7 @@ def test_large_repeated_analysis_does_not_duplicate_evidence_in_draft_request(se
     assert body['positioning_guidance'][0]['text']==guidance
     assert r['context']['sources'][0]['text']==BASE
     assert 'text' not in body['sources'][0]
-    assert '\n'.join(b['text'] for b in body['master'])==BASE
+    assert ' '.join(' '.join(b['text'] for b in body['master']).split())==' '.join(BASE.split())
     assert any(source.get('text')==PASSAGE for source in body['sources'])
     assert 'Repeated' not in p.calls[0]['input']
     assert len(p.calls)==2
@@ -615,3 +615,18 @@ def test_actual_request_limit_includes_instructions_and_schema_before_charge(set
     assert not p.calls
     with s.engine.connect() as db:
         assert db.execute('select count(*) from calls').fetchone()[0]==0
+
+
+def test_format_saved_draft_is_free_and_keeps_previous_revision(setup):
+    s,j,p,*_=setup
+    record=generate(s,j)
+    calls=len(p.calls)
+    original=[b['text'] for b in record['draft']['blocks']]
+    old_revision=record['revision']
+    result=s.format_draft(j,Action(revision=old_revision,confirmed=True))['record']
+    assert len(p.calls)==calls
+    assert result['revision']!=old_revision
+    assert ' '.join(' '.join(b['text'] for b in result['draft']['blocks']).split())==' '.join(' '.join(original).split())
+    assert result['draft']['blocks'][0]['format']['bold']
+    key=s.engine.get('tailoring:latest:'+j.id)
+    assert s.engine.get(key+':revision:'+old_revision)['draft']==record['draft']

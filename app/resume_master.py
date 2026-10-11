@@ -5,18 +5,81 @@ from collections import Counter
 from pypdf import PdfReader
 
 
+SECTION_NAMES = {'summary', 'professional summary', 'profile', 'education', 'education & certifications',
+    'experience', 'professional experience', 'work experience', 'employment history', 'skills',
+    'technical skills', 'skills & competencies', 'projects', 'certifications', 'additional information',
+    'leadership', 'volunteering', 'awards', 'publications', 'interests', 'languages'}
+MONTH = r'(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)'
+DATE_END = re.compile(r'(?<!\w)(?:'+MONTH+r'\.?\s+)?(?:19|20)\d{2}(?:\s*[-–—]\s*(?:(?:'+MONTH+r'\.?\s+)?(?:19|20)\d{2}|Present|Current|Now))?\s*$',re.I)
+
+
+def default_format(kind, first=False):
+    return {'font_family':'Times New Roman','font_size':16 if first else 10,
+            'bold':first or kind in ('heading','role'), 'italic':False,
+            'align':'center' if kind=='contact' else 'left'}
+
+
+def format_text_blocks(rows, protected=(), aliases=None):
+    """Reconstruct plain-text layout without generating or deleting wording.
+
+    Protected proposal targets stay separate so accepting an existing suggestion
+    cannot unexpectedly replace neighboring content after a layout repair.
+    """
+    from copy import deepcopy
+    blocks=deepcopy(rows); protected=set(protected)
+    if aliases is not None:
+        aliases.update({b['item_id']:b['item_id'] for b in blocks if b.get('item_id')})
+    for i,b in enumerate(blocks):
+        text=b['text'].strip()
+        next_text=blocks[i+1]['text'].strip() if i+1<len(blocks) else ''
+        is_section=text.lstrip('# ').strip().casefold() in SECTION_NAMES
+        dated=bool(DATE_END.search(text)) and len(text)<200 and b['kind']!='bullet'
+        company=(i>1 and len(text)<150 and text[:1].isupper() and b['kind']!='bullet' and
+                 bool(DATE_END.search(next_text)) and len(next_text)<200 and blocks[i+1]['kind']!='bullet')
+        if i==0: kind='contact'
+        elif is_section or b['kind']=='heading': kind='heading'
+        elif b['kind']=='bullet': kind='bullet'
+        elif dated or company: kind='role'
+        elif i==1 and ('@' in text or 'linkedin.' in text or '|' in text): kind='contact'
+        else: kind=b['kind'] if b['kind'] in ('contact','role') else 'text'
+        if kind=='role' and '\t' not in text:
+            match=DATE_END.search(text)
+            if match and match.start()>0:
+                # Only introduce an alignment separator; preserve every word.
+                text=text[:match.start()].rstrip()+'\t'+text[match.start():]
+        b.update(kind=kind,text=text,format=default_format(kind,i==0))
+    output=[]; summary=False
+    for b in blocks:
+        starts_summary=b['text'].lower().startswith('summary:')
+        join=(output and b['kind']=='text' and not starts_summary and
+              (output[-1]['kind']=='bullet' or summary) and
+              b.get('item_id') not in protected and output[-1].get('item_id') not in protected)
+        if join:
+            previous=output[-1]
+            refs=previous.get('citations',[])+[c for c in b.get('citations',[]) if c not in previous.get('citations',[])]
+            if len(previous['text'])+len(b['text'])<1199 and len(refs)<=6:
+                previous['text']+=' '+b['text']
+                previous['citations']=refs
+                if aliases is not None and b.get('item_id'):
+                    aliases[b['item_id']]=previous.get('item_id',b['item_id'])
+                continue
+        output.append(b)
+        if starts_summary: summary=True
+        elif b['kind'] in ('heading','role','bullet','contact'): summary=False
+    return output
+
+
 def text_template(text):
     blocks=[]
     for raw in text.splitlines():
         line=raw.strip()
         if not line or re.fullmatch(r"## Page \d+",line): continue
-        heading=line.lstrip('# ').strip()
-        is_heading=(raw.startswith('#') or (heading.isupper() and len(heading)<65 and blocks))
         bullet=bool(re.match(r'^[•▪●*-]\s+',line))
         if bullet: line=re.sub(r'^[•▪●*-]\s+','',line)
-        kind='heading' if is_heading else 'bullet' if bullet else 'contact' if len(blocks)<2 else 'text'
+        kind='bullet' if bullet else 'heading' if line.startswith('#') else 'text'
+        if kind=='heading':line=line.lstrip('# ').strip()
         blocks.append({'kind':kind,'text':line,'format':{}})
-    return finish(blocks)
+    return finish(format_text_blocks(blocks))
 
 
 def finish(blocks):
@@ -89,6 +152,23 @@ def file_template(filename, raw):
             style=paragraph.find('w:pPr/w:pStyle',ns)
             heading=style is not None and 'heading' in style.get('{'+ns['w']+'}val','').lower()
             kind='heading' if heading or (blocks and text.isupper() and len(text)<65) else 'bullet' if paragraph.find('w:pPr/w:numPr',ns) is not None else 'contact' if len(blocks)<2 else 'text'
-            blocks.append({'kind':kind,'text':text,'format':{}})
+            def prop(name):
+                return paragraph.find('.//w:rPr/w:'+name,ns)
+            fmt=default_format(kind,not blocks)
+            for name,key in [('b','bold'),('i','italic')]:
+                node=prop(name)
+                if node is not None:fmt[key]=node.get('{'+ns['w']+'}val','true') not in ('0','false','off')
+            size=prop('sz')
+            if size is not None:
+                try:fmt['font_size']=max(6,min(36,float(size.get('{'+ns['w']+'}val'))/2))
+                except (TypeError,ValueError):pass
+            font=prop('rFonts')
+            family=font.get('{'+ns['w']+'}ascii') if font is not None else None
+            if family in ('Arial','Calibri','Times New Roman'):fmt['font_family']=family
+            align=paragraph.find('w:pPr/w:jc',ns)
+            if align is not None and align.get('{'+ns['w']+'}val') in ('left','center','right'):
+                fmt['align']=align.get('{'+ns['w']+'}val')
+            if kind=='text' and fmt['bold']:kind='role'
+            blocks.append({'kind':kind,'text':text,'format':fmt})
         return finish(blocks)
     return text_template(text)
