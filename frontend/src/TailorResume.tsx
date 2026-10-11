@@ -13,6 +13,7 @@ export function TailorResume({jobId,label}:{jobId:string;label?:string}) {
  const [confirmApplied,setConfirmApplied]=useState(false),[applicationSaved,setApplicationSaved]=useState(false),[appliedDate,setAppliedDate]=useState(()=>{const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;});
  const [proposalFeedback,setProposalFeedback]=useState<{id:string;message:string;error:boolean}|null>(null);
  const dialog=useRef<HTMLDialogElement>(null);
+ const finalReviewPanel=useRef<HTMLElement>(null);
  const [open,setOpen]=useState(false),[view,setView]=useState<View|null>(null),[error,setError]=useState(''),[busy,setBusy]=useState(false);
  const [framework,setFramework]=useState('PAR'),[base,setBase]=useState(''),[remember,setRemember]=useState(false),[editing,setEditing]=useState(false),[blocks,setBlocks]=useState<Block[]>([]),[confirmed,setConfirmed]=useState(false);
  const [checkingFinal,setCheckingFinal]=useState(false);
@@ -29,6 +30,8 @@ export function TailorResume({jobId,label}:{jobId:string;label?:string}) {
  async function act(suffix:string,body:unknown){if(busy)return;setBusy(true);setError('');setConfirmed(false);try{setView(await request(suffix,body));setEditing(false);}catch(e){setError(String(e));}finally{setBusy(false);}}
  async function checkFinal(){
   if(busy||running||editing||!record)return;
+  finalReviewPanel.current?.scrollIntoView({behavior:'smooth',block:'start'});
+  if(view?.final_review)return;
   setCheckingFinal(true);setBusy(true);setError('');
   try{setView(await request('/final-review',{revision:record.revision,confirmed:true}));}
   catch(e){setError(String(e));}finally{setCheckingFinal(false);setBusy(false);}
@@ -115,10 +118,9 @@ export function TailorResume({jobId,label}:{jobId:string;label?:string}) {
  {p.status==='pending'&&<div className="resume-proposal-actions"><button disabled={busy||running||editing||!!p.error} onClick={()=>void decideProposal(p.id,'accept')}>Apply this exact change</button><button disabled={busy||running||editing} onClick={()=>void decideProposal(p.id,'reject')}>Keep current resume</button></div>}
  </details>)}
  </section>
- {view.final_review_supported&&<section className="resume-quality" aria-label="Final resume against JD">
- <h3>Check your final resume against the JD</h3>
+ {view.final_review_supported&&<section ref={finalReviewPanel} className="resume-quality" aria-label="Final resume against JD" style={{scrollMarginTop:120}}>
+ <h3>Final JD match score</h3>
  <p>Uses only the saved resume and JD. Save your edits before checking.</p>
- <button disabled={busy||running||editing} onClick={()=>void checkFinal()}>{checkingFinal?'Checking with Jev…':view.final_review?'View saved check · no new charge':'Check resume against JD · Jev API usage'}</button>
  {checkingFinal&&<p role="status">Comparing the saved resume with the job requirements…</p>}
  {editing&&<p>Save changes to check this version. Any score below is for the previous saved version.</p>}
  {view.final_review&&<><p><strong>{view.final_review.score!==null?`Resume coverage: ${view.final_review.score}/100`:view.final_review.low!==null?`Provisional coverage: ${view.final_review.low}–${view.final_review.high}/100 · needs review`:'Not enough clear JD requirements to score'}</strong></p>
@@ -131,6 +133,8 @@ export function TailorResume({jobId,label}:{jobId:string;label?:string}) {
  <strong>{editing?'Unsaved edits':record.state==='APPROVED'?'Approved resume':'Your tailored draft'}</strong>
  <button className="primary" disabled={busy||running||!editing||!blocks.some(b=>b.text.trim())} onClick={()=>void act('/edit',{revision:record.revision,blocks:blocks.filter(b=>b.text.trim())})}>Save changes</button>
  {editing&&<button disabled={busy} onClick={()=>{setEditing(false);setEditorReset(n=>n+1);setSelected(0);}}>Discard edits</button>}
+ {view.final_review_supported&&<button disabled={busy||running||editing} title={editing?'Save your changes before checking this version':'Optional Jev check using only your saved resume and JD'} onClick={()=>void checkFinal()}>{checkingFinal?'Checking JD match…':view.final_review?'View JD match score':'Check JD match score · API usage'}</button>}
+ {view.final_review_supported&&editing&&<small>Save changes to check the JD match score.</small>}
  <button className="primary" disabled={busy||running} onClick={()=>void finish()}>Done — save &amp; download PDF</button>
  <span className="resume-export-note">Saves your edits and downloads this version. No API usage.</span>
  <button aria-pressed={showEvidence} onClick={()=>setShowEvidence(v=>!v)}>{showEvidence?'Hide evidence':'Show evidence'}</button>
