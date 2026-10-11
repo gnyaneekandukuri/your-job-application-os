@@ -168,3 +168,20 @@ def test_startup_focus_keeps_unknown_companies_visible(model):
     m.refresh()
     assert m.page()['total']==2
     assert m.page(company='startups')['total']==1
+
+
+def test_confirmed_applications_leave_active_lists_without_rebuild(model):
+    import sqlite3
+    m,source,d=model
+    source['items']=[listing(1,job_id='applied',url='https://jobs.example/1'),listing(2,job_id='new',url='https://jobs.example/2')]
+    source['assessment_results']['items']=[{'job_id':'applied','url':'https://jobs.example/1','assessment':{'state':'COMPLETE'}},{'job_id':'new','url':'https://jobs.example/2','assessment':{'state':'COMPLETE'}}]
+    m.refresh()
+    with sqlite3.connect(m.path.parent/'applications.sqlite3') as db:
+        db.execute('create table applications(job_id text,payload text)')
+        db.execute('insert into applications values (?,?)',('applied',json.dumps({'url':'https://jobs.example/1'})))
+    assert [r['id'] for r in m.page()['items']]==['2']
+    assert m.page()['total']==1 and m.page()['freshness_counts']['recent']==1
+    assert [r['job_id'] for r in m.assessments()['items']]==['new']
+    assert m.assessments()['counts']['complete']==1
+    with sqlite3.connect(m.path.parent/'applications.sqlite3') as db:
+        assert db.execute('select count(*) from applications').fetchone()[0]==1

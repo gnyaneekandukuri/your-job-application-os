@@ -12,7 +12,8 @@ export function AssessmentResults({onOpen,onDiscover,onUpdatedJD,initialTab="all
  useEffect(()=>{if(!status.data?.ready)return;let live=true;const controller=new AbortController();
  const load=async()=>{try{const r=await fetch('/api/assessments/saved',{signal:controller.signal});if(!r.ok)throw new Error('Could not load analyzed jobs.');const value=await r.json();if(live){if(value.ready)setData(value);setError('');}}catch(e){if(live)setError(String(e));}};
  void load();return()=>{live=false;controller.abort();};},[status.data?.revision]);
- const all=data?.items??[],items=all.filter(r=>analysisFilter(r,filter)).sort(recentResultsFirst);
+ const applications=useQuery({queryKey:['applications'],queryFn:async()=>{const r=await fetch('/api/applications');if(!r.ok)throw Error('Could not load application status.');return r.json() as Promise<{job_id:string;url:string}[]>;}});
+ const all=(data?.items??[]).filter(r=>!applications.data?.some(a=>a.job_id===r.job_id||(a.url&&a.url.replace(/\/$/,'')===r.url?.replace(/\/$/,'')))),items=all.filter(r=>analysisFilter(r,filter)).sort(recentResultsFirst);
  const active=all.filter(r=>r.assessment.state==='RUNNING');
  const processing=all.filter(r=>processingStatus(r)&&r.assessment.state!=='RUNNING');
  const pending=(data?.queued_count??0)+active.length;

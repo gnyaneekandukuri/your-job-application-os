@@ -1,3 +1,4 @@
+import { useQueryClient } from '@tanstack/react-query';
 import {changedFromMaster} from './resumeChanges';
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 const ResumeDocument=lazy(()=>import('./ResumeDocument').then(module=>({default:module.ResumeDocument})));
@@ -10,6 +11,7 @@ type View={resume_options?:{id:string;title:string;text:string;date:string}[];ba
 const styles=[['PAR','Recommended · Project, Action, Result'],['XYZ','Metrics-focused · Accomplishment, measurement, method'],['STAR','Context-focused · Concise STAR'],['EXISTING','Keep my existing style']];
 const examples:Record<string,string>={PAR:'Show the work, your contribution, and the supported outcome. Include a supported metric in each experience bullet; missing numbers are flagged for your input, never invented.',XYZ:'Lead with a measured accomplishment, then explain how you achieved it. Use only documented metrics.',STAR:'Briefly explain the problem, your action, and the result.',EXISTING:'Preserve your voice and section structure while improving relevance and clarity.'};
 export function TailorResume({jobId,label}:{jobId:string;label?:string}) {
+ const queryClient=useQueryClient();
  const [confirmApplied,setConfirmApplied]=useState(false),[applicationSaved,setApplicationSaved]=useState(false),[appliedDate,setAppliedDate]=useState(()=>{const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;});
  const [proposalFeedback,setProposalFeedback]=useState<{id:string;message:string;error:boolean}|null>(null);
  const dialog=useRef<HTMLDialogElement>(null);
@@ -38,7 +40,7 @@ export function TailorResume({jobId,label}:{jobId:string;label?:string}) {
    setView(await request('/final-review',{revision:current.record!.revision,confirmed:true}));}
   catch(e){setError(String(e));}finally{setCheckingFinal(false);setBusy(false);}
  }
- async function recordApplication(){if(!record||busy)return;setBusy(true);setError('');try{const response=await fetch(`/api/jobs/${jobId}/applications`,{method:'POST',headers:{'Content-Type':'application/json','X-Local-Review':'1'},body:JSON.stringify({revision:view?.exported?.revision||record.revision,confirmed:true,applied_date:appliedDate})});const data=await response.json();if(!response.ok)throw Error(typeof data.detail==='string'?data.detail:'Could not record application.');setApplicationSaved(true);setConfirmApplied(false);}catch(e){setError(String(e));}finally{setBusy(false);}}
+ async function recordApplication(){if(!record||busy)return;setBusy(true);setError('');try{const response=await fetch(`/api/jobs/${jobId}/applications`,{method:'POST',headers:{'Content-Type':'application/json','X-Local-Review':'1'},body:JSON.stringify({revision:view?.exported?.revision||record.revision,confirmed:true,applied_date:appliedDate})});const data=await response.json();if(!response.ok)throw Error(typeof data.detail==='string'?data.detail:'Could not record application.');queryClient.setQueryData<{job_id:string;url:string}[]>(['applications'],rows=>[...(rows||[]).filter(r=>r.job_id!==data.job_id),data]);void queryClient.invalidateQueries({queryKey:['job-list']});void queryClient.invalidateQueries({queryKey:['job-list-status']});setApplicationSaved(true);setConfirmApplied(false);}catch(e){setError(String(e));}finally{setBusy(false);}}
  useEffect(()=>{if(!open)return;let live=true;void fetch('/api/applications').then(r=>{if(!r.ok)throw Error('Could not load application status.');return r.json();}).then(rows=>{if(live)setApplicationSaved(rows.some((r:{job_id:string})=>r.job_id===jobId));}).catch(e=>{if(live)setError(String(e));});return()=>{live=false;};},[open,jobId]);
  async function decideProposal(id:string,decision:'accept'|'reject'){
   if(busy||!record)return;setBusy(true);setError('');setProposalFeedback(null);

@@ -48,7 +48,7 @@ class JobList:
         parent = self.discovery.path.parent
         files = []
         for name in ('discovery.sqlite3', 'reviews.sqlite3', 'retrieval.sqlite3',
-                     'pursuit-workflow.sqlite3', 'evidence-workflow.sqlite3'):
+                     'pursuit-workflow.sqlite3', 'evidence-workflow.sqlite3', 'applications.sqlite3'):
             files.extend([parent / name, parent / (name + '-wal')])
         files.append(parent / 'yc-browser/status.json')
         root = self.discovery.analysis.library.root
@@ -129,6 +129,13 @@ class JobList:
                 'running':bool(self.discovery.worker and self.discovery.worker.is_alive()),
                 'automatic_running':bool(self.discovery.worker and self.discovery.worker.is_alive() and self.discovery.worker.name == 'automatic-assessments')}
 
+    def applied_keys(self):
+        path = self.path.parent / 'applications.sqlite3'
+        if not path.exists(): return set(), set()
+        with closing(sqlite3.connect('file:'+path.as_posix()+'?mode=ro', uri=True, timeout=5)) as db:
+            rows = db.execute('SELECT job_id,payload FROM applications').fetchall()
+        return {r[0] for r in rows}, {json.loads(r[1]).get('url','').rstrip('/') for r in rows if json.loads(r[1]).get('url')}
+
     def page(self, page=1, size=25, query='', priority='all', location='match',
              company='focus', board='all', show='all', runs=False):
         with closing(self.connect()) as db:
@@ -140,6 +147,11 @@ class JobList:
             metadata.pop('assessment_results',None)
             focus = (metadata.get('company_preference') or {}).get('focus','any')
             where, args = ['completed=0'], []
+            applied_ids, applied_urls = self.applied_keys()
+            for field, values in (('job_id',applied_ids),('url',applied_urls)):
+                if values:
+                    where.append("COALESCE(rtrim(json_extract(payload,'$."+field+"'),'/'),'') NOT IN ("+','.join('?' for _ in values)+')')
+                    args.extend(sorted(values))
             include_unknown = company == 'focus' and focus == 'startups'
             if company == 'focus': company = 'startups' if focus == 'startups' else 'established' if focus == 'established' else 'all'
             if company == 'startups': where.append("company_group IN ('preferred','other_startup','unknown')" if include_unknown else "company_group IN ('preferred','other_startup')")
@@ -186,6 +198,10 @@ class JobList:
         if not row: return {'ready':False,'items':[]}
         result = json.loads(row['metadata']).get('assessment_results',{})
         result.pop('scans',None)
+        ids, urls = self.applied_keys()
+        result['items'] = [r for r in result.get('items',[]) if r.get('job_id') not in ids and (r.get('url') or '').rstrip('/') not in urls]
+        if 'counts' in result:
+            result['counts']['complete'] = sum(r.get('assessment',{}).get('state')=='COMPLETE' for r in result['items'])
         return {**result,'ready':True,'revision':row['revision']}
 
     def detail(self, oid):
