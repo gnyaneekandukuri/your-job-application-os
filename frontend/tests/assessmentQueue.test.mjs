@@ -9,10 +9,10 @@ test('only current chosen pursuits enter shortlist',()=>{assert.equal(queueGroup
 test('outdated and failed work cannot enter shortlist',()=>{for(const state of ['STALE','ERROR','INTERRUPTED','NOT_STARTED'])assert.equal(queueGroup(role({state,choice:'ATTACK_HARD'})),'attention');assert.equal(queueGroup(role({choice:'CASUAL',listing_changed:true})),'decision');});
 test('next action explains changed and unfinished work',()=>{assert.equal(nextAction(role({listing_changed:true})),'Review changed job description');assert.equal(nextAction(role({state:'STALE'})),'Review outdated assessment');assert.equal(queueGroup(role({state:'RUNNING'})),'running');});
 
-test('recommendation filters are independent of personal choices and processing status',()=>{
+test('active recommendation filters exclude passed choices',()=>{
  assert.equal(analysisFilter(role({}), 'worth'),true);
  assert.equal(analysisFilter(role({recommendation:'SKIP'}),'worth'),false);
- assert.equal(analysisFilter(role({choice:'SKIP'}),'worth'),true);
+ assert.equal(analysisFilter(role({choice:'SKIP'}),'worth'),false);
  assert.equal(analysisFilter(role({listing_changed:true}),'worth'),true);
 });
 test('negative recommendations and unfinished work remain accessible separately',()=>{
@@ -44,10 +44,10 @@ test('completed review recommendations are not processing failures',()=>{
  assert.equal(processingStatus(role({state:'STALE'})),'Outdated');
  assert.equal(processingStatus(role({recommendation:null})),'Recommendation unavailable');
 });
-test('recommendation groups partition completed results independently of personal decisions',()=>{
+test('recommendation groups and passed view partition completed results',()=>{
  for(const recommendation of ['CASUAL','ATTACK_HARD','REVIEW','SKIP',null]) {
   const r=role({recommendation,choice:'SKIP'});
-  assert.equal(['worth','review','consider_passing','unavailable'].filter(f=>analysisFilter(r,f)).length,1);
+  assert.equal(['worth','review','consider_passing','unavailable','passed'].filter(f=>analysisFilter(r,f)).length,1);
  }
 });
 
@@ -60,3 +60,11 @@ test('scan recency outranks score, score outranks analysis date within a scan',(
  assert.deepEqual([manual,old,fresh,unknown,seen].sort(recentResultsFirst).map(r=>r.job_id),['seen','fresh','unknown','old','manual']);
  assert.equal(seen.assessment.assessed_at,'2026-10-06T10:00:00Z');
 });
+
+ test('passing hides a completed role from active views and reconsider restores it',()=>{
+ const passed=role({choice:'SKIP'});
+ for(const filter of ['all','worth','review','consider_passing','unavailable'])assert.equal(analysisFilter(passed,filter),false);
+ assert.equal(analysisFilter(passed,'passed'),true);
+ assert.equal(analysisFilter(role({choice:'CASUAL'}),'all'),true);
+ assert.equal(analysisFilter(role({choice:'CASUAL'}),'passed'),false);
+ });

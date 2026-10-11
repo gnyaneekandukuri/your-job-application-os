@@ -35,7 +35,8 @@ export function processingStatus(r:Result):string|null {
 
 export function analysisFilter(r:Result,filter:string):boolean {
  const a=r.assessment;
- if(a.state!=='COMPLETE')return false;
+ if(filter==='passed')return a.choice==='SKIP';
+ if(a.choice==='SKIP'||a.state!=='COMPLETE')return false;
  if(filter==='all')return true;
  if(filter==='unavailable')return !a.recommendation;
  if(filter==='review')return a.recommendation==='REVIEW';
