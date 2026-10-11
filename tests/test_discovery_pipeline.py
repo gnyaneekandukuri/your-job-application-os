@@ -295,3 +295,18 @@ def test_description_timeout_continues_to_next_listing(tmp_path, monkeypatch):
         with discovery.db() as db:
             error = db.execute('SELECT error FROM description_fetches WHERE opportunity_id=?', (first,)).fetchone()[0]
         assert 'timed out' in error
+
+
+def test_identical_description_new_source_reuses_role(tmp_path):
+    with TestClient(create_app(tmp_path)) as client:
+        d=configure(client)
+        item=row('Own customer discovery and product delivery. '*15)
+        first,new=d.save('yc',item)
+        assert new
+        second,new=d.save('yc',{**item,'source_id':'repost','url':'https://example.com/repost'})
+        assert second==first and not new
+        with d.db() as db:
+            assert db.execute('SELECT count(*) FROM opportunities').fetchone()[0]==1
+            assert db.execute('SELECT count(*) FROM sightings').fetchone()[0]==2
+        separate,new=d.save('yc',{**item,'source_id':'other','url':'https://example.com/other','location':'London'})
+        assert separate!=first and new

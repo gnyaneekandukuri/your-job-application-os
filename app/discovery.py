@@ -243,7 +243,7 @@ class Discovery:
                 item.update(id=row['id'], first_seen=row['first_seen'], last_seen=row['last_seen'], job_id=row['job_id'],
                             assessment_state=row['assessment_state'], freshness=listing_freshness(item),
                             description_changed=bool(row['imported_hash'] and row['imported_hash'] != self.content_hash(item)),
-                            sources=[{'board': s['board'], 'seen_at': s['seen_at'], 'posted_at': json.loads(s['payload']).get('posted_at')} for s in sources])
+                            sources=[{'board': s['board'], 'url': json.loads(s['payload']).get('url'), 'seen_at': s['seen_at'], 'posted_at': json.loads(s['payload']).get('posted_at')} for s in sources])
                 location = item.get("location")
                 if location not in locations:
                     locations[location] = location_match(location, preferences)
@@ -413,6 +413,13 @@ class Discovery:
                 return None, False
             previous = db.execute('SELECT opportunity_id FROM sightings WHERE board=? AND source_id=?', (board, item['source_id'])).fetchone()
             if previous: oid = previous[0]
+            else:
+                from .job_identity import identity
+                key = identity(item)
+                if key:
+                    candidates = db.execute('SELECT id,payload FROM opportunities ORDER BY (job_id IS NOT NULL) DESC,first_seen,id').fetchall()
+                    match = next((r for r in candidates if identity(json.loads(r['payload'])) == key), None)
+                    if match: oid = match['id']
             row = db.execute('SELECT payload FROM opportunities WHERE id=?', (oid,)).fetchone()
             merged = item
             if row:

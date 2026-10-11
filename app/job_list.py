@@ -10,7 +10,7 @@ from contextlib import closing
 from datetime import datetime, timezone, timedelta
 from threading import Event, Lock, Thread
 
-VERSION = 'job-list-v6-retention'
+VERSION = 'job-list-v7-exact-dedup'
 log = logging.getLogger(__name__)
 
 
@@ -75,7 +75,8 @@ class JobList:
                 self.error = None
                 return False
             result = self.discovery.table_view(include_assessments=True)
-            items = result.pop('items')
+            from .job_identity import group_listings
+            items = group_listings(result.pop('items'))
             from .scan_overview import overview
             result['scan_overview'] = overview(result,items)
             result.get('assessment_results',{}).pop('scans',None)
@@ -134,7 +135,23 @@ class JobList:
         if not path.exists(): return set(), set()
         with closing(sqlite3.connect('file:'+path.as_posix()+'?mode=ro', uri=True, timeout=5)) as db:
             rows = db.execute('SELECT job_id,payload FROM applications').fetchall()
-        return {r[0] for r in rows}, {json.loads(r[1]).get('url','').rstrip('/') for r in rows if json.loads(r[1]).get('url')}
+        ids = {r[0] for r in rows}
+        records = [json.loads(r[1]) for r in rows]
+        urls = {r.get('url','').rstrip('/') for r in records if r.get('url')}
+        if not self.discovery.path.exists(): return ids, urls
+        from .job_identity import identity
+        keys = {identity({**r.get('job_snapshot',{}), 'location':r.get('location','')}) for r in records} - {None}
+        with closing(sqlite3.connect('file:'+self.discovery.path.as_posix()+'?mode=ro',uri=True,timeout=5)) as db:
+            opportunities = [(oid, jid, json.loads(payload)) for oid,jid,payload in db.execute('SELECT id,job_id,payload FROM opportunities')]
+        # Recover identity from the saved listing when older application snapshots lack location.
+        keys.update(identity(p) for oid,jid,p in opportunities if jid in ids or 'opportunity:'+oid in ids or p.get('url','').rstrip('/') in urls)
+        keys.discard(None)
+        for oid,jid,p in opportunities:
+            if identity(p) in keys:
+                ids.add('opportunity:'+oid)
+                if jid: ids.add(jid)
+                if p.get('url'): urls.add(p['url'].rstrip('/'))
+        return ids, urls
 
     def page(self, page=1, size=25, query='', priority='all', location='match',
              company='focus', board='all', show='all', runs=False):

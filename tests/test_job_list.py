@@ -197,3 +197,27 @@ def test_unanalyzed_application_hidden_by_opportunity_id(model):
         db.execute('insert into applications values (?,?)',('opportunity:1',json.dumps({'url':''})))
     assert [r['id'] for r in m.page()['items']]==['2']
     assert m.page()['total']==1
+
+
+def test_exact_duplicate_grouping_and_applied_alias_without_rebuild(model):
+    import sqlite3
+    from app.job_identity import identity
+    m,source,d=model
+    one=listing(1,url='https://example.com/1')
+    two={**one,'id':'2','url':'https://example.com/2'}
+    different={**one,'id':'3','url':'https://example.com/3','description':one['description']+' Different responsibilities.'}
+    source['items']=[one,two,different]
+    assert m.refresh()
+    page=m.page()
+    assert page['total']==2
+    grouped=next(r for r in page['items'] if len(r['duplicate_ids'])==2)
+    assert set(grouped['listing_urls'])=={one['url'],two['url']}
+    with sqlite3.connect(d.path) as db:
+        db.execute('CREATE TABLE opportunities(id TEXT,job_id TEXT,payload TEXT)')
+        db.executemany('INSERT INTO opportunities VALUES(?,NULL,?)',[(r['id'],json.dumps(r)) for r in source['items']])
+    with sqlite3.connect(d.path.parent/'applications.sqlite3') as db:
+        db.execute('CREATE TABLE applications(job_id TEXT,payload TEXT)')
+        db.execute('INSERT INTO applications VALUES(?,?)',('opportunity:1',json.dumps({'url':one['url'],'job_snapshot':one,'location':one['location']})))
+    assert [r['id'] for r in m.page()['items']]==['3']
+    assert identity({**one,'location':'Other city'})!=identity(one)
+    assert identity({**one,'description':''}) is None
