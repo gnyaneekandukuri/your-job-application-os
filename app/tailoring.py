@@ -274,7 +274,9 @@ class Tailoring:
             record = {**record, 'state':'INTERRUPTED', 'error':'Tailoring was interrupted. Saved draft work is retained; retry explicitly.'}
         sources, resume = self.baseline()
         exported = self.engine.get('tailoring:export-latest:' + job.id)
-        return {'summary_supported':True,'job_url':str(getattr(job,'source_url','') or ''),'exported':exported,'quality_checks_version':1,'framework':self.engine.get('tailoring:framework') or 'PAR',
+        from .resume_jd_review import cache_key
+        final_review = self.engine.get(cache_key(job, record)) if record and record.get('draft') else None
+        return {'final_review_supported':True,'final_review':final_review,'summary_supported':True,'job_url':str(getattr(job,'source_url','') or ''),'exported':exported,'quality_checks_version':1,'framework':self.engine.get('tailoring:framework') or 'PAR',
                 'base_resume':resume['text'] if resume else '', 'base_title':resume['title'] if resume else '',
                 'configured':self.engine.provider.configured, 'record':record,
                 'citation_sources':citation_sources(record['context']) if record else []}
@@ -525,6 +527,19 @@ class Tailoring:
                 record.pop('approved_at',None)
             record.update(revision=str(uuid4()),updated_at=now())
             self.engine.put(key,record)
+            return self.view(job)
+
+    def final_review(self, job, data):
+        from .resume_jd_review import evaluate
+        with self.lock:
+            _, record = self.current(job, data.revision)
+            if not record.get('draft'):
+                raise RetrievalError('Save a resume before checking it against the JD.', 409)
+            snapshot = json.loads(json.dumps(record))
+        evaluate(self.engine, job, snapshot)
+        # A changed resume must not inherit the result of a previous version.
+        with self.lock:
+            self.current(job, data.revision)
             return self.view(job)
 
     def recheck(self, job, data):

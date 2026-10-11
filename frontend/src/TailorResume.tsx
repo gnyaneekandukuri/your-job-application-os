@@ -5,7 +5,8 @@ const ResumeDocument=lazy(()=>import('./ResumeDocument').then(module=>({default:
 type Block={change_type?:string;jd_quote?:string;item_id?:string;format?:{font_family:string;font_size:number;bold:boolean;italic:boolean;align:string};kind:'heading'|'contact'|'role'|'bullet'|'text';text:string;citations:{source_id:string;quote:string}[];reason:string};
 type Proposal={after_id:string;id:string;operation:string;status:string;error:string;text:string;reason:string;jd_quote:string;before:Block[];citations:Block["citations"]};
 type RecordValue={include_summary?:boolean;job_review?:{summary:string;priorities:{jd_quote:string;status:string;block_indices:number[];reason:string;improvement:string}[];readability:string[];preservation:string[]}|null;quality?:{framework:string;passed:number;total:number;required:number;percent:number|null;meets_threshold:boolean;failures:{block_index:number;reason:string}[]}|null;proposals?:Proposal[];state:string;stage:string;error:string;revision:string;framework:string;policy_version:string;draft:{blocks:Block[];questions:string[]}|null;checks:{findings:{block_index:number;supported:boolean;reason:string}[]}|null;context:{master?:Block[];sources:{id:string;title:string;text:string;employer?:string;start_line?:number}[]}};
-type View={summary_supported?:boolean;job_url?:string;exported?:{revision:string;created_at:string}|null;quality_checks_version?:number;framework:string;base_resume:string;base_title:string;configured:boolean;record:RecordValue|null;citation_sources?:RecordValue['context']['sources']};
+type FinalReview={score:number|null;low:number|null;high:number|null;uncertain_count:number;rubric:string;rows:{jd_quote:string;category:string;weight:number;status:string;reason:string;resume_quote:string;points:number|null}[]};
+type View={final_review_supported?:boolean;final_review?:FinalReview|null;summary_supported?:boolean;job_url?:string;exported?:{revision:string;created_at:string}|null;quality_checks_version?:number;framework:string;base_resume:string;base_title:string;configured:boolean;record:RecordValue|null;citation_sources?:RecordValue['context']['sources']};
 const styles=[['PAR','Recommended · Project, Action, Result'],['XYZ','Metrics-focused · Accomplishment, measurement, method'],['STAR','Context-focused · Concise STAR'],['EXISTING','Keep my existing style']];
 const examples:Record<string,string>={PAR:'Show the work, your contribution, and the supported outcome. Numbers are optional.',XYZ:'Lead with a measured accomplishment, then explain how you achieved it. Use only documented metrics.',STAR:'Briefly explain the problem, your action, and the result.',EXISTING:'Preserve your voice and section structure while improving relevance and clarity.'};
 export function TailorResume({jobId,label}:{jobId:string;label?:string}) {
@@ -14,6 +15,7 @@ export function TailorResume({jobId,label}:{jobId:string;label?:string}) {
  const dialog=useRef<HTMLDialogElement>(null);
  const [open,setOpen]=useState(false),[view,setView]=useState<View|null>(null),[error,setError]=useState(''),[busy,setBusy]=useState(false);
  const [framework,setFramework]=useState('PAR'),[base,setBase]=useState(''),[remember,setRemember]=useState(false),[editing,setEditing]=useState(false),[blocks,setBlocks]=useState<Block[]>([]),[confirmed,setConfirmed]=useState(false);
+ const [checkingFinal,setCheckingFinal]=useState(false);
  const [includeSummary,setIncludeSummary]=useState(false);
  const [selected,setSelected]=useState(0),[showEvidence,setShowEvidence]=useState(true),[editorReset,setEditorReset]=useState(0);
  const path=`/api/jobs/${jobId}/tailoring`,record=view?.record,running=record?.state==='RUNNING';
@@ -25,6 +27,12 @@ export function TailorResume({jobId,label}:{jobId:string;label?:string}) {
  useEffect(()=>{if(!open)return;let live=true;void request().then(data=>{if(live){setView(data);setFramework(data.record?.framework||data.framework);setBase(data.record?.context.sources[0]?.text||data.base_resume);}}).catch(e=>{if(live)setError(String(e));});return()=>{live=false;};},[open,jobId]);
  useEffect(()=>{if(!open||!running)return;let live=true;const timer=setInterval(()=>{void request().then(data=>{if(live)setView(data);}).catch(e=>{if(live)setError(String(e));});},2500);return()=>{live=false;clearInterval(timer);};},[open,running,jobId]);
  async function act(suffix:string,body:unknown){if(busy)return;setBusy(true);setError('');setConfirmed(false);try{setView(await request(suffix,body));setEditing(false);}catch(e){setError(String(e));}finally{setBusy(false);}}
+ async function checkFinal(){
+  if(busy||running||editing||!record)return;
+  setCheckingFinal(true);setBusy(true);setError('');
+  try{setView(await request('/final-review',{revision:record.revision,confirmed:true}));}
+  catch(e){setError(String(e));}finally{setCheckingFinal(false);setBusy(false);}
+ }
  async function recordApplication(){if(!record||busy)return;setBusy(true);setError('');try{const response=await fetch(`/api/jobs/${jobId}/applications`,{method:'POST',headers:{'Content-Type':'application/json','X-Local-Review':'1'},body:JSON.stringify({revision:view?.exported?.revision||record.revision,confirmed:true,applied_date:appliedDate})});const data=await response.json();if(!response.ok)throw Error(typeof data.detail==='string'?data.detail:'Could not record application.');setApplicationSaved(true);setConfirmApplied(false);}catch(e){setError(String(e));}finally{setBusy(false);}}
  useEffect(()=>{if(!open)return;let live=true;void fetch('/api/applications').then(r=>{if(!r.ok)throw Error('Could not load application status.');return r.json();}).then(rows=>{if(live)setApplicationSaved(rows.some((r:{job_id:string})=>r.job_id===jobId));}).catch(e=>{if(live)setError(String(e));});return()=>{live=false;};},[open,jobId]);
  async function decideProposal(id:string,decision:'accept'|'reject'){
@@ -107,6 +115,18 @@ export function TailorResume({jobId,label}:{jobId:string;label?:string}) {
  {p.status==='pending'&&<div className="resume-proposal-actions"><button disabled={busy||running||editing||!!p.error} onClick={()=>void decideProposal(p.id,'accept')}>Apply this exact change</button><button disabled={busy||running||editing} onClick={()=>void decideProposal(p.id,'reject')}>Keep current resume</button></div>}
  </details>)}
  </section>
+ {view.final_review_supported&&<section className="resume-quality" aria-label="Final resume against JD">
+ <h3>Check your final resume against the JD</h3>
+ <p>Uses only the saved resume and JD. Save your edits before checking.</p>
+ <button disabled={busy||running||editing} onClick={()=>void checkFinal()}>{checkingFinal?'Checking with Jev…':view.final_review?'View saved check · no new charge':'Check resume against JD · Jev API usage'}</button>
+ {checkingFinal&&<p role="status">Comparing the saved resume with the job requirements…</p>}
+ {editing&&<p>Save changes to check this version. Any score below is for the previous saved version.</p>}
+ {view.final_review&&<><p><strong>{view.final_review.score!==null?`Resume coverage: ${view.final_review.score}/100`:view.final_review.low!==null?`Provisional coverage: ${view.final_review.low}–${view.final_review.high}/100 · needs review`:'Not enough clear JD requirements to score'}</strong></p>
+ {view.final_review.uncertain_count>0&&<p>{view.final_review.uncertain_count} criteria need review; uncertainty is not a rejection.</p>}
+ <details><summary>How the score works</summary><p>{view.final_review.rubric}</p></details>
+ {view.final_review.rows.map((row,i)=><details key={i}><summary>{row.status==='clear'?'Clearly demonstrated':row.status==='partial'?'Partially demonstrated':row.status==='missing'?'Not demonstrated':'Needs review'} · {row.jd_quote}</summary><p>{row.reason} {row.weight?`${row.points===null?'Unresolved':row.points} / ${row.weight} weighted points.`:'Ambiguous requirement; not scored.'}</p>{row.resume_quote&&<blockquote>{row.resume_quote}</blockquote>}</details>)}
+ </>}
+ </section>}
  <div className="resume-action-toolbar">
  <strong>{editing?'Unsaved edits':record.state==='APPROVED'?'Approved resume':'Your tailored draft'}</strong>
  <button className="primary" disabled={busy||running||!editing||!blocks.some(b=>b.text.trim())} onClick={()=>void act('/edit',{revision:record.revision,blocks:blocks.filter(b=>b.text.trim())})}>Save changes</button>

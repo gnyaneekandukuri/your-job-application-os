@@ -457,6 +457,10 @@ def create_app(data_dir: Path | None = None):
     def tailoring_proposal(job_id: str, data: TailorProposalDecision, request: Request):
         return request.app.state.tailoring.decide_proposal(request.app.state.service.review(job_id).job, data)
 
+    @api.post("/api/jobs/{job_id}/tailoring/final-review")
+    def tailoring_final_review(job_id: str, data: TailorAction, request: Request):
+        return request.app.state.tailoring.final_review(request.app.state.service.review(job_id).job, data)
+
     @api.post("/api/jobs/{job_id}/tailoring/check")
     def tailoring_check(job_id: str, data: TailorAction, request: Request):
         return request.app.state.tailoring.recheck(request.app.state.service.review(job_id).job, data)
