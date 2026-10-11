@@ -470,8 +470,8 @@ def create_app(data_dir: Path | None = None):
         return request.app.state.tailoring.prepare_download(request.app.state.service.review(job_id).job, data)
 
     @api.get("/api/jobs/{job_id}/team-message")
-    def team_message_view(job_id: str, request: Request):
-        return team_message.view(request.app.state.retrieval, request.app.state.service.review(job_id).job)
+    def team_message_view(job_id: str, request: Request, kind: str = 'introduction'):
+        return team_message.view(request.app.state.retrieval, request.app.state.service.review(job_id).job, kind)
 
     @api.post("/api/jobs/{job_id}/team-message/draft")
     def team_message_draft(job_id: str, data: team_message.DraftInput, request: Request):

@@ -58,3 +58,19 @@ def test_new_instructions_preserve_saved_edits_until_explicit_redraft(monkeypatc
     m.generate(t,j,m.DraftInput(revision=edited['revision']))
     assert len(e.calls)==2
     assert e.calls[-1]['instructions']==m.PROMPT
+
+def test_company_answer_is_separate_and_question_changes_cache():
+    e,j,t,c=setup()
+    intro=m.save(e,j,m.SaveInput(text='My saved YC intro'))
+    answer=m.generate(t,j,m.DraftInput(kind='why_company',question='What excites you about Example?'))
+    assert e.calls[-1]['instructions']==m.COMPANY_PROMPT
+    assert json.loads(e.calls[-1]['input'])['application_question']=='What excites you about Example?'
+    assert m.view(e,j)==intro
+    assert m.view(e,j,'why_company')==answer
+    answer=m.generate(t,j,m.DraftInput(kind='why_company',question=answer['question'],revision=answer['revision']))
+    assert len(e.calls)==1
+    answer=m.generate(t,j,m.DraftInput(kind='why_company',question='Why this role? In 50 words.',revision=answer['revision']))
+    assert len(e.calls)==2
+    saved=m.save(e,j,m.SaveInput(kind='why_company',question=answer['question'],revision=answer['revision'],text='My edited answer'))
+    assert m.view(e,j,'why_company')==saved and len(e.calls)==2
+    assert m.view(e,j)==intro
