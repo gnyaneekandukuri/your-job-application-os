@@ -22,6 +22,12 @@ class ConfirmApplication(BaseModel):
     applied_date: date
     notes: str = Field(default='', max_length=5000)
 
+class ManualApplication(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    confirmed: Literal[True]
+    applied_date: date
+    notes: str = Field(default='', max_length=5000)
+
 class UpdateApplication(BaseModel):
     model_config = ConfigDict(extra='forbid')
     revision: str
@@ -102,8 +108,26 @@ class Applications:
             db.execute('UPDATE applications SET payload=? WHERE id=?', (json.dumps(record), application_id))
         return self.summary(record)
 
+    def confirm_without_resume(self, job_id, snapshot, data, metadata=None):
+        metadata = metadata or {}
+        record = dict(id=str(uuid4()), job_id=job_id, revision=str(uuid4()),
+            company=snapshot['company'], title=snapshot['title'],
+            url=str(snapshot.get('source_url') or snapshot.get('url') or ''),
+            location=metadata.get('location', snapshot.get('location','')), boards=metadata.get('boards',[]),
+            applied_date=data.applied_date.isoformat(), status='Applied', follow_up_date=None,
+            notes=data.notes, created_at=datetime.now(timezone.utc).isoformat(),
+            resume_revision='', framework='', resume_pdf=None, has_pdf=False,
+            resume_snapshot=None, job_snapshot=snapshot, assessment_snapshot={},
+            recorded_without_resume=True)
+        with self.db() as db:
+            db.execute('INSERT OR IGNORE INTO applications VALUES (?,?,?)', (record['id'],job_id,json.dumps(record)))
+            saved=json.loads(db.execute('SELECT payload FROM applications WHERE job_id=?',(job_id,)).fetchone()[0])
+        return self.summary(saved)
+
     def resume(self, application_id):
         record = self.get(application_id)
+        if not record.get('resume_snapshot'):
+            raise RetrievalError('No resume was attached to this application.',404)
         return '\n\n'.join(('• ' if b['kind'] == 'bullet' else '') + b['text']
             for b in record['resume_snapshot']['draft']['blocks']) + '\n'
 

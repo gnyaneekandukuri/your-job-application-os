@@ -185,3 +185,15 @@ def test_confirmed_applications_leave_active_lists_without_rebuild(model):
     assert m.assessments()['counts']['complete']==1
     with sqlite3.connect(m.path.parent/'applications.sqlite3') as db:
         assert db.execute('select count(*) from applications').fetchone()[0]==1
+
+
+def test_unanalyzed_application_hidden_by_opportunity_id(model):
+    import sqlite3
+    m,source,_=model
+    source['items']=[listing(1,job_id=None,url=''),listing(2,job_id=None,url='')]
+    m.refresh()
+    with sqlite3.connect(m.path.parent/'applications.sqlite3') as db:
+        db.execute('create table applications(job_id text,payload text)')
+        db.execute('insert into applications values (?,?)',('opportunity:1',json.dumps({'url':''})))
+    assert [r['id'] for r in m.page()['items']]==['2']
+    assert m.page()['total']==1

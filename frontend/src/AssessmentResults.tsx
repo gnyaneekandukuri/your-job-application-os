@@ -1,3 +1,4 @@
+import {MarkApplied} from './MarkApplied';
 import {TeamMessage,isYCListing} from './TeamMessage';
 import { TailorResume } from "./TailorResume";
 import { RecommendationWhy } from './RecommendationWhy';
@@ -40,7 +41,7 @@ export function AssessmentResults({onOpen,onDiscover,onUpdatedJD,initialTab="all
   <summary>Processing status · {processing.length} jobs need attention</summary>
   <p>Unfinished work, outdated results and processing errors. These are separate from application recommendations.</p>
   <div className="discovery-table-scroll"><table className="discovery-table" aria-label="Processing status"><thead><tr><th>Company / role</th><th>Status</th><th>Details</th><th>Action</th></tr></thead><tbody>
-   {processing.map(r=><tr key={r.job_id}><td><strong>{r.company}</strong><div>{r.title}</div></td><td>{processingStatus(r)}</td><td>{r.assessment.recommendation_error||r.assessment.error||(r.assessment.state==='STALE'||r.assessment.listing_changed?'Saved results need updating because inputs changed.':r.assessment.stage)}</td><td>{r.assessment.listing_changed&&r.opportunity_id?<button onClick={()=>onUpdatedJD(r.opportunity_id!)}>Review updated JD</button>:<button onClick={()=>void open(r.job_id)}>Open assessment</button>}</td></tr>)}
+   {processing.map(r=><tr key={r.job_id}><td><strong>{r.company}</strong><div>{r.title}</div></td><td>{processingStatus(r)}</td><td>{r.assessment.recommendation_error||r.assessment.error||(r.assessment.state==='STALE'||r.assessment.listing_changed?'Saved results need updating because inputs changed.':r.assessment.stage)}</td><td>{r.assessment.listing_changed&&r.opportunity_id?<button onClick={()=>onUpdatedJD(r.opportunity_id!)}>Review updated JD</button>:<button onClick={()=>void open(r.job_id)}>Open assessment</button>}<MarkApplied jobId={r.job_id} company={r.company}/></td></tr>)}
   </tbody></table></div>
  </details>}
  {data&&<p role="status"><strong>{all.filter(r=>r.assessment.state==='COMPLETE').length} completed analyses</strong> · Scores stay visible even when a recommendation needs review or could not finish.</p>}
@@ -54,7 +55,7 @@ export function AssessmentResults({onOpen,onDiscover,onUpdatedJD,initialTab="all
  {items.map(r=><tr key={r.job_id}><td><strong>{r.company}</strong><div>{r.title}</div>{r.last_scanned_at&&<small>Seen in scan #{r.last_scan_id} · {new Date(r.last_scanned_at).toLocaleString()}</small>}{r.assessment.assessed_at&&<small>Analyzed · {new Date(r.assessment.assessed_at).toLocaleString()}</small>}</td><td>{r.assessment.score===null?'—':`${r.assessment.score}/100`}{r.assessment.provisional&&<small>Provisional</small>}{r.assessment.state==='STALE'&&<small>Outdated</small>}</td><td>{r.url&&<a href={r.url} target="_blank" rel="noreferrer">View listing ↗</a>}</td><td><strong>{recommendation(r)}</strong>{r.assessment.explanation&&<RecommendationWhy value={r.assessment.explanation}/>}{!r.assessment.recommendation&&(r.assessment.recommendation_error||r.assessment.error)&&<p>{r.assessment.recommendation_error||r.assessment.error}</p>}{r.assessment.choice&&<small>Your choice: {r.assessment.choice==='SKIP'?'Passed':'Want to pursue'}</small>}</td><td>
  {r.assessment.listing_changed&&r.opportunity_id?<button onClick={()=>onUpdatedJD(r.opportunity_id!)}>Review updated JD</button>:<button onClick={()=>void open(r.job_id)}>{r.assessment.state==='COMPLETE'?'Review evidence':'Open unfinished analysis'}</button>}
  {r.assessment.state==='COMPLETE'&&!r.assessment.listing_changed&&<><TailorResume jobId={r.job_id} label={`${r.company} · ${r.title}`}/>{(r.yc_listing||isYCListing(r.url))&&<TeamMessage jobId={r.job_id} company={r.company} url={r.url}/>}<button disabled={!!saving||!!status.data?.refreshing} onClick={()=>void choose(r,r.assessment.choice==='SKIP'?'CASUAL':'SKIP')}>{saving===r.job_id?'Saving…':r.assessment.choice==='SKIP'?'Reconsider':'Pass'}</button></>}
- </td></tr>)}
+ <MarkApplied jobId={r.job_id} company={r.company}/></td></tr>)}
  </tbody></table></div>}
  </section>;
 }

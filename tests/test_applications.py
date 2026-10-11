@@ -10,7 +10,7 @@ import pytest
 from fastapi.testclient import TestClient
 from app.main import create_app
 from app.models import JobInput
-from app.applications import Applications, ConfirmApplication, UpdateApplication
+from app.applications import Applications, ConfirmApplication, UpdateApplication, ManualApplication
 from app.retrieval import RetrievalError
 
 
@@ -62,6 +62,21 @@ def test_empty_workbook_and_missing_record(tmp_path):
     with ZipFile(io.BytesIO(store.export())) as workbook:
         assert b'A1:J1' in workbook.read('xl/worksheets/sheet1.xml')
     with pytest.raises(RetrievalError): store.resume('unknown')
+
+
+def test_applied_without_resume_is_durable_and_exports(tmp_path):
+    store=Applications(tmp_path/'applications.sqlite3')
+    snapshot={'company':'Example','title':'PM','url':'https://example.com/job','description':'JD'}
+    data=ManualApplication(confirmed=True,applied_date='2026-10-11',notes='Used my own resume')
+    row=store.confirm_without_resume('opportunity:123',snapshot,data,{'boards':['yc']})
+    assert row['recorded_without_resume'] and not row['has_pdf']
+    assert row['resume_revision']=='' and row['notes']==data.notes
+    assert store.confirm_without_resume('opportunity:123',snapshot,data)['id']==row['id']
+    assert len(Applications(store.path).list())==1
+    assert store.get(row['id'])['job_snapshot']==snapshot
+    with pytest.raises(RetrievalError,match='No resume'):store.resume(row['id'])
+    with ZipFile(io.BytesIO(store.export())) as archive:
+        assert b'Used my own resume' in archive.read('xl/worksheets/sheet1.xml')
 
 
 def test_application_uses_downloaded_pdf_even_after_draft_changes(tmp_path):

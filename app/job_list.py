@@ -148,7 +148,7 @@ class JobList:
             focus = (metadata.get('company_preference') or {}).get('focus','any')
             where, args = ['completed=0'], []
             applied_ids, applied_urls = self.applied_keys()
-            for field, values in (('job_id',applied_ids),('url',applied_urls)):
+            for field, values in (('job_id',applied_ids),('url',applied_urls),('id',{v.removeprefix('opportunity:') for v in applied_ids if v.startswith('opportunity:')})):
                 if values:
                     where.append("COALESCE(rtrim(json_extract(payload,'$."+field+"'),'/'),'') NOT IN ("+','.join('?' for _ in values)+')')
                     args.extend(sorted(values))

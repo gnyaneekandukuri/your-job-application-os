@@ -7,7 +7,7 @@ from pathlib import Path
 from fastapi import FastAPI, Request, Query
 from fastapi.responses import JSONResponse, Response
 from . import team_message
-from .applications import Applications, ConfirmApplication, UpdateApplication
+from .applications import Applications, ConfirmApplication, UpdateApplication, ManualApplication
 from .job_retention import KeepJob, WatchCompany, keep, watch, watchlist, status as retention_status
 from fastapi.staticfiles import StaticFiles
 from langgraph.checkpoint.sqlite import SqliteSaver
@@ -422,6 +422,25 @@ def create_app(data_dir: Path | None = None):
                 metadata['location'] = json.loads(row['payload']).get('location', '')
                 metadata['boards'] = [r[0] for r in db.execute('SELECT DISTINCT board FROM sightings WHERE opportunity_id=?', (row['id'],))]
         return request.app.state.applications.confirm(job, request.app.state.tailoring, data, metadata)
+
+    @api.post("/api/jobs/{job_id}/applications/manual")
+    def application_manual(job_id: str, data: ManualApplication, request: Request):
+        job = request.app.state.service.review(job_id).job
+        metadata = {}
+        with request.app.state.discovery.db() as db:
+            row = db.execute('SELECT id,payload FROM opportunities WHERE job_id=?', (job_id,)).fetchone()
+            if row:
+                metadata['location'] = json.loads(row['payload']).get('location','')
+                metadata['boards'] = [r[0] for r in db.execute('SELECT DISTINCT board FROM sightings WHERE opportunity_id=?',(row['id'],))]
+        return request.app.state.applications.confirm_without_resume(job_id,job.model_dump(mode='json'),data,metadata)
+
+    @api.post("/api/discovery/{opportunity_id}/applications/manual")
+    def opportunity_application_manual(opportunity_id: str, data: ManualApplication, request: Request):
+        with request.app.state.discovery.db() as db:
+            row = db.execute('SELECT job_id,payload FROM opportunities WHERE id=?',(opportunity_id,)).fetchone()
+            if not row: raise Missing('Job listing not found.')
+            boards = [r[0] for r in db.execute('SELECT DISTINCT board FROM sightings WHERE opportunity_id=?',(opportunity_id,))]
+        return request.app.state.applications.confirm_without_resume(row['job_id'] or 'opportunity:'+opportunity_id,json.loads(row['payload']),data,{'boards':boards})
 
     @api.post("/api/applications/{application_id}")
     def application_update(application_id: str, data: UpdateApplication, request: Request):
