@@ -438,8 +438,16 @@ def create_app(data_dir: Path | None = None):
 
     @api.get("/api/jobs/{job_id}/tailoring/pdf")
     def tailoring_pdf(job_id: str, revision: str, request: Request):
-        pdf = request.app.state.tailoring.export_pdf(request.app.state.service.review(job_id).job, revision)
-        return Response(pdf,media_type='application/pdf',headers={'Content-Disposition':'attachment; filename="tailored-resume.pdf"'})
+        from urllib.parse import quote
+        tailoring = request.app.state.tailoring
+        job = request.app.state.service.review(job_id).job
+        pdf = tailoring.export_pdf(job, revision)
+        filename = quote(tailoring.pdf_filename(job, revision), safe='')
+        return Response(pdf,media_type='application/pdf',headers={'Content-Disposition':"attachment; filename=resume.pdf; filename*=UTF-8''"+filename})
+
+    @api.post("/api/jobs/{job_id}/tailoring/prepare-download")
+    def tailoring_prepare_download(job_id: str, data: TailorAction, request: Request):
+        return request.app.state.tailoring.prepare_download(request.app.state.service.review(job_id).job, data)
 
     @api.get("/api/jobs/{job_id}/tailoring")
     def tailoring_view(job_id: str, request: Request):

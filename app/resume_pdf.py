@@ -12,6 +12,7 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Table, TableStyle, 
 import reportlab
 
 _lock = Lock()
+LAYOUT_VERSION = 'compact-letter-v2'
 
 def font_name(fmt):
     family = fmt.get('font_family', 'Arial')
@@ -28,23 +29,25 @@ def font_name(fmt):
             pdfmetrics.registerFont(TTFont(name, str(path)))
     return name
 
-def render_resume(blocks):
+def _render_resume(blocks, compact=False, scale=1):
     output = BytesIO()
-    document = SimpleDocTemplate(output, pagesize=(612,792), leftMargin=36, rightMargin=36,
-                                 topMargin=30, bottomMargin=30, title='Resume', author='')
+    margin = 30 if compact else 36
+    document = SimpleDocTemplate(output, pagesize=(612,792), leftMargin=margin, rightMargin=margin,
+                                 topMargin=24 if compact else 30, bottomMargin=24 if compact else 30, title='Resume', author='')
     flow = []
     for index, block in enumerate(blocks):
         kind = block['kind']
         fmt = block.get('format') or {}
-        size = fmt.get('font_size',10)
+        original_size = fmt.get('font_size',10)
+        size = max(min(original_size,9), original_size*scale)
         font = font_name(fmt)
-        style = ParagraphStyle('resume', fontName=font, fontSize=size, leading=size*1.2,
+        style = ParagraphStyle('resume', fontName=font, fontSize=size, leading=size*(1.08 if compact else 1.2),
             alignment={'left':TA_LEFT,'center':TA_CENTER,'right':TA_RIGHT}.get(fmt.get('align','left'), TA_LEFT),
-            spaceBefore=8 if kind=='heading' else 4 if kind=='role' else 0,
-            spaceAfter=4 if kind=='heading' else 2 if kind=='role' else 3,
+            spaceBefore=(5 if compact else 8) if kind=='heading' else (2 if compact else 4) if kind=='role' else 0,
+            spaceAfter=(2 if compact else 4) if kind=='heading' else (1 if compact else 2) if kind=='role' else (1 if compact else 3),
             keepWithNext=kind in ('heading','role'), splitLongWords=True)
         if kind=='heading':
-            rule=HRFlowable(width='100%',thickness=.7,color='#222222',spaceBefore=8,spaceAfter=3)
+            rule=HRFlowable(width='100%',thickness=.7,color='#222222',spaceBefore=5 if compact else 8,spaceAfter=2 if compact else 3)
             rule.keepWithNext=True
             flow.append(rule)
             style.spaceBefore=0
@@ -56,7 +59,7 @@ def render_resume(blocks):
             right=' '.join(parts[1:])
             # Reserve enough room for dates without colliding with long employer names.
             right_width=min(220,max(125,pdfmetrics.stringWidth(right,font,size)+6))
-            row=Table([[paragraph(parts[0]),paragraph(right,right_style)]],colWidths=[528-right_width,right_width])
+            row=Table([[paragraph(parts[0]),paragraph(right,right_style)]],colWidths=[612-2*margin-12-right_width,right_width])
             row.setStyle(TableStyle([('VALIGN',(0,0),(-1,-1),'TOP'),('LEFTPADDING',(0,0),(-1,-1),0),('RIGHTPADDING',(0,0),(-1,-1),0),('TOPPADDING',(0,0),(-1,-1),0),('BOTTOMPADDING',(0,0),(-1,-1),0)]))
             row.keepWithNext=style.keepWithNext
             row.spaceBefore=style.spaceBefore;row.spaceAfter=style.spaceAfter
@@ -69,3 +72,25 @@ def render_resume(blocks):
             flow.append(paragraph(block['text']))
     document.build(flow)
     return output.getvalue()
+
+
+def render_resume(blocks):
+    """Prefer one page without dropping text; never force unreadably tiny type."""
+    from pypdf import PdfReader
+    original = _render_resume(blocks)
+    if len(PdfReader(BytesIO(original)).pages) == 1:
+        return original
+    for scale in (1, .95, .9):
+        compact = _render_resume(blocks, compact=True, scale=scale)
+        if len(PdfReader(BytesIO(compact)).pages) == 1:
+            return compact
+    # Long documents remain complete instead of being clipped or silently cut.
+    return original
+
+
+def download_filename(blocks, company):
+    import re
+    name = next((b['text'].strip() for b in blocks if b['kind']=='contact' and '@' not in b['text']), 'Resume')
+    if name.isupper(): name = name.title()
+    clean = lambda value: re.sub(r'[^\w-]+', '_', value, flags=re.UNICODE).strip('_')[:90] or 'Resume'
+    return clean(name) + '_' + clean(company) + '.pdf'

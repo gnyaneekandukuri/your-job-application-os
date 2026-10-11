@@ -29,11 +29,12 @@ export function TailorResume({jobId,label}:{jobId:string;label?:string}) {
  useEffect(()=>{if(!open||!running)return;let live=true;const timer=setInterval(()=>{void request().then(data=>{if(live)setView(data);}).catch(e=>{if(live)setError(String(e));});},2500);return()=>{live=false;clearInterval(timer);};},[open,running,jobId]);
  async function act(suffix:string,body:unknown){if(busy)return;setBusy(true);setError('');setConfirmed(false);try{setView(await request(suffix,body));setEditing(false);}catch(e){setError(String(e));}finally{setBusy(false);}}
  async function checkFinal(){
-  if(busy||running||editing||!record)return;
+  if(busy||running||!record)return;
   finalReviewPanel.current?.scrollIntoView({behavior:'smooth',block:'start'});
-  if(view?.final_review)return;
+  if(view?.final_review&&!editing)return;
   setCheckingFinal(true);setBusy(true);setError('');
-  try{setView(await request('/final-review',{revision:record.revision,confirmed:true}));}
+  try{let current=view!;if(editing){current=await request('/edit',{revision:record.revision,blocks:blocks.filter(b=>b.text.trim())});setView(current);setEditing(false);}
+   setView(await request('/final-review',{revision:current.record!.revision,confirmed:true}));}
   catch(e){setError(String(e));}finally{setCheckingFinal(false);setBusy(false);}
  }
  async function recordApplication(){if(!record||busy)return;setBusy(true);setError('');try{const response=await fetch(`/api/jobs/${jobId}/applications`,{method:'POST',headers:{'Content-Type':'application/json','X-Local-Review':'1'},body:JSON.stringify({revision:view?.exported?.revision||record.revision,confirmed:true,applied_date:appliedDate})});const data=await response.json();if(!response.ok)throw Error(typeof data.detail==='string'?data.detail:'Could not record application.');setApplicationSaved(true);setConfirmApplied(false);}catch(e){setError(String(e));}finally{setBusy(false);}}
@@ -52,7 +53,7 @@ export function TailorResume({jobId,label}:{jobId:string;label?:string}) {
  async function downloadPdf(revision:string){
   const response=await fetch(path+`/pdf?revision=${encodeURIComponent(revision)}`);
   if(!response.ok){const data=await response.json();throw Error(data.detail||'PDF download failed.');}
-  const url=URL.createObjectURL(await response.blob());const a=document.createElement('a');a.href=url;a.download='tailored-resume.pdf';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+  const url=URL.createObjectURL(await response.blob());const a=document.createElement('a');a.href=url;a.download=decodeURIComponent(response.headers.get('Content-Disposition')?.match(/filename\*=UTF-8''([^;]+)/i)?.[1]||'resume.pdf');a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
   setView(await request());
  }
  async function finish(){
@@ -60,6 +61,7 @@ export function TailorResume({jobId,label}:{jobId:string;label?:string}) {
   try{
    let current=view;
    if(editing){current=await request('/edit',{revision:view.record.revision,blocks:blocks.filter(b=>b.text.trim())});setView(current);setEditing(false);}
+   current=await request('/prepare-download',{revision:current.record!.revision,confirmed:true});setView(current);
    await downloadPdf(current.record!.revision);
   }catch(e){setError(String(e));}finally{setBusy(false);}
  }
@@ -68,6 +70,7 @@ export function TailorResume({jobId,label}:{jobId:string;label?:string}) {
  <div className="skills-dialog-heading"><div><h2>Tailor your resume</h2><p>{label||"Review the draft, make your edits, then save and download."}</p></div><button onClick={close} aria-label="Close resume tailoring">Close</button></div>
  {error&&<p role="alert">{error}</p>}
  {!view?<p>Loading your resume…</p>:<>
+ {record?.draft&&<div className="resume-score-entry"><button className="primary" disabled={busy||running||!view.final_review_supported} onClick={()=>void checkFinal()}>{checkingFinal?'Getting your score…':editing?'Save & get JD match score · API usage':view.final_review?'View JD match score':'Get JD match score · API usage'}</button><span>Optional · compares only your final resume and JD.</span>{!view.final_review_supported&&<span>The server needs updating to enable scoring.</span>}</div>}
  <details open={!record}><summary>Resume and writing approach</summary>
  <label>Writing approach<select value={framework} disabled={busy||running} onChange={e=>setFramework(e.target.value)}>{styles.map(([id,label])=><option value={id} key={id}>{label}</option>)}</select></label><p>{examples[framework]}</p>
  <label className="tailor-checkbox"><input type="checkbox" checked={remember} onChange={e=>setRemember(e.target.checked)}/> Remember this approach for future jobs</label>
@@ -134,8 +137,8 @@ export function TailorResume({jobId,label}:{jobId:string;label?:string}) {
  <strong>{editing?'Unsaved edits':record.state==='APPROVED'?'Approved resume':'Your tailored draft'}</strong>
  <button className="primary" disabled={busy||running||!editing||!blocks.some(b=>b.text.trim())} onClick={()=>void act('/edit',{revision:record.revision,blocks:blocks.filter(b=>b.text.trim())})}>Save changes</button>
  {editing&&<button disabled={busy} onClick={()=>{setEditing(false);setEditorReset(n=>n+1);setSelected(0);}}>Discard edits</button>}
- {view.final_review_supported&&<button disabled={busy||running||editing} title={editing?'Save your changes before checking this version':'Optional Jev check using only your saved resume and JD'} onClick={()=>void checkFinal()}>{checkingFinal?'Checking JD match…':view.final_review?'View JD match score':'Check JD match score · API usage'}</button>}
- {view.final_review_supported&&editing&&<small>Save changes to check the JD match score.</small>}
+ {view.final_review_supported&&<button disabled={busy||running} title={editing?'Save your edits and check this version':'Optional Jev check using only your saved resume and JD'} onClick={()=>void checkFinal()}>{checkingFinal?'Checking JD match…':editing?'Save & get JD match score · API usage':view.final_review?'View JD match score':'Get JD match score · API usage'}</button>}
+
  <button className="primary" disabled={busy||running} onClick={()=>void finish()}>Done — save &amp; download PDF</button>
  <span className="resume-export-note">Saves your edits and downloads this version. No API usage.</span>
  <button aria-pressed={showEvidence} onClick={()=>setShowEvidence(v=>!v)}>{showEvidence?'Hide evidence':'Show evidence'}</button>

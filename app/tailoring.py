@@ -589,8 +589,26 @@ class Tailoring:
     def exported(self, job, revision):
         return self.engine.get('tailoring:pdf:' + job.id + ':' + revision)
 
+    def prepare_download(self, job, data):
+        from .resume_pdf import LAYOUT_VERSION
+        with self.lock:
+            key, record = self.current(job, data.revision)
+            saved = self.exported(job, data.revision)
+            if saved and saved.get('layout_version') != LAYOUT_VERSION:
+                # Keep previously downloaded/application-linked PDFs immutable.
+                self.engine.put(key+':revision:'+record['revision'],record)
+                record = {**record,'revision':str(uuid4()),'updated_at':now()}
+                self.engine.put(key,record)
+            return self.view(job)
+
+    def pdf_filename(self, job, revision):
+        from .resume_pdf import download_filename
+        saved = self.exported(job, revision)
+        record = saved['record'] if saved else self.current(job, revision)[1]
+        return download_filename(record['draft']['blocks'], job.company)
+
     def export_pdf(self, job, revision):
-        from .resume_pdf import render_resume
+        from .resume_pdf import render_resume, LAYOUT_VERSION
         with self.lock:
             saved = self.exported(job, revision)
             if saved:
@@ -601,7 +619,7 @@ class Tailoring:
             if not record.get('draft') or not record['draft'].get('blocks'):
                 raise RetrievalError('Save a resume before downloading.',409)
             pdf = render_resume(record['draft']['blocks'])
-            saved = {'record':record,'pdf':base64.b64encode(pdf).decode('ascii'),'created_at':now(),'revision':revision}
+            saved = {'record':record,'pdf':base64.b64encode(pdf).decode('ascii'),'created_at':now(),'revision':revision,'layout_version':LAYOUT_VERSION}
             self.engine.put('tailoring:pdf:' + job.id + ':' + revision, saved)
             self.engine.put('tailoring:export-latest:' + job.id, {'revision':revision,'created_at':saved['created_at']})
             return pdf

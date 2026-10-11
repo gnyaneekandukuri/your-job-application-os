@@ -42,6 +42,33 @@ def test_pdf_pagination_preserves_every_block():
     assert all(f'Item {n}:' in text for n in range(45))
     assert 'AI → reporting' in text
 
+
+def test_compact_export_and_personalized_filename_keep_old_pdf(setup):
+    from app.resume_pdf import download_filename
+    s,j,p,*_=setup
+    r=generate(s,j)
+    old=s.export_pdf(j,r['revision'])
+    cache='tailoring:pdf:'+j.id+':'+r['revision']
+    saved=s.engine.get(cache);saved.pop('layout_version');s.engine.put(cache,saved)
+    next_record=s.prepare_download(j,Action(revision=r['revision'],confirmed=True))['record']
+    assert next_record['revision']!=r['revision']
+    assert next_record['draft']==r['draft']
+    assert s.export_pdf(j,r['revision'])==old
+    assert s.pdf_filename(j,next_record['revision'])=='Alex_Example_Target_Inc.pdf'
+    assert download_filename([{'kind':'contact','text':'JANE CANDIDATE'}],'Acme')=='Jane_Candidate_Acme.pdf'
+    assert len(p.calls)==2
+
+
+def test_compact_layout_retains_all_paragraphs():
+    from app.resume_pdf import render_resume, _render_resume
+    rows=[{'kind':'contact','text':'Sample Person','format':{'font_size':14}}]
+    rows += [{'kind':'bullet','text':f'Point {i}: Led product work with engineering and design, improving delivery time by 20% for a customer reporting workflow.', 'format':{'font_size':10}} for i in range(24)]
+    pdf=render_resume(rows)
+    pages=PdfReader(io.BytesIO(pdf)).pages
+    assert len(pages)==1
+    text=''.join(p.extract_text() for p in pages)
+    assert all(f'Point {i}:' in text for i in range(24))
+
 BASE = 'Alex Example\nalex@example.com\nExample Labs | Product Manager | 2022–2025\nBuilt a reporting prototype for 12 users.'
 PASSAGE = 'At Example Labs, Alex built a reporting prototype for 12 users during a pilot.'
 

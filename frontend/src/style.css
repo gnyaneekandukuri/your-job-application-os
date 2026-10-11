@@ -1105,3 +1105,5 @@ button.text-button { border: 0; background: transparent; padding: .2rem .25rem; 
 .application-dialog label {margin:18px 0;}
 .application-confirmation {padding:20px;border:1px solid #bdcec1;border-radius:12px;margin:18px 0;background:#f4f8f3;}
 .application-confirmation label {display:block;margin:12px 0;}
+
+.resume-score-entry {display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin:12px 0 24px;}
