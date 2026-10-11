@@ -44,6 +44,17 @@ def test_changed_guidance_invalidates_and_oversize_never_sent():
     c['positioning_guidance'][0]['text']='Updated positioning'
     v=m.generate(t,j,m.DraftInput(revision=v['revision']))
     assert len(e.calls)==2
+
     j.description='x'*110000
     with pytest.raises(RetrievalError):m.generate(t,j,m.DraftInput(revision=v['revision']))
     assert len(e.calls)==2
+
+def test_new_instructions_preserve_saved_edits_until_explicit_redraft(monkeypatch):
+    e,j,t,c=setup()
+    first=m.generate(t,j,m.DraftInput())
+    edited=m.save(e,j,m.SaveInput(text='My personal edited introduction',revision=first['revision']))
+    monkeypatch.setattr(m,'PROMPT',m.PROMPT+'\nUpdated writing guidance.')
+    assert m.view(e,j)['text']==edited['text']
+    m.generate(t,j,m.DraftInput(revision=edited['revision']))
+    assert len(e.calls)==2
+    assert e.calls[-1]['instructions']==m.PROMPT
