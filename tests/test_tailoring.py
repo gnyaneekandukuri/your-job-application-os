@@ -538,3 +538,16 @@ def test_accept_saved_suggestion_after_rules_change(setup,operation):
     assert len(updated['draft']['blocks'])==len(r['draft']['blocks'])+(operation=='add')
     assert s.view(j)['record']['draft']==updated['draft']
     assert len(p.calls)==2
+
+
+def test_pdf_del_bullets_keep_separate_accomplishments(monkeypatch):
+    from app import resume_master
+    class Page:
+        mediabox=type('Box',(),{'width':612,'height':792})()
+        def get_contents(self): return None
+        def extract_text(self,visitor_text):
+            for text,y in [('Alex Example',750),('alex@example.com',730),('EXPERIENCE',710),('\x7f Led discovery',690),('with customers',678),('\x7f Built a prototype',662)]:
+                visitor_text(text,[1,0,0,1,40,y],[1,0,0,1,0,0],{'/BaseFont':'TimesNewRoman'},10)
+    monkeypatch.setattr(resume_master,'PdfReader',lambda _:type('Reader',(),{'is_encrypted':False,'pages':[Page()]})())
+    items=resume_master.pdf_template(b'fixture')
+    assert [(b['kind'],b['text']) for b in items[-2:]]==[('bullet','Led discovery with customers'),('bullet','Built a prototype')]

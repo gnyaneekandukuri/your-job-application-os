@@ -259,7 +259,7 @@ class Tailoring:
                 path=(self.analysis.library.root/resume['path']).resolve()
                 if not path.is_relative_to((self.analysis.library.root/'sources/master').resolve()):
                     raise RetrievalError('Master resume is outside its allowed folder.',409)
-                raw=path.read_bytes();key='tailoring:master:v2:'+digest(raw.hex())
+                raw=path.read_bytes();key='tailoring:master:v3:'+digest(raw.hex())
                 cached=self.engine.get(key)
                 if cached:return cached
                 try:blocks=file_template(path.name,raw)

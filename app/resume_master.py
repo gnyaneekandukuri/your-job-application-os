@@ -54,9 +54,9 @@ def pdf_template(raw):
                 words.append(('\t' if gap>48 else ' ' if words else '')+f['text']);previous=f
             line=''.join(words).strip()
             if not line:continue
-            bullet=line.startswith(('•','▪','●'))
+            bullet=line.startswith(('•','▪','●','\x7f'))
             if bullet:line=line[1:].strip()
-            all_bold=all(f['bold'] for f in row if f['text'] not in ('•','▪','●'))
+            all_bold=all(f['bold'] for f in row if f['text'] not in ('•','▪','●','\x7f'))
             heading=bool(blocks and line.isupper() and len(line)<65)
             kind='heading' if heading else 'contact' if len(blocks)<2 else 'bullet' if bullet else 'role' if all_bold else 'text'
             font=Counter(f['font'] for f in row).most_common(1)[0][0].lower()
