@@ -54,7 +54,7 @@ def generate(tailoring, job, data):
         options=tailoring.resume_options(job)
         source=next((o for o in options if o['id'].startswith('draft:')),next(iter(options),None))
         if not source: raise RetrievalError('Add a resume in Your context first.',422)
-        _, context, _ = tailoring.context(job,source['text'])
+        _, context, _ = tailoring.context(job,source['text'],require_complete=False)
         body={'company':job.company,'role':job.title,'jd':job.description,
               'personal_note':data.note,'sources':context['sources'],
               'positioning_guidance':context['positioning_guidance'],

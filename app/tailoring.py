@@ -304,15 +304,19 @@ class Tailoring:
                 'configured':self.engine.provider.configured, 'record':record,
                 'citation_sources':citation_sources(record['context']) if record else []}
 
-    def context(self, job, base_resume):
+    def context(self, job, base_resume, require_complete=True):
         try:
             policy = SKILL.read_text(encoding='utf-8')
         except OSError:
             raise RetrievalError('Tailoring skill is unavailable. No request was sent.', 409) from None
         if not policy.strip(): raise RetrievalError('Tailoring skill is missing. No request was sent.', 409)
-        run = self.analysis.view(job, compact=True).get('run')
-        if not run or run['state'] != 'COMPLETE':
+        analysis_view = self.analysis.view(job, compact=True)
+        run = analysis_view.get('run')
+        if require_complete and (not run or run['state'] != 'COMPLETE'):
             raise RetrievalError('Complete the current deep analysis before tailoring this job.', 409)
+        if not run:
+            previous = self.engine.get('role-analysis-latest:' + job.id) if not require_complete else None
+            run = (self.engine.get(previous) if previous else None) or {'input_version':analysis_view['input_version']}
         sources, resume = self.baseline()
         base = base_resume.strip() or (resume['text'] if resume else '')
         if not base: raise RetrievalError('Add or paste a base resume before tailoring.', 409)

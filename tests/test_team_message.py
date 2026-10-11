@@ -18,7 +18,7 @@ def setup():
              'positioning_guidance':[{'title':'Positioning notes','text':'Example positioning theme'}],
              'candidate_fact_rules':{'facts':{'revenue':'pilot opportunity'}}}
     t=SimpleNamespace(engine=e,resume_options=lambda job:[{'id':'draft:1','text':'Saved resume'}],
-                      context=lambda job,resume:('',context,'version'))
+                      context=lambda job,resume,**kwargs:('',context,'version'))
     return e,j,t,context
 
 def test_draft_uses_stories_positioning_facts_and_caches():
