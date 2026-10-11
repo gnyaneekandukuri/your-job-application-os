@@ -75,7 +75,7 @@ export function TailorResume({jobId,label}:{jobId:string;label?:string}) {
    await downloadPdf(current.record!.revision);
   }catch(e){setError(String(e));}finally{setBusy(false);}
  }
- return <><button onClick={()=>{setError('');setEditing(false);setConfirmed(false);setOpen(true);}}>Tailor resume</button>
+ return <><button className="tailor-action" onClick={()=>{setError('');setEditing(false);setConfirmed(false);setOpen(true);}}>Tailor resume</button>
  <dialog ref={dialog} className="skills-dialog tailoring-dialog" onCancel={e=>{e.preventDefault();close();}} aria-label="Tailor resume">
  <div className="skills-dialog-heading"><div><h2>Tailor your resume</h2><p>{label||"Review the draft, make your edits, then save and download."}</p></div><button onClick={close} aria-label="Close resume tailoring">Close</button></div>
  {error&&<p role="alert">{error}</p>}

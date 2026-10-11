@@ -469,6 +469,12 @@ def create_app(data_dir: Path | None = None):
     def tailoring_prepare_download(job_id: str, data: TailorAction, request: Request):
         return request.app.state.tailoring.prepare_download(request.app.state.service.review(job_id).job, data)
 
+    @api.get("/api/jobs/{job_id}/cover-letter/pdf")
+    def cover_letter_pdf(job_id: str, request: Request):
+        job = request.app.state.service.review(job_id).job
+        return Response(team_message.cover_pdf(request.app.state.retrieval, job), media_type='application/pdf',
+                        headers={'Content-Disposition':'attachment; filename="Cover_letter.pdf"'})
+
     @api.get("/api/jobs/{job_id}/team-message")
     def team_message_view(job_id: str, request: Request, kind: str = 'introduction'):
         return team_message.view(request.app.state.retrieval, request.app.state.service.review(job_id).job, kind)

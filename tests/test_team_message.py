@@ -76,7 +76,7 @@ def test_company_answer_is_separate_and_question_changes_cache():
     assert m.view(e,j)==intro
 
 
-@pytest.mark.parametrize('kind',['introduction','why_company'])
+@pytest.mark.parametrize('kind',['introduction','why_company','cover_letter'])
 def test_large_message_context_preserved_in_full(kind):
     e,j,t,c=setup()
     j.description='Responsibilities. '*1800
@@ -90,3 +90,26 @@ def test_large_message_context_preserved_in_full(kind):
     assert body['sources']==c['sources']
     assert body['positioning_guidance']==c['positioning_guidance']
     assert len(e.calls)==1
+
+
+def test_cover_letter_saved_edits_exported_without_calls():
+    import io
+    from pypdf import PdfReader
+    e,j,t,c=setup()
+    original=m.save(e,j,m.SaveInput(text='Keep my introduction'))
+    answer=m.generate(t,j,m.DraftInput(kind='cover_letter',question='Under 300 words'))
+    assert m.COVER_SKILL.read_text(encoding='utf-8') in e.calls[-1]['instructions']
+    assert e.calls[-1]['instructions'].endswith(m.COVER_PROMPT)
+    assert json.loads(e.calls[-1]['input'])['application_question']=='Under 300 words'
+    m.save(e,j,m.SaveInput(kind='cover_letter',revision=answer['revision'],text='Dear Example team,\n\nMy edited letter with a specific product example.\n\nBest,\nAlex'))
+    pdf=m.cover_pdf(e,j)
+    assert 'My edited letter' in ''.join(p.extract_text() for p in PdfReader(io.BytesIO(pdf)).pages)
+    assert len(e.calls)==1 and m.view(e,j)==original
+
+
+def test_missing_cover_skill_fails_before_paid_request(tmp_path,monkeypatch):
+    e,j,t,c=setup()
+    monkeypatch.setattr(m,'COVER_SKILL',tmp_path/'missing.md')
+    with pytest.raises(RetrievalError,match='skill could not be loaded'):
+        m.generate(t,j,m.DraftInput(kind='cover_letter'))
+    assert not e.calls

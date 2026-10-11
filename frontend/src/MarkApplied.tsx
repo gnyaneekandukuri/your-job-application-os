@@ -13,7 +13,7 @@ export function MarkApplied({jobId,opportunityId,company}:{jobId?:string;opportu
   void query.invalidateQueries({queryKey:['job-list']});void query.invalidateQueries({queryKey:['job-list-status']});
   setOpen(false);
  }catch(e){setError(e instanceof Error?e.message:'Could not save application.');}finally{setBusy(false);}}
- return <><button onClick={()=>{setError('');setOpen(true);}}>I applied</button><dialog ref={dialog} className="skills-dialog" aria-label={`Record application to ${company}`} onCancel={e=>{if(busy)e.preventDefault();else setOpen(false);}}>
+ return <><button className="applied-action" onClick={()=>{setError('');setOpen(true);}}>I applied</button><dialog ref={dialog} className="skills-dialog" aria-label={`Record application to ${company}`} onCancel={e=>{if(busy)e.preventDefault();else setOpen(false);}}>
  <h2>Applied to {company}</h2><p>Record an application you already submitted. No tailored resume is required.</p>
  <form onSubmit={e=>{e.preventDefault();void confirm();}}><fieldset disabled={busy}>
  <label>Application date<input type="date" required value={date} onChange={e=>setDate(e.target.value)}/></label>
