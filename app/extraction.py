@@ -39,6 +39,16 @@ class TextParser(HTMLParser):
 def plain_text(value):
     if not isinstance(value, str):
         return ""
+    # Some JobPosting feeds entity-escape the HTML inside the JSON string.
+    # Decode markup before parsing so paragraph/list boundaries survive. Do not
+    # repeatedly parse the resulting text: literal comparisons must stay text.
+    for _ in range(2):
+        decoded = html.unescape(value)
+        if not re.search(r'(?:<|&lt;)/?(?:p|div|br|li|ul|ol|strong|em|h[1-6]|section)\b', decoded, re.I):
+            break
+        if decoded == value:
+            break
+        value = decoded
     parser = TextParser()
     parser.feed(value)
     return "\n".join(line.strip() for line in "".join(parser.parts).splitlines() if line.strip())
