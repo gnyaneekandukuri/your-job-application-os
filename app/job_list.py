@@ -10,7 +10,7 @@ from contextlib import closing
 from datetime import datetime, timezone, timedelta
 from threading import Event, Lock, Thread
 
-VERSION = 'job-list-v5-evidence-explanations'
+VERSION = 'job-list-v6-retention'
 log = logging.getLogger(__name__)
 
 
@@ -154,7 +154,11 @@ class JobList:
                                         ' AND '.join(where)+' GROUP BY freshness', args):
                 bucket = 'recent' if age == 'within_24h' else 'older' if age == 'older' else 'uncertain'
                 freshness_counts[bucket] += count
-            if show == 'recent': where.append("freshness='within_24h'")
+            if show == 'active':
+                where.append("(COALESCE(json_extract(payload,'$.age_state'),'unknown') != 'older_than_four_days' OR json_extract(payload,'$.retention_protected')=1)")
+            elif show == 'kept': where.append("json_extract(payload,'$.retention_protected')=1")
+            elif show == 'watched': where.append("json_extract(payload,'$.company_watched')=1")
+            elif show == 'recent': where.append("freshness='within_24h'")
             elif show == 'older': where.append("freshness='older'")
             elif show == 'uncertain': where.append("freshness IN ('date_only','unknown')")
             elif show == 'missing': where.append('description_length<200')

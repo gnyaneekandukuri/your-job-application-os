@@ -52,6 +52,16 @@ def test_saved_pages_do_not_recompute_and_details_are_not_transferred(model):
     assert d.table_view.call_count==1
 
 
+def test_active_filter_keeps_selected_and_unknown_dates(model):
+    m,source,d=model
+    source['items']=[listing(1,age_state='active'),listing(2,age_state='older_than_four_days'),
+                     listing(3,age_state='unknown'),listing(4,age_state='older_than_four_days',retention_protected=True)]
+    m.refresh()
+    assert {i['id'] for i in m.page(show='active')['items']}=={'1','3','4'}
+    assert m.page(show='all')['total']==4
+    assert m.page(show='kept')['total']==1
+
+
 def test_filters_and_refresh_replace_prior_generation(model):
     m,source,d=model
     source['items']=[listing(1),listing(2,location_match={'status':'outside'}),

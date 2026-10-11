@@ -7,6 +7,7 @@ from pathlib import Path
 from fastapi import FastAPI, Request, Query
 from fastapi.responses import JSONResponse, Response
 from .applications import Applications, ConfirmApplication, UpdateApplication
+from .job_retention import KeepJob, WatchCompany, keep, watch, watchlist, status as retention_status
 from fastapi.staticfiles import StaticFiles
 from langgraph.checkpoint.sqlite import SqliteSaver
 from starlette.middleware.trustedhost import TrustedHostMiddleware
@@ -135,6 +136,22 @@ def create_app(data_dir: Path | None = None):
     @api.get("/api/discovery/status")
     def job_list_status(request: Request):
         return request.app.state.job_list.status()
+
+    @api.get("/api/discovery/watchlist")
+    def company_watchlist(request: Request):
+        return watchlist(request.app.state.discovery)
+
+    @api.get("/api/discovery/retention")
+    def retention_info(request: Request):
+        return retention_status(request.app.state.discovery)
+
+    @api.post("/api/discovery/watchlist")
+    def save_company_watchlist(data: WatchCompany, request: Request):
+        return watch(request.app.state.discovery, data)
+
+    @api.post("/api/discovery/{opportunity_id}/keep")
+    def keep_opportunity(opportunity_id: str, data: KeepJob, request: Request):
+        return keep(request.app.state.discovery, opportunity_id, data.keep)
 
     @api.get("/api/discovery/page")
     def job_list_page(request: Request, page: int = Query(1, ge=1), size: int = Query(25, ge=1, le=100),

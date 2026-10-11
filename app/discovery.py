@@ -100,6 +100,10 @@ class Discovery:
         self.jev = JevClassifier(path)
         from .selected_assessments import SelectedQueue
         self.selected = SelectedQueue(self)
+        from .job_retention import initialize
+        with self.db() as db:
+            initialize(db)
+        self.retention_checked_at = None
 
     def screening_profile(self, preferences):
         from .discovery_screening import candidate_profile
@@ -220,8 +224,15 @@ class Discovery:
             automatic = {r['opportunity_id']:dict(r) for r in db.execute('SELECT * FROM automatic_assessments')}
             selected_rows = {r['opportunity_id']:dict(r) for r in db.execute('SELECT opportunity_id,state,error FROM selected_assessments')}
             fetched_rows = {r['opportunity_id']:dict(r) for r in db.execute('SELECT * FROM description_fetches')}
+            kept = {r[0] for r in db.execute('SELECT opportunity_id FROM kept_jobs')}
+            watched = {r[0] for r in db.execute('SELECT id FROM company_watchlist')}
             for row in db.execute('SELECT * FROM opportunities ORDER BY first_seen DESC'):
                 item = json.loads(row['payload'])
+                from .job_retention import age_state, company_key
+                item['kept'] = row['id'] in kept
+                item['retention_protected'] = bool(row['job_id'] or row['id'] in kept or row['id'] in selected_rows)
+                item['age_state'] = age_state(item)
+                item['company_watched'] = company_key(item.get('company','')) in watched
                 sources = sightings.get(row['id'], [])
                 item.update(id=row['id'], first_seen=row['first_seen'], last_seen=row['last_seen'], job_id=row['job_id'],
                             assessment_state=row['assessment_state'], freshness=listing_freshness(item),
@@ -387,6 +398,12 @@ class Discovery:
         oid = hashlib.sha256(item['url'].encode()).hexdigest()
         stamp = now()
         with self.lock, self.db() as db:
+            retired = db.execute('SELECT id FROM seen_jobs WHERE id=? OR url=?', (oid,item['url'])).fetchone()
+            retired_source = db.execute('SELECT opportunity_id FROM seen_sources WHERE board=? AND source_id=?', (board,item['source_id'])).fetchone()
+            if retired or retired_source:
+                retired_id = retired[0] if retired else retired_source[0]
+                db.execute('INSERT OR REPLACE INTO seen_sources VALUES(?,?,?)', (board,item['source_id'],retired_id))
+                return None, False
             previous = db.execute('SELECT opportunity_id FROM sightings WHERE board=? AND source_id=?', (board, item['source_id'])).fetchone()
             if previous: oid = previous[0]
             row = db.execute('SELECT payload FROM opportunities WHERE id=?', (oid,)).fetchone()
@@ -487,6 +504,9 @@ class Discovery:
                     if self.stop.is_set(): break
                     for row in rows:
                         oid, new = self.save(board, row)
+                        if oid is None:
+                            result['previously_removed'] = result.get('previously_removed', 0) + 1
+                            continue
                         pending.add(oid)
                         self.record_scan_role({**row,'id':oid}, stage='Discovered', newly_saved=new)
                         if new:
@@ -591,6 +611,7 @@ class Discovery:
     @staticmethod
     def auto_eligible(item):
         return (item.get('keyword_match',{}).get('priority')=='high'
+                and (item.get('age_state') != 'older_than_four_days' or item.get('retention_protected'))
                 and (item.get('assessment') or {}).get('state') in (None, 'NOT_STARTED', 'STALE', 'JD_CHANGED')
                 and item.get('location_match',{}).get('status')=='match'
                 and item.get('company_fit',{}).get('automatic_allowed',True)
@@ -696,6 +717,13 @@ class Discovery:
                         if cfg['enabled'] and slot and slot != cfg.get('last_slot') and not (self.worker and self.worker.is_alive()) and not (self.selected.worker and self.selected.worker.is_alive()):
                             self.start(); cfg['last_slot'] = slot
                             with self.db() as db: db.execute('UPDATE config SET payload=? WHERE id=1', (json.dumps(cfg),))
+                    with self.lock:
+                        current = datetime.now(timezone.utc)
+                        idle = not any(w and w.is_alive() for w in (self.worker, self.selected.worker, self.analysis.worker))
+                        if idle and (self.retention_checked_at is None or (current-self.retention_checked_at).total_seconds() >= 3600):
+                            from .job_retention import cleanup
+                            cleanup(self, current)
+                            self.retention_checked_at = current
                     self.start_automatic()
                 except Exception:
                     # Transient database errors do not kill future scheduled checks.
