@@ -130,7 +130,7 @@ def save(engine, job, data):
         return result
 
 def generate(tailoring, job, data):
-    from .tailoring import parse_response
+    from .tailoring import parse_response, REQUEST_BYTE_LIMIT
     engine=tailoring.engine
     with LOCK:
         if view(engine, job, data.kind)['revision'] != data.revision:
@@ -148,8 +148,8 @@ def generate(tailoring, job, data):
         payload={'model':MODEL,'store':False,'max_output_tokens':900,'reasoning':{'effort':'none'},
                  'instructions':COMPANY_PROMPT if data.kind == 'why_company' else PROMPT,'input':json.dumps(body,ensure_ascii=False),
                  'text':{'format':{'type':'json_schema','name':'team_message','strict':True,'schema':Message.model_json_schema()}}}
-        if len(json.dumps(payload).encode())>100000:
-            raise RetrievalError('The resume and JD exceed the message request limit. Nothing was sent.',422)
+        if len(json.dumps(payload, ensure_ascii=False).encode('utf-8')) > REQUEST_BYTE_LIMIT:
+            raise RetrievalError('Combined message context exceeds the local request limit, including experience and positioning guidance. Nothing was sent or charged.',422)
         key='team-message-draft:'+digest(json.dumps(payload,sort_keys=True))
         result=engine.get(key)
         if result is None:

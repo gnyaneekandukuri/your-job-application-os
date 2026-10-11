@@ -45,7 +45,7 @@ def test_changed_guidance_invalidates_and_oversize_never_sent():
     v=m.generate(t,j,m.DraftInput(revision=v['revision']))
     assert len(e.calls)==2
 
-    j.description='x'*110000
+    j.description='x'*520000
     with pytest.raises(RetrievalError):m.generate(t,j,m.DraftInput(revision=v['revision']))
     assert len(e.calls)==2
 
@@ -74,3 +74,19 @@ def test_company_answer_is_separate_and_question_changes_cache():
     saved=m.save(e,j,m.SaveInput(kind='why_company',question=answer['question'],revision=answer['revision'],text='My edited answer'))
     assert m.view(e,j,'why_company')==saved and len(e.calls)==2
     assert m.view(e,j)==intro
+
+
+@pytest.mark.parametrize('kind',['introduction','why_company'])
+def test_large_message_context_preserved_in_full(kind):
+    e,j,t,c=setup()
+    j.description='Responsibilities. '*1800
+    c['sources'][0]['text']='Candidate experience. '*1800
+    c['positioning_guidance'][0]['text']='Candidate positioning. '*2000
+    m.generate(t,j,m.DraftInput(kind=kind))
+    payload=e.calls[0]
+    assert len(json.dumps(payload,ensure_ascii=False).encode('utf-8'))>100000
+    body=json.loads(payload['input'])
+    assert body['jd']==j.description
+    assert body['sources']==c['sources']
+    assert body['positioning_guidance']==c['positioning_guidance']
+    assert len(e.calls)==1
