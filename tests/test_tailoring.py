@@ -61,6 +61,7 @@ class Provider:
         if payload['text']['format']['name']=='resume_draft':
             master=json.loads(payload['input'])['master']
             result={'proposals':[], 'edits':[{'item_id':master[-1]['item_id'],'text':'Built a reporting prototype for 12 users during a pilot.','citations':[{'source_id':'e1','quote':PASSAGE}],'reason':'Relevant reporting work.','change_type':'job_alignment','jd_quote':'Build reporting tools'}], 'questions':['What changed after the pilot?']}
+            result['professional_summary']=None
             if self.bad_quote: result['edits'][0]['citations'][0]['quote']='Not in the source'
         else:
             if self.fail_check: raise RetrievalError('API timed out; billing unknown.',502)
@@ -101,6 +102,46 @@ def test_skill_loaded_bounded_sources_and_usage(setup):
     with s.engine.connect() as db:
         assert db.execute('select stage from calls order by id').fetchall()==[('resume_draft',),('resume_claim_check',)]
         assert db.execute('select job_id from calls').fetchall()==[('job-1',),('job-1',)]
+
+
+def test_coaching_is_positioning_input_not_citable_evidence(setup):
+    from app.tailoring import citation_sources
+    s,j,p,*_=setup
+    s.analysis.library.entries=lambda:[{'id':'coach','title':'Positioning','source_class':'COACHING_ANALYSIS_PENDING_USER_REVIEW'}]
+    s.analysis.library.describe=lambda entry,include_text=False:{'text':'Use prototypes to make product decisions. Coaching is interpretation.'}
+    r=generate(s,j)
+    assert r['state']=='DRAFT'
+    body=json.loads(p.calls[0]['input'])
+    assert body['positioning_guidance'][0]['id']=='coach'
+    assert all(x['id']!='coach' for x in citation_sources(r['context']))
+    assert 'positioning_guidance' not in json.loads(p.calls[1]['input'])
+    assert len(p.calls)==2
+
+
+def test_optional_summary_is_inserted_only_after_acceptance(setup,monkeypatch):
+    from app.tailoring import ExplainedEdit, ProposalDecision
+    s,j,p,*_=setup
+    original=s.call
+    def with_summary(job_id,stage,*args):
+        result=original(job_id,stage,*args)
+        if stage=='draft':
+            result.professional_summary=ExplainedEdit(item_id='',text='Product Manager with experience building reporting prototypes.',
+                citations=[{'source_id':'e1','quote':PASSAGE}],reason='Emphasizes reporting product work.',
+                change_type='job_alignment',jd_quote='Build reporting tools')
+        return result
+    monkeypatch.setattr(s,'call',with_summary)
+    r=generate(s,j,include_summary=True)
+    assert r['state']=='DRAFT'
+    assert not any(b['text']=='Professional Summary' for b in r['draft']['blocks'])
+    before=list(r['draft']['blocks'])
+    accepted=s.decide_proposal(j,ProposalDecision(revision=r['revision'],proposal_id='professional-summary',decision='accept'))['record']
+    blocks=accepted['draft']['blocks']
+    assert len(blocks)==len(before)+2
+    assert sum(b['text']=='Professional Summary' for b in blocks)==1
+    assert all(b in blocks for b in before)
+    assert json.loads(p.calls[0]['input'])['include_summary'] is True
+    assert len(p.calls)==2
+    assert b'%PDF' in s.export_pdf(j,accepted['revision'])[:4]
 
 
 def test_duplicate_reuses_and_framework_changes_are_explicit(setup):
