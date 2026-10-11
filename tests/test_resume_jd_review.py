@@ -62,7 +62,7 @@ def test_ambiguous_requirements_and_empty_jd_not_false_perfect_score(monkeypatch
     assert result['score'] is None
 
 
-def test_clear_without_reliable_resume_passage_requires_review(monkeypatch):
+def test_citation_selection_does_not_override_match(monkeypatch):
     engine, job, record = fixture(monkeypatch, ['requirement'])
     client = Client(['clear'])
     original = client.evaluate
@@ -72,5 +72,37 @@ def test_clear_without_reliable_resume_passage_requires_review(monkeypatch):
         return result
     client.evaluate = no_evidence
     result = review.evaluate(engine, job, record, client)
-    assert result['score'] is None
-    assert result['rows'][0]['status'] == 'uncertain'
+    assert result['score'] == 100
+    assert result['rows'][0]['status'] == 'clear'
+    assert result['rows'][0]['resume_quote'] == ''
+
+
+def test_low_citation_confidence_keeps_confident_match(monkeypatch):
+    engine, job, record = fixture(monkeypatch, ['requirement', 'responsibility'])
+    client = Client(['clear', 'clear'])
+    original = client.evaluate
+    def answers(*args):
+        result = original(*args)
+        result['evidence0']['confidence'] = .38
+        result['fit0']['confidence'] = .93
+        result['fit1']['confidence'] = .55
+        return result
+    client.evaluate = answers
+    result = review.evaluate(engine, job, record, client)
+    assert result['rows'][0]['status'] == 'clear'
+    assert result['rows'][0]['resume_quote'] == ''
+    assert all(not k.startswith('evidence') for k in client.calls[0][1])
+    assert result['rows'][1]['status'] == 'uncertain'
+    assert (result['low'], result['high']) == (50, 100)
+
+
+def test_section_headings_excluded_even_from_cached_extraction(monkeypatch):
+    engine, job, record = fixture(monkeypatch, [])
+    monkeypatch.setattr(review, 'extract', lambda *a, **kw: {'result': {'items': [
+        {'quote': 'What You’ll Be Doing:', 'category': 'unclear'},
+        {'quote': 'Who We’re Looking For:', 'category': 'requirement'},
+        {'quote': 'Own product strategy', 'category': 'responsibility'}]}})
+    result = review.evaluate(engine, job, record, Client(['clear']))
+    assert len(result['rows']) == 1
+    assert result['score'] == 100
+    assert not review.is_section_heading('Own these customer workflows:')

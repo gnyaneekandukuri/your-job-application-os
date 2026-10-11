@@ -125,10 +125,10 @@ export function TailorResume({jobId,label}:{jobId:string;label?:string}) {
  </section>
  {view.final_review_supported&&<section ref={finalReviewPanel} className="resume-quality" aria-label="Final resume against JD" style={{scrollMarginTop:120}}>
  <h3>Final JD match score</h3>
- <p>Uses only the saved resume and JD. Save your edits before checking.</p>
+ <p>Checks your final resume against the job description.</p>
  {checkingFinal&&<p role="status">Comparing the saved resume with the job requirements…</p>}
  {editing&&<p>Save changes to check this version. Any score below is for the previous saved version.</p>}
- {view.final_review&&<><p><strong>{view.final_review.score!==null?`Resume coverage: ${view.final_review.score}/100`:view.final_review.low!==null?`Provisional coverage: ${view.final_review.low}–${view.final_review.high}/100 · needs review`:'Not enough clear JD requirements to score'}</strong></p>
+ {view.final_review&&<><p><strong>{view.final_review.score!==null?`Resume coverage: ${view.final_review.score}/100`:view.final_review.low===0&&view.final_review.high===100?'Could not establish a useful score':view.final_review.low!==null?`Provisional coverage: ${view.final_review.low}–${view.final_review.high}/100 · needs review`:'Not enough clear JD requirements to score'}</strong></p>
  {view.final_review.uncertain_count>0&&<p>{view.final_review.uncertain_count} criteria need review; uncertainty is not a rejection.</p>}
  <details><summary>How the score works</summary><p>{view.final_review.rubric}</p></details>
  {view.final_review.rows.map((row,i)=><details key={i}><summary>{row.status==='clear'?'Clearly demonstrated':row.status==='partial'?'Partially demonstrated':row.status==='missing'?'Not demonstrated':'Needs review'} · {row.jd_quote}</summary><p>{row.reason} {row.weight?`${row.points===null?'Unresolved':row.points} / ${row.weight} weighted points.`:'Ambiguous requirement; not scored.'}</p>{row.resume_quote&&<blockquote>{row.resume_quote}</blockquote>}</details>)}
