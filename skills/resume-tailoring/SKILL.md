@@ -5,7 +5,7 @@ description: Tailor or review an industry resume against a job description using
 
 # Resume tailoring
 
-Policy version: 1.7. Default audience: US industry applications across roles and candidates. Ask about regional conventions when a different market requires them. Do not embed a particular candidate's history, target company, or preferred occupation in these rules.
+Policy version: 1.8. Default audience: US industry applications across roles and candidates. Ask about regional conventions when a different market requires them. Do not embed a particular candidate's history, target company, or preferred occupation in these rules.
 
 ## Load before drafting
 
@@ -63,6 +63,60 @@ The application must enforce proposal decisions in code; writing this rule does 
 - Use JD terminology only when it accurately describes the candidate's work. No keyword stuffing, hidden text, invented tool use, or copied requirements presented as experience.
 - Coaching notes may guide writing but are not evidence of candidate achievements. Keep confidential details out when the candidate has marked them private; ask about a useful anonymized description if necessary.
 
+## Metrics in every professional-experience bullet
+
+Use an Action Verb → Context → Result → Metric structure as the default drafting standard for every professional-experience accomplishment bullet, including unchanged master bullets. Apply it naturally within the selected PAR/XYZ/STAR style; do not print these labels in the resume. Aim for 100% supported metric coverage, separately from the existing 80% framework-coverage check. The framework percentage alone does not establish metric coverage.
+
+Prefer a measured outcome: time saved, adoption, quality, revenue, cost, conversion, reliability, or another relevant result. If outcome measurement is unavailable, a supported scale metric such as users served, interviews completed, or teams coordinated can make the work concrete. Describe scale honestly; a team count is not proof of business impact. Do not add arbitrary numbers, dates, or unrelated counts merely to meet this standard.
+
+For a bullet without a supported metric, first look in the supplied candidate evidence. If none exists, include a focused question in the existing questions/review output identifying the bullet and the missing measurement, such as before/after time or number of users. Keep a truthful qualitative version in the draft and report it as a metric gap; do not silently treat it as fully meeting this standard. An uncertain recollection such as "I think we doubled it" is not an established result: ask for clarification. If the candidate cannot supply a reliable number, preserve the truthful exception rather than inventing a metric, dropping the accomplishment, or blocking editing/download. Do not put placeholders such as [X%] in the application resume. Exclude headings, contact information, summaries, education and skills lists from this bullet-level requirement.
+
+Check metric gaps as part of the existing drafting/review calls, not through an extra paid call. These are writing and review instructions, not a claim that a separate automated 100% metric gate has been implemented.
+
+## Illustrative examples
+
+All examples below are fictional teaching material. Never copy their employers, accomplishments, numbers or wording into a candidate resume unless independently supported by that candidate's supplied sources. Examples demonstrate choices, not mandatory sentence templates.
+
+### Supported result and metric
+
+Source facts: The candidate led three engineers to automate deployment workflows. Deployment time fell from 12 hours to 3 hours.
+
+Good: "Led three engineers to automate deployment workflows, reducing deployment time from 12 hours to 3 hours."
+
+Bad: "Transformed engineering productivity, saving $1M annually."
+
+Why: The good bullet preserves action, context and measured result. The bad bullet invents financial impact.
+
+### Missing outcome metric
+
+Source facts: The candidate redesigned onboarding, and support staff reported fewer repeat setup questions. No count or measured reduction is available.
+
+Truthful draft exception: "Redesigned onboarding to address recurring setup problems, with support staff reporting fewer repeat questions."
+
+Review question: "For the onboarding bullet, do you have the number of users affected or a before/after count of setup questions?"
+
+Do not write: "Reduced onboarding support tickets by 40%." The draft has a qualitative result but remains a metric gap until supported measurement is supplied. If only a reliable user count is supplied, use it as scope without inventing a reduction.
+
+### Projected opportunity versus realized result
+
+Source facts: The candidate built a routing prototype. Backtesting identified an estimated $200,000 annual cost-saving opportunity; deployment has not happened.
+
+Good: "Built a routing prototype whose backtests identified an estimated $200,000 in annual cost-saving opportunity."
+
+Bad: "Launched routing optimization that saved $200,000 annually."
+
+Why: A quantified opportunity can be useful, but its estimate, backtesting and pre-deployment status must remain explicit.
+
+### Summary linked to the JD and candidate positioning
+
+JD priority: Turn customer workflow problems into self-service data products.
+
+Candidate facts: A product manager interviewed 18 analysts, built a reporting prototype, and led a pilot that reduced weekly report preparation from 5 hours to 2 hours. Coaching describes a strength in using prototypes to clarify product direction.
+
+Good summary: "Product manager who turns customer workflow research into tested product direction through hands-on prototypes. Led a reporting pilot that reduced weekly preparation from 5 hours to 2 hours."
+
+Why: The theme comes from coaching, the work and numbers come from candidate evidence, and the emphasis addresses the JD. Do not turn the pilot into a company-wide rollout or claim AI expertise merely because the target job mentions AI.
+
 ## Writing and layout
 
 - Use concrete actions, relevant context, and supported outcomes. Avoid generic praise, flowery language, and responsibility lists that hide the candidate's contribution. No personal pronouns in default bullets.
@@ -106,7 +160,7 @@ Apply same-accomplishment wording improvements in the draft. Propose replacement
 
 ## Required quality gates
 
-At least 80% of professional-experience bullets must meet the selected framework before approval, rounded up to a whole bullet. Evaluate unchanged master bullets too. Exclude contact details, role headers, education, skills lists and other sections. PAR needs project/problem, personal action and a supported result; concise STAR also makes the situation/task clear. XYZ needs accomplishment, a documented measurement and method. Existing-style drafts keep their voice but still need action and supported result for the same 80% threshold. Qualitative results count except where the candidate selected XYZ. Never invent an outcome or metric to pass; flag the missing component and ask for evidence.
+At least 80% of professional-experience bullets must meet the selected framework before approval, rounded up to a whole bullet. Evaluate unchanged master bullets too. Exclude contact details, role headers, education, skills lists and other sections. PAR needs project/problem, personal action and a supported result; concise STAR also makes the situation/task clear. XYZ needs accomplishment, a documented measurement and method. Existing-style drafts keep their voice but still need action and supported result for the same 80% threshold. Qualitative results count toward PAR/STAR/existing-style framework coverage, but do not satisfy the separate metric-per-bullet standard below. Never invent an outcome or metric to pass; flag the missing component and ask for evidence.
 
 For every numeric claim, check the metric meaning, unit, baseline, period, personal/team scope and whether it is projected, identified, backtested, piloted or realized. Cross-check candidate stories and fact/conflict rules even when the old resume contains the number. Product revenue is not necessarily ARR; investment is not revenue; profit opportunity is not achieved profit. An unresolved metric conflict fails the claim check regardless of framework coverage. Return exact draft excerpts for each framework component and numeric claim. The application verifies coverage, and displays failures before approval.
 
