@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 const compiled=await readFile(new URL('../../.local/queue-tests/assessmentQueue.js',import.meta.url),'utf8');
-const {queueGroup,nextAction,analysisFilter,processingStatus}=await import('data:text/javascript;base64,'+Buffer.from(compiled).toString('base64'));
+const {queueGroup,nextAction,analysisFilter,processingStatus,recentResultsFirst}=await import('data:text/javascript;base64,'+Buffer.from(compiled).toString('base64'));
 const role=(assessment)=>({job_id:'1',company:'Example',title:'PM',url:'',assessment:{state:'COMPLETE',score:76,recommendation:'CASUAL',...assessment}});
 test('recommendations never count as candidate choices',()=>{assert.equal(queueGroup(role({})),'decision');assert.equal(queueGroup(role({recommendation:'ATTACK_HARD'})),'decision');});
 test('only current chosen pursuits enter shortlist',()=>{assert.equal(queueGroup(role({choice:'CASUAL'})),'shortlist');assert.equal(queueGroup(role({choice:'ATTACK_HARD'})),'shortlist');assert.equal(queueGroup(role({choice:'SKIP'})),'skipped');});
@@ -49,4 +49,12 @@ test('recommendation groups partition completed results independently of persona
   const r=role({recommendation,choice:'SKIP'});
   assert.equal(['worth','review','consider_passing','unavailable'].filter(f=>analysisFilter(r,f)).length,1);
  }
+});
+
+test('newly completed analyses come first regardless of score or scan sightings',()=>{
+ const old={...role({score:99,assessed_at:'2026-10-07T10:00:00Z'}),job_id:'old',last_scanned_at:'2026-10-08T10:00:00Z'};
+ const seen={...role({score:70,assessed_at:'2026-10-06T10:00:00Z'}),job_id:'seen',in_latest_scan:true,last_scanned_at:'2026-10-10T10:00:00Z'};
+ const fresh={...seen,job_id:'fresh',assessment:{...seen.assessment,score:60,assessed_at:'2026-10-10T11:00:00Z'}};
+ assert.deepEqual([old,seen,fresh].sort(recentResultsFirst).map(r=>r.job_id),['fresh','old','seen']);
+ assert.equal(seen.assessment.assessed_at,'2026-10-06T10:00:00Z');
 });

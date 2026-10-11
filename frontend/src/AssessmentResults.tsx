@@ -2,7 +2,7 @@ import { TailorResume } from "./TailorResume";
 import { RecommendationWhy } from './RecommendationWhy';
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { analysisFilter, processingStatus, type Result } from "./assessmentQueue";
+import { analysisFilter, processingStatus, recentResultsFirst, type Result } from "./assessmentQueue";
 type State={ready:boolean;items:Result[];queued_count:number;settings:{auto_assess:boolean;auto_assess_pause_reason?:string}};
 const filters=[["all","All"],["worth","Worth applying"],["review","Needs review"],["consider_passing","Consider passing"],["unavailable","Unavailable"]];
 const recommendation=(r:Result)=>r.assessment.listing_changed?'Review updated JD':r.assessment.state!=='COMPLETE'?'Not finished':!r.assessment.recommendation?'Recommendation unavailable':r.assessment.recommendation==='REVIEW'?'Needs review before deciding':r.assessment.recommendation==='SKIP'?'Consider passing':r.assessment.recommendation==='ATTACK_HARD'?'Worth applying · prioritize':'Worth applying';
@@ -12,7 +12,7 @@ export function AssessmentResults({onOpen,onDiscover,onUpdatedJD,initialTab="all
  useEffect(()=>{if(!status.data?.ready)return;let live=true;const controller=new AbortController();
  const load=async()=>{try{const r=await fetch('/api/assessments/saved',{signal:controller.signal});if(!r.ok)throw new Error('Could not load analyzed jobs.');const value=await r.json();if(live){if(value.ready)setData(value);setError('');}}catch(e){if(live)setError(String(e));}};
  void load();return()=>{live=false;controller.abort();};},[status.data?.revision]);
- const all=data?.items??[],items=all.filter(r=>analysisFilter(r,filter)).sort((a,b)=>(b.assessment.score??-1)-(a.assessment.score??-1));
+ const all=data?.items??[],items=all.filter(r=>analysisFilter(r,filter)).sort(recentResultsFirst);
  const active=all.filter(r=>r.assessment.state==='RUNNING');
  const processing=all.filter(r=>processingStatus(r)&&r.assessment.state!=='RUNNING');
  const pending=(data?.queued_count??0)+active.length;
@@ -43,13 +43,13 @@ export function AssessmentResults({onOpen,onDiscover,onUpdatedJD,initialTab="all
  </details>}
  {data&&<p role="status"><strong>{all.filter(r=>r.assessment.state==='COMPLETE').length} completed analyses</strong> · Scores stay visible even when a recommendation needs review or could not finish.</p>}
  <div className="analysis-toolbar"><label>Recommendation<select value={filter} onChange={e=>setFilter(e.target.value)}>{filters.map(([id,label])=><option key={id} value={id}>{label}{data?` (${all.filter(r=>analysisFilter(r,id)).length})`:''}</option>)}</select></label><span>Deep assessment explains the fit. You decide whether to pursue the job.</span></div>
- <p className="discovery-clock">Open Tailor resume to choose a writing approach and prepare a draft for a completed assessment.</p>
+ <p className="discovery-clock">Most recently analyzed first.</p>
  {data?.settings.auto_assess_pause_reason&&<p role="status">{data.settings.auto_assess_pause_reason}</p>}
  {status.data?.refreshing&&data&&<p role="status">Updating saved results…</p>}
  {(status.error||status.data?.error)&&<p role="alert">{status.error?.message||status.data?.error}</p>}
  {error&&<p role="alert">{error}</p>}{notice&&<p role="status">{notice}</p>}
  {!data?<p>Loading analyzed jobs…</p>:!items.length?<div className="decision-empty"><h2>{pending>0?"No completed jobs match this filter yet":"No jobs in this view"}</h2><p>{pending>0?"Analysis is underway above. Choose All recommendations to see every completed result.":"No completed analyses have this recommendation. Choose All to see every completed result."}</p><button onClick={()=>setFilter("all")}>Show all recommendations</button><button onClick={onDiscover}>Go to New jobs</button></div>:<div className="discovery-table-scroll" tabIndex={0} role="region" aria-label="Analyzed jobs"><table className="discovery-table"><thead><tr><th>Company / role</th><th>Evidence score</th><th>Listing</th><th>Recommendation & why</th><th>Next action</th></tr></thead><tbody>
- {items.map(r=><tr key={r.job_id}><td><strong>{r.company}</strong><div>{r.title}</div></td><td>{r.assessment.score===null?'—':`${r.assessment.score}/100`}{r.assessment.provisional&&<small>Provisional</small>}{r.assessment.state==='STALE'&&<small>Outdated</small>}</td><td>{r.url&&<a href={r.url} target="_blank" rel="noreferrer">View listing ↗</a>}</td><td><strong>{recommendation(r)}</strong>{r.assessment.explanation&&<RecommendationWhy value={r.assessment.explanation}/>}{!r.assessment.recommendation&&(r.assessment.recommendation_error||r.assessment.error)&&<p>{r.assessment.recommendation_error||r.assessment.error}</p>}{r.assessment.choice&&<small>Your choice: {r.assessment.choice==='SKIP'?'Passed':'Want to pursue'}</small>}</td><td>
+ {items.map(r=><tr key={r.job_id}><td><strong>{r.company}</strong><div>{r.title}</div>{r.assessment.assessed_at&&<small>Analyzed · {new Date(r.assessment.assessed_at).toLocaleString()}</small>}</td><td>{r.assessment.score===null?'—':`${r.assessment.score}/100`}{r.assessment.provisional&&<small>Provisional</small>}{r.assessment.state==='STALE'&&<small>Outdated</small>}</td><td>{r.url&&<a href={r.url} target="_blank" rel="noreferrer">View listing ↗</a>}</td><td><strong>{recommendation(r)}</strong>{r.assessment.explanation&&<RecommendationWhy value={r.assessment.explanation}/>}{!r.assessment.recommendation&&(r.assessment.recommendation_error||r.assessment.error)&&<p>{r.assessment.recommendation_error||r.assessment.error}</p>}{r.assessment.choice&&<small>Your choice: {r.assessment.choice==='SKIP'?'Passed':'Want to pursue'}</small>}</td><td>
  {r.assessment.listing_changed&&r.opportunity_id?<button onClick={()=>onUpdatedJD(r.opportunity_id!)}>Review updated JD</button>:<button onClick={()=>void open(r.job_id)}>{r.assessment.state==='COMPLETE'?'Review evidence':'Open unfinished analysis'}</button>}
  {r.assessment.state==='COMPLETE'&&!r.assessment.listing_changed&&<><TailorResume jobId={r.job_id} label={`${r.company} · ${r.title}`}/><button disabled={!!saving||!!status.data?.refreshing} onClick={()=>void choose(r,r.assessment.choice==='SKIP'?'CASUAL':'SKIP')}>{saving===r.job_id?'Saving…':r.assessment.choice==='SKIP'?'Reconsider':'Pass'}</button></>}
  </td></tr>)}

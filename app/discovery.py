@@ -339,7 +339,8 @@ class Discovery:
                         'stage':'Previous assessment saved. Sources, criteria or assessment method changed; open it to review or reassess.'}
             state = run['state'] if run else 'NOT_STARTED'
             score = view.get('score')
-            result = {'state':state,'stage':run.get('stage','') if run else '', 'error':run.get('error','') if run else '',
+            result = {'assessed_at':run.get('updated_at') if run and state=='COMPLETE' else None,
+                      'state':state,'stage':run.get('stage','') if run else '', 'error':run.get('error','') if run else '',
                       'score':score.get('percent') if score else None, 'provisional':bool(score and score.get('provisional')),
                       'recommendation':None,'choice':None}
             if state == 'COMPLETE':
