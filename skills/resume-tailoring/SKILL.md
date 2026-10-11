@@ -5,7 +5,7 @@ description: Tailor or review an industry resume against a job description using
 
 # Resume tailoring
 
-Policy version: 1.9. Default audience: US industry applications across roles and candidates. Ask about regional conventions when a different market requires them. Do not embed a particular candidate's history, target company, or preferred occupation in these rules.
+Policy version: 2.0. Default audience: US industry applications across roles and candidates. Ask about regional conventions when a different market requires them. Do not embed a particular candidate's history, target company, or preferred occupation in these rules.
 
 ## Load before drafting
 
@@ -212,3 +212,17 @@ When the candidate requests Final resume check, save their latest edits and send
 Return a resume-fit score out of 100 with an explanation, strongest matches, important gaps and specific improvements before applying. Dimensions: role alignment 40, ownership and scope 25, impact and specificity 20, clarity and emphasis 15. Sum validated dimension points locally. Do not classify mandatory versus preferred to gate the score or request paragraph selection. Do not invent claims, rewrite the resume, or claim to predict interview selection or an employer ATS result. Inputs too incomplete to assess produce an explicit explanation, not a fabricated score.
 
 Record API usage, reuse unchanged inputs, and invalidate the displayed result when the visible resume, JD, model or rubric changes. No automatic retries, checks during edits/download, or score-based download blocking. The existing AI draft review is separate from this final resume-only score.
+
+
+## Final draft improvement pass
+The review must return supported same-accomplishment corrections as structured repairs, not only suggestions to the candidate. Tighten repetition, make the contribution and supported consequence explicit, correct candidate-confirmed facts, and sharpen the connection to the primary JD responsibilities. Preserve other supported details and Additional Information. The application applies validated repairs once, retains the pre-repair draft, and reviews that revised version once. No indefinite repair loop, no claim that an earlier review verified later edits, and no download restriction. This can add one paid review call only when repairs change the draft. Questions that genuinely require new candidate facts remain questions.
+
+Use any supplied positioning guidance to choose one relevant strength and demonstrate it through the candidate's decisions and consequences. Do not repeat a summary's entire example across the first three bullets. Each bullet should add a distinct reason to interview the candidate. A portfolio/business-ownership JD needs evidence of commercial decisions and outcomes; an intelligence/workflow JD needs the user's decision, interaction and resulting action, not merely a list of AI technologies. Do not claim missing domain or funnel experience.
+
+Put the customer consequence and the candidate's decision before implementation detail. Avoid defensive phrases such as 'not realized results' when 'projected' already states the qualification. When a fundraising number is disputed, retain the supported contribution without inserting a narrative of company failure. Never substitute a positive invented outcome. Existing source conflicts are not resolved by a matching number.
+
+Example (fictional): 'Built a prototype, tested it with 18 analysts, changed the roadmap, built the prototype...' repeats the story. Prefer 'Used interviews with 18 analysts and a reporting prototype to redirect the roadmap toward self-service; the pilot reduced weekly preparation from five hours to two.' Use this only when every fact is supplied, never copy its metrics into another candidate's resume.
+
+Confirmed candidate corrections take precedence over an older master. Unresolved contradictions require a focused question and supported alternative wording; do not choose one silently. Preserve authentic positioning even for a stretch role. Compress duplicated language before compressing typography. A clean page count alone is not a readability check.
+
+Same-role reordering of existing bullets is applied automatically during new generation to lead with stronger JD evidence, with the original order saved. Never move content across role headers. This exception overrides the earlier reorder-acceptance instruction; adding, replacing, combining and removing accomplishments still require acceptance.

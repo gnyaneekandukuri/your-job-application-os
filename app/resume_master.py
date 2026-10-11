@@ -19,7 +19,7 @@ def default_format(kind, first=False):
             'align':'center' if kind=='contact' else 'left'}
 
 
-def format_text_blocks(rows, protected=(), aliases=None):
+def format_text_blocks(rows, protected=(), aliases=None, preserve_format=False):
     """Reconstruct plain-text layout without generating or deleting wording.
 
     Protected proposal targets stay separate so accepting an existing suggestion
@@ -47,7 +47,7 @@ def format_text_blocks(rows, protected=(), aliases=None):
             if match and match.start()>0:
                 # Only introduce an alignment separator; preserve every word.
                 text=text[:match.start()].rstrip()+'\t'+text[match.start():]
-        b.update(kind=kind,text=text,format=default_format(kind,i==0))
+        b.update(kind=kind,text=text,format=b.get('format',default_format(kind,i==0)) if preserve_format else default_format(kind,i==0))
     output=[]; summary=False
     for b in blocks:
         starts_summary=b['text'].lower().startswith('summary:')
@@ -58,7 +58,12 @@ def format_text_blocks(rows, protected=(), aliases=None):
             previous=output[-1]
             refs=previous.get('citations',[])+[c for c in b.get('citations',[]) if c not in previous.get('citations',[])]
             if len(previous['text'])+len(b['text'])<1199 and len(refs)<=6:
-                previous['text']+=' '+b['text']
+                # Older drafts can contain an already rewritten complete bullet
+                # followed by its original wrapped tail. Do not append that tail twice.
+                tail=' '.join(b['text'].split()).rstrip('.').casefold()
+                prior=' '.join(previous['text'].split()).rstrip('.').casefold()
+                if len(tail)<40 or tail not in prior:
+                    previous['text']+=' '+b['text']
                 previous['citations']=refs
                 if aliases is not None and b.get('item_id'):
                     aliases[b['item_id']]=previous.get('item_id',b['item_id'])
@@ -67,6 +72,11 @@ def format_text_blocks(rows, protected=(), aliases=None):
         if starts_summary: summary=True
         elif b['kind'] in ('heading','role','bullet','contact'): summary=False
     return output
+
+
+def normalize_master(rows):
+    """Normalize cached/imported masters before allocating edit and citation IDs."""
+    return finish(format_text_blocks(rows, preserve_format=True))
 
 
 def text_template(text):

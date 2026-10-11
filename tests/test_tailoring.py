@@ -72,6 +72,67 @@ def test_compact_layout_retains_all_paragraphs():
 BASE = 'Alex Example\nalex@example.com\nExample Labs | Product Manager | 2022–2025\nBuilt a reporting prototype for 12 users.'
 PASSAGE = 'At Example Labs, Alex built a reporting prototype for 12 users during a pilot.'
 
+
+def test_confirmed_correction_overrides_old_master_without_mutating_it():
+    from app.tailoring import apply_confirmed_corrections
+    original={'blocks':[{'kind':'bullet','text':'MBA | GPA: 3.75/4.0','citations':[]}]}
+    fact={'id':'gpa','claim':'GPA: 3.55/4.0','status':'USER_CONFIRMED','replacements':[{'old':'GPA: 3.75/4.0','new':'GPA: 3.55/4.0'}]}
+    body={'candidate_fact_rules':{'facts':{'facts':[fact]}}}
+    fixed=apply_confirmed_corrections(original,body)
+    assert fixed['blocks'][0]['text']=='MBA | GPA: 3.55/4.0'
+    assert original['blocks'][0]['text']=='MBA | GPA: 3.75/4.0'
+    fact['status']='UNRESOLVED'
+    assert apply_confirmed_corrections(original,body)==original
+
+
+def test_automatic_reorder_cannot_cross_employer_or_role():
+    from app.tailoring import within_role_reorder
+    rows=[{'item_id':'role-a','kind':'role'},{'item_id':'a1','kind':'bullet'},
+          {'item_id':'a2','kind':'bullet'},{'item_id':'role-b','kind':'role'},{'item_id':'b1','kind':'bullet'}]
+    proposal={'operation':'reorder','target_ids':['a2'],'after_id':'role-a'}
+    assert within_role_reorder(rows,proposal)
+    proposal['after_id']='b1'
+    assert not within_role_reorder(rows,proposal)
+    proposal['after_id']='missing'
+    assert not within_role_reorder(rows,proposal)
+
+
+def test_review_repairs_are_applied_and_rechecked_once(setup):
+    s,j,p,*_=setup
+    request=p.request
+    def repairing(endpoint,payload):
+        response=request(endpoint,payload)
+        if payload['text']['format']['name']=='resume_claim_check':
+            data=json.loads(response['output'][0]['content'][0]['text'])
+            current=json.loads(payload['input'])['full_draft'][-1]
+            data['repairs']=[{'item_id':current['item_id'],'text':'During a pilot, built a reporting prototype for 12 users.','citations':[{'source_id':'e1','quote':PASSAGE}],'reason':'Clarifies pilot scope.','change_type':'job_alignment','jd_quote':'Build reporting tools'}]
+            response['output'][0]['content'][0]['text']=json.dumps(data)
+        return response
+    p.request=repairing
+    r=generate(s,j)
+    assert len(p.calls)==3
+    assert r['repair_attempted']
+    assert r['pre_repair_draft']['blocks'][-1]['text']!=r['draft']['blocks'][-1]['text']
+    assert r['draft']['blocks'][-1]['text'].startswith('During a pilot')
+    assert json.loads(p.calls[-1]['input'])['full_draft'][-1]['text']==r['draft']['blocks'][-1]['text']
+
+
+def test_invalid_review_repair_keeps_draft_and_does_not_charge_retry(setup):
+    s,j,p,*_=setup
+    request=p.request
+    def invalid(endpoint,payload):
+        response=request(endpoint,payload)
+        if payload['text']['format']['name']=='resume_claim_check':
+            data=json.loads(response['output'][0]['content'][0]['text'])
+            data['repairs']=[{'item_id':'missing','text':'Invented work.','citations':[{'source_id':'e1','quote':PASSAGE}],'reason':'Improve.','change_type':'framework','jd_quote':''}]
+            response['output'][0]['content'][0]['text']=json.dumps(data)
+        return response
+    p.request=invalid
+    r=generate(s,j)
+    assert len(p.calls)==2
+    assert 'Invented work.' not in str(r['draft'])
+    assert any('retained the draft' in w for w in r['review_warnings'])
+
 def draft():
     return {'blocks':[
         {'kind':'contact','text':'Alex Example','citations':[{'source_id':'resume','quote':'Alex Example'}],'reason':'Preserve candidate identity.'},
@@ -517,7 +578,7 @@ def test_jd_review_uses_full_draft_and_clears_after_candidate_edit(setup):
     audit=json.loads(provider.calls[1]['input'])
     assert audit['job']['description']==job.description
     assert audit['full_draft']==record['draft']['blocks']
-    assert audit['master']==record['context']['master']
+    assert [(b['item_id'],b['kind'],b['text']) for b in audit['master']]==[(b['item_id'],b['kind'],b['text']) for b in record['context']['master']]
     assert 'Pending proposals are NOT in the draft' in provider.calls[1]['instructions']
     assert 'Lack of JD relevance alone is not a removal reason' in provider.calls[0]['instructions']
     edited=service.edit(job,Edit(revision=record['revision'],blocks=record['draft']['blocks']))['record']

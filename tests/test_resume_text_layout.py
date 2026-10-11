@@ -23,6 +23,25 @@ Spanish
 def words(text):
     return ' '.join(re.sub(r'(?m)^\s*[•▪●*-]\s+', '', text).split())
 
+
+def test_legacy_master_continuations_normalized_before_edit_ids():
+    from app.resume_master import normalize_master
+    rows=[{'kind':'contact','text':'Alex'}, {'kind':'contact','text':'alex@example.com'},
+          {'kind':'role','text':'Example Labs | PM | 2024'},
+          {'kind':'bullet','text':'Built reporting for 18 analysts,'},
+          {'kind':'text','text':'reducing weekly preparation from five hours to two.'}]
+    normalized=normalize_master(rows)
+    assert normalized[-1]['text']=='Built reporting for 18 analysts, reducing weekly preparation from five hours to two.'
+    assert normalized[-1]['citations'][0]['quote']==normalized[-1]['text']
+    assert len(normalized)==4
+
+
+def test_layout_repair_does_not_duplicate_exact_old_tail():
+    tail='reducing weekly preparation from five hours to two'
+    rows=[{'kind':'contact','text':'Alex'}, {'kind':'contact','text':'alex@example.com'},
+          {'kind':'bullet','text':'Built reporting, '+tail+'.'}, {'kind':'text','text':tail}]
+    assert format_text_blocks(rows)[-1]['text'].count(tail)==1
+
 def test_pasted_resume_keeps_every_word_and_groups_wrapped_bullets():
     blocks=text_template(TEXT)
     assert words('\n'.join(b['text'] for b in blocks)) == words(TEXT)
