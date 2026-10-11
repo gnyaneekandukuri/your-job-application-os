@@ -103,6 +103,9 @@ class Discovery:
         from .job_retention import initialize
         with self.db() as db:
             initialize(db)
+        from .job_dedup import consolidate
+        with self.db() as db:
+            consolidate(db)
         self.retention_checked_at = None
 
     def screening_profile(self, preferences):
@@ -165,6 +168,10 @@ class Discovery:
         """All saved deep analyses, including roles entered without discovery."""
         with self.db() as db:
             discovered = {r['job_id']: dict(r) for r in db.execute('SELECT * FROM opportunities WHERE job_id IS NOT NULL')}
+            for alias in db.execute('SELECT canonical_id,job_id FROM opportunity_aliases WHERE job_id IS NOT NULL'):
+                primary = db.execute('SELECT * FROM opportunities WHERE id=?',(alias['canonical_id'],)).fetchone()
+                if primary and alias['job_id'] not in discovered:
+                    discovered[alias['job_id']] = {**dict(primary), 'imported_hash': None}
             yc_ids = {r[0] for r in db.execute("SELECT DISTINCT opportunity_id FROM sightings WHERE board='yc'")}
             scans = {r['opportunity_id']: dict(r) for r in db.execute('''
                 SELECT sr.opportunity_id, s.id AS last_scan_id, s.started AS last_scanned_at
@@ -175,7 +182,7 @@ class Discovery:
         for job_id in self.service.store.ids():
             job = self.saved_job(job_id)
             row = discovered.get(job_id)
-            changed = bool(row and row['imported_hash'] != self.content_hash(json.loads(row['payload'])))
+            changed = bool(row and row['imported_hash'] and row['imported_hash'] != self.content_hash(json.loads(row['payload'])))
             # Results belong to the saved JD. A newer board snapshot must not
             # hide a completed report; disclose the difference beside it.
             summary = self.assessment_summary({'job_id':job_id})
@@ -401,6 +408,7 @@ class Discovery:
         return hashlib.sha256(json.dumps({k: item.get(k) for k in ('title', 'company', 'description')}, sort_keys=True).encode()).hexdigest()
 
     def save(self, board, item):
+        from .job_dedup import source_reference
         item = dict(item); item['url'] = canonical(item['url'])
         oid = hashlib.sha256(item['url'].encode()).hexdigest()
         stamp = now()
@@ -439,7 +447,7 @@ class Discovery:
                     for key in ('fresh_until', 'older_after', 'age_observed_at'):
                         merged[key] = item.get(key)
             db.execute('INSERT INTO opportunities(id,payload,first_seen,last_seen) VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload,last_seen=excluded.last_seen', (oid, json.dumps(merged), stamp, stamp))
-            db.execute('INSERT OR REPLACE INTO sightings VALUES(?,?,?,?,?)', (board, item['source_id'], oid, json.dumps(item), stamp))
+            db.execute('INSERT OR REPLACE INTO sightings VALUES(?,?,?,?,?)', (board, item['source_id'], oid, json.dumps(source_reference(item)), stamp))
             db.execute('INSERT OR IGNORE INTO revisions VALUES(?,?,?,?)', (oid, self.content_hash(merged), json.dumps(merged), stamp))
         return oid, row is None
 
@@ -539,6 +547,11 @@ class Discovery:
             result['phase'] = 'descriptions'
             with self.db() as db: db.execute('UPDATE scans SET payload=? WHERE id=?',(json.dumps(result),sid))
             result['descriptions'] = self.complete_descriptions(pending)
+            from .job_dedup import consolidate, resolve
+            with self.lock, self.db() as db:
+                merged = consolidate(db)
+                pending = {resolve(db, oid) for oid in pending}
+            result['duplicates_consolidated'] = len(merged)
             result['phase'] = 'classifying'
             with self.db() as db: db.execute('UPDATE scans SET payload=? WHERE id=?',(json.dumps(result),sid))
             result['classification'] = self.jev.run([item for item in self.view(include_analysis=False)['items'] if item['id'] in pending and self.initial_screening_eligible(item)], self.stop)
@@ -636,6 +649,8 @@ class Discovery:
     def import_role(self, oid, analyze=True, automatic=False):
         with self.lock:
             with self.db() as db:
+                from .job_dedup import resolve
+                oid = resolve(db, oid)
                 row = db.execute('SELECT * FROM opportunities WHERE id=?', (oid,)).fetchone()
                 if not row: raise Missing('Opportunity not found')
                 item = json.loads(row['payload'])

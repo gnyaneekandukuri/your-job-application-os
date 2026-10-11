@@ -10,7 +10,7 @@ from contextlib import closing
 from datetime import datetime, timezone, timedelta
 from threading import Event, Lock, Thread
 
-VERSION = 'job-list-v7-exact-dedup'
+VERSION = 'job-list-v8-consolidated'
 log = logging.getLogger(__name__)
 
 
@@ -143,6 +143,14 @@ class JobList:
         keys = {identity({**r.get('job_snapshot',{}), 'location':r.get('location','')}) for r in records} - {None}
         with closing(sqlite3.connect('file:'+self.discovery.path.as_posix()+'?mode=ro',uri=True,timeout=5)) as db:
             opportunities = [(oid, jid, json.loads(payload)) for oid,jid,payload in db.execute('SELECT id,job_id,payload FROM opportunities')]
+            aliases = db.execute('SELECT old_id,canonical_id,job_id,url FROM opportunity_aliases').fetchall() if db.execute("SELECT 1 FROM sqlite_master WHERE name='opportunity_aliases'").fetchone() else []
+        for old,target,jid,url in aliases:
+            if jid in ids or 'opportunity:'+old in ids or (url or '').rstrip('/') in urls:
+                ids.add('opportunity:'+target)
+        for oid,jid,p in opportunities:
+            if 'opportunity:'+oid in ids:
+                if jid: ids.add(jid)
+                if p.get('url'): urls.add(p['url'].rstrip('/'))
         # Recover identity from the saved listing when older application snapshots lack location.
         keys.update(identity(p) for oid,jid,p in opportunities if jid in ids or 'opportunity:'+oid in ids or p.get('url','').rstrip('/') in urls)
         keys.discard(None)
