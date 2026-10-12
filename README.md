@@ -1,6 +1,33 @@
-# Job Review
+# Your Job Application OS
 
-A local product-management job discovery and evidence review app. React and TypeScript provide the interface; FastAPI, Pydantic, LangGraph, and SQLite run locally. This repository contains no candidate profile, resume, stories, databases, or prior personal Git history.
+A local-first assistant that runs a product-management job search end to end: it finds new roles, scores how well your documented experience fits each one, tailors your resume with a source citation behind every claim, and tracks what you applied with.
+
+## Why I built it
+
+Job searching with AI tools has two failure modes: hours of manual triage across job boards, and AI-written resumes that quietly invent experience. I built this for my own PM search to fix both. It does the tedious parts automatically, but it treats my real stories and resume as the only source of truth, and keeps me in control of every decision and every paid model call.
+
+<p>
+  <img src="docs/images/fit-score.png" alt="Documented fit score of 66/100 with a pursuit recommendation of Apply normally" width="380">
+  <img src="docs/images/setup.png" alt="Setup screen for target roles, countries and cities" width="380">
+</p>
+
+## How it works
+
+1. **Discover.** Collects new PM postings from job boards, YC's Work at a Startup, HN "Who's hiring", Lenny's Jobs and Cosign, de-duplicates them, and ranks them against your skills profile.
+2. **Assess.** Breaks each job description into requirements and checks each one against your own stories and resume, producing a documented-fit score and a Skip / Apply normally / Attack hard recommendation from editable, versioned rules.
+3. **Tailor.** Drafts a role-specific resume (PAR, XYZ or STAR), cover letter or application answer. Every factual line must cite your source text; a separate model pass checks the claims, and you accept or decline each change.
+4. **Track.** Saves the exact PDF you submitted with each application, with status, follow-ups and Excel export.
+
+## Product principles
+
+- **Evidence over generation.** No claim without a citation; missing evidence is flagged as a question, never filled in.
+- **Human in the loop.** The app recommends, you decide. Nothing is submitted automatically.
+- **No surprise costs.** Paid model calls run only on explicit request, are never retried silently, and are tracked per role.
+- **Private by default.** All personal data stays in a local `.local/` workspace that git ignores.
+
+## How it was built
+
+I designed and built this solo, directing an AI coding agent (OpenAI Codex) over 119 commits. I owned the product decisions: the workflows, the evidence and claim-checking rules, the cost and privacy guardrails, and the testing approach. The stack is React and TypeScript on the frontend, with FastAPI, Pydantic, LangGraph and SQLite running locally, plus OpenAI and TypeSafe (Jev) model APIs. The repository contains no candidate profile, resume, stories or databases.
 
 ## Run locally
 
