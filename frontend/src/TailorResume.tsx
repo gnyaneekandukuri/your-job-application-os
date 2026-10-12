@@ -7,7 +7,7 @@ type Block={change_type?:string;jd_quote?:string;item_id?:string;format?:{font_f
 type Proposal={automatic?:boolean;after_id:string;id:string;operation:string;status:string;error:string;text:string;reason:string;jd_quote:string;before:Block[];citations:Block["citations"]};
 type RecordValue={review_warnings?:string[];include_summary?:boolean;job_review?:{summary:string;priorities:{jd_quote:string;status:string;block_indices:number[];reason:string;improvement:string}[];readability:string[];preservation:string[]}|null;quality?:{framework:string;passed:number;total:number;required:number;percent:number|null;meets_threshold:boolean;failures:{block_index:number;reason:string}[]}|null;proposals?:Proposal[];state:string;stage:string;error:string;revision:string;framework:string;policy_version:string;draft:{blocks:Block[];questions:string[]}|null;checks:{findings:{block_index:number;supported:boolean;reason:string}[]}|null;context:{master?:Block[];sources:{id:string;title:string;text:string;employer?:string;start_line?:number}[]}};
 type FinalReview={score:number|null;summary:string;strengths:string[];gaps:string[];improvements:string[];dimensions:{name:string;points:number;maximum:number}[];rubric:string};
-type View={resume_options?:{id:string;title:string;text:string;date:string}[];base_source?:{title:string;version:string;selected_at:string}|null;final_review_supported?:boolean;final_review?:FinalReview|null;summary_supported?:boolean;job_url?:string;exported?:{revision:string;created_at:string}|null;quality_checks_version?:number;framework:string;base_resume:string;base_title:string;configured:boolean;record:RecordValue|null;citation_sources?:RecordValue['context']['sources']};
+type View={preferences?:{framework:string;remember:boolean;include_summary:boolean};resume_options?:{id:string;title:string;text:string;date:string}[];base_source?:{title:string;version:string;selected_at:string}|null;final_review_supported?:boolean;final_review?:FinalReview|null;summary_supported?:boolean;job_url?:string;exported?:{revision:string;created_at:string}|null;quality_checks_version?:number;framework:string;base_resume:string;base_title:string;configured:boolean;record:RecordValue|null;citation_sources?:RecordValue['context']['sources']};
 const styles=[['PAR','Recommended · Project, Action, Result'],['XYZ','Metrics-focused · Accomplishment, measurement, method'],['STAR','Context-focused · Concise STAR'],['EXISTING','Keep my existing style']];
 const examples:Record<string,string>={PAR:'Show the work, your contribution, and the supported outcome. Include a supported metric in each experience bullet; missing numbers are flagged for your input, never invented.',XYZ:'Lead with a measured accomplishment, then explain how you achieved it. Use only documented metrics.',STAR:'Briefly explain the problem, your action, and the result.',EXISTING:'Preserve your voice and section structure while improving relevance and clarity.'};
 export function TailorResume({jobId,label}:{jobId:string;label?:string}) {
@@ -28,9 +28,27 @@ export function TailorResume({jobId,label}:{jobId:string;label?:string}) {
   const data=await response.json();if(!response.ok)throw new Error(typeof data.detail==='string'?data.detail:'Could not save this resume. Check the fields and try again.');return data;
  }
  useEffect(()=>{if(open)dialog.current?.showModal();else dialog.current?.close();},[open]);
- useEffect(()=>{if(!open)return;let live=true;void request().then(data=>{if(live){setView(data);setFramework(data.record?.framework||data.framework);setBase(data.record?.context.sources[0]?.text||data.base_resume);setBaseSource(data.resume_options?.find(o=>o.id.startsWith(data.record?'original:':'profile:'))?.id||'');}}).catch(e=>{if(live)setError(String(e));});return()=>{live=false;};},[open,jobId]);
+ useEffect(()=>{if(!open)return;let live=true;void request().then(data=>{if(live){setView(data);setFramework(data.record?.framework||data.framework);setRemember(data.preferences?.remember??false);setIncludeSummary(data.record?.include_summary??data.preferences?.include_summary??false);setBase(data.record?.context.sources[0]?.text||data.base_resume);setBaseSource(data.resume_options?.find(o=>o.id.startsWith(data.record?'original:':'profile:'))?.id||'');}}).catch(e=>{if(live)setError(String(e));});return()=>{live=false;};},[open,jobId]);
  useEffect(()=>{if(!open||!running)return;let live=true;const timer=setInterval(()=>{void request().then(data=>{if(live)setView(data);}).catch(e=>{if(live)setError(String(e));});},2500);return()=>{live=false;clearInterval(timer);};},[open,running,jobId]);
  async function act(suffix:string,body:unknown){if(busy)return;setBusy(true);setError('');setConfirmed(false);try{setView(await request(suffix,body));setEditing(false);}catch(e){setError(String(e));}finally{setBusy(false);}}
+ async function rememberChoices(nextFramework:string,nextSummary:boolean,nextRemember:boolean){
+  setFramework(nextFramework);setIncludeSummary(nextSummary);setRemember(nextRemember);
+  if(!nextRemember&&!remember)return;
+  setBusy(true);setError('');
+  try{const response=await fetch('/api/tailoring/preferences',{method:'POST',headers:{'Content-Type':'application/json','X-Local-Review':'1'},body:JSON.stringify({framework:nextFramework,include_summary:nextSummary,remember:nextRemember})});
+   if(!response.ok)throw Error('Could not remember your choices. Please try again.');
+  }catch(e){setError(String(e));}finally{setBusy(false);}
+ }
+ async function uploadMaster(file:File){
+  if(busy||running)return;
+  if(file.size>2000000){setError('Choose a PDF or DOCX up to 2 MB.');return;}
+  setBusy(true);setError('');
+  try{const content=await new Promise<string>((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result).split(',')[1]);reader.onerror=()=>reject(Error('Could not read this file.'));reader.readAsDataURL(file);});
+   const response=await fetch('/api/tailoring/resume',{method:'POST',headers:{'Content-Type':'application/json','X-Local-Review':'1'},body:JSON.stringify({filename:file.name,content_base64:content})});
+   const result=await response.json();if(!response.ok)throw Error(typeof result.detail==='string'?result.detail:'Could not upload this resume.');
+   const next=await request();setView(next);setBase(next.base_resume);setBaseSource(next.resume_options?.find(o=>o.id.startsWith('profile:'))?.id||'');
+  }catch(e){setError(String(e));}finally{setBusy(false);}
+ }
  async function formatDraft(){
   if(busy||running||!record)return;setBusy(true);setError('');
   try{let current=view!;
@@ -88,10 +106,12 @@ export function TailorResume({jobId,label}:{jobId:string;label?:string}) {
  <option value="">Paste or edit a different resume</option>
  </select></label>}
  {record&&<p>Changing this selection does not change your saved draft until you choose Prepare draft.</p>}
- <label>Writing approach<select value={framework} disabled={busy||running} onChange={e=>setFramework(e.target.value)}>{styles.map(([id,label])=><option value={id} key={id}>{label}</option>)}</select></label><p>{examples[framework]}</p>
- <label className="tailor-checkbox"><input type="checkbox" checked={remember} onChange={e=>setRemember(e.target.checked)}/> Remember this approach for future jobs</label>
- {view.summary_supported&&<label className="tailor-checkbox"><input type="checkbox" checked={includeSummary} disabled={busy||running} onChange={e=>setIncludeSummary(e.target.checked)}/> Propose a professional summary (you choose whether to add it)</label>}
- <label>Base resume<textarea rows={10} maxLength={22000} value={base} disabled={busy||running} onChange={e=>{setBase(e.target.value);setBaseSource('');}} placeholder="Paste resume text for automatic formatting, or upload a DOCX/PDF in Your context → Add skills."/></label>
+ <label>Writing approach<select value={framework} disabled={busy||running} onChange={e=>void rememberChoices(e.target.value,includeSummary,remember)}>{styles.map(([id,label])=><option value={id} key={id}>{label}</option>)}</select></label><p>{examples[framework]}</p>
+ <label className="tailor-checkbox"><input type="checkbox" checked={remember} disabled={busy||running} onChange={e=>void rememberChoices(framework,includeSummary,e.target.checked)}/> Remember these choices for future jobs</label>
+ {view.summary_supported&&<label className="tailor-checkbox"><input type="checkbox" checked={includeSummary} disabled={busy||running} onChange={e=>void rememberChoices(framework,e.target.checked,remember)}/> Propose a professional summary (you choose whether to add it)</label>}
+ <label>Upload master resume<input type="file" accept=".pdf,.docx" disabled={busy||running||editing} onChange={e=>{const file=e.target.files?.[0];e.target.value='';if(file)void uploadMaster(file);}}/></label>
+ <p>PDF or DOCX, up to 2 MB. Saved as your master for future jobs; existing drafts stay unchanged. Uploading has no API cost. Text-based PDFs are supported; DOCX preserves formatting more reliably.</p>
+ <label>Starting resume text<textarea rows={10} maxLength={22000} value={base} disabled={busy||running} onChange={e=>{setBase(e.target.value);setBaseSource('');}} placeholder="Paste resume text for automatic formatting, or upload your master resume above."/></label>
  <p>This improves wording in your master and proposes stronger accomplishments from your stories. Replacements, additions and removals need your acceptance. It uses your JD, relevant saved evidence, and the resume skill. Drafting and claim checking use OpenAI; costs appear in API costs. Your master resume stays unchanged.</p>
  <button className="primary" disabled={busy||running||editing||!view.configured||!view.quality_checks_version||!base.trim()} onClick={()=>void act('',{consent_to_send:true,framework,base_resume:base,...(view.resume_options?{base_source_id:baseSource}:{}),remember,retry:false,...(view.summary_supported?{include_summary:includeSummary}:{})})}>Prepare draft · API usage</button>
  {!view.configured&&<p role="alert">Connect your OpenAI API key to prepare a draft.</p>}

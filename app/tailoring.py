@@ -61,6 +61,15 @@ def model_context(body):
     return result
 Framework = Literal['PAR', 'XYZ', 'STAR', 'EXISTING']
 
+class TailoringPreferences(Strict):
+    framework: Framework = 'PAR'
+    remember: bool = True
+    include_summary: bool = False
+
+class TailoringResumeUpload(Strict):
+    filename: str = Field(max_length=200)
+    content_base64: str = Field(max_length=2700000)
+
 class Generate(Strict):
     consent_to_send: Literal[True]
     framework: Framework = 'PAR'
@@ -317,6 +326,19 @@ class Tailoring:
         self.engine = RetrievalService(analysis.engine.path, analysis.engine.source, provider)
         self.lock, self.worker, self.active = RLock(), None, None
 
+    def preferences(self):
+        return self.engine.get('tailoring:preferences') or {
+            'framework': self.engine.get('tailoring:framework') or 'PAR',
+            'remember': bool(self.engine.get('tailoring:framework')),
+            'include_summary': False,
+        }
+
+    def save_preferences(self, data):
+        saved = data.model_dump() if data.remember else {
+            'framework': 'PAR', 'remember': False, 'include_summary': False}
+        self.engine.put('tailoring:preferences', saved)
+        return saved
+
     def baseline(self):
         sources, _ = self.skills.snapshot()
         resume = next((s for s in sources if s['id'] in ('current-resume', 'skills-resume')), None)
@@ -334,7 +356,7 @@ class Tailoring:
                 options.append({'id':kind+':'+digest(text), 'title':title, 'text':text,
                                 'date':date, 'blocks':blocks})
         if resume:
-            add('profile', 'Current profile resume: '+resume['title'], resume['text'])
+            add('profile', 'Master resume: '+resume['title'], resume['text'])
         if record:
             add('original', 'Original resume used for this draft', record['context']['sources'][0]['text'],
                 record['context'].get('master'), record.get('created_at',''))
@@ -372,7 +394,7 @@ class Tailoring:
         exported = self.engine.get('tailoring:export-latest:' + job.id)
         from .resume_jd_review import cache_key
         final_review = self.engine.get(cache_key(job, record)) if record and record.get('draft') else None
-        return {'resume_options':[{k:v for k,v in option.items() if k!='blocks'} for option in self.resume_options(job)],'base_source':record.get('base_source') if record else None,'final_review_supported':True,'final_review':final_review,'summary_supported':True,'job_url':str(getattr(job,'source_url','') or ''),'exported':exported,'quality_checks_version':1,'framework':self.engine.get('tailoring:framework') or 'PAR',
+        return {'resume_options':[{k:v for k,v in option.items() if k!='blocks'} for option in self.resume_options(job)],'base_source':record.get('base_source') if record else None,'final_review_supported':True,'final_review':final_review,'summary_supported':True,'job_url':str(getattr(job,'source_url','') or ''),'exported':exported,'quality_checks_version':1,'preferences':self.preferences(),'framework':self.preferences()['framework'],
                 'base_resume':resume['text'] if resume else '', 'base_title':resume['title'] if resume else '',
                 'configured':self.engine.provider.configured, 'record':record,
                 'citation_sources':citation_sources(record['context']) if record else []}
@@ -458,6 +480,8 @@ class Tailoring:
             if selected and selected['blocks']:
                 from .resume_master import normalize_master
                 body['master'] = normalize_master(selected['blocks'])
+            if data.remember:
+                self.save_preferences(TailoringPreferences(framework=data.framework, remember=True, include_summary=data.include_summary))
             fingerprint = digest(json.dumps([VERSION,MODEL,policy,body,version,data.framework,data.include_summary],sort_keys=True))
             key = 'tailoring:run:' + job.id + ':' + fingerprint
             old = self.engine.get(key)

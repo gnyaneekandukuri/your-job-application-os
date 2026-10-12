@@ -728,3 +728,25 @@ def test_failed_review_resumes_saved_draft_without_generating_again(setup):
     assert saved['state']!='ERROR'
     assert saved['draft']==before
     assert [c['text']['format']['name'] for c in p.calls].count('resume_draft')==1
+
+
+def test_preferences_saved_without_generation_and_survive_reopen(setup):
+    from app.tailoring import TailoringPreferences
+    s,j,p,*_=setup
+    s.save_preferences(TailoringPreferences(framework='XYZ',remember=True,include_summary=True))
+    reopened=Tailoring(s.analysis,s.skills,p)
+    view=reopened.view(j)
+    assert view['preferences']=={'framework':'XYZ','remember':True,'include_summary':True}
+    assert not p.calls
+    reopened.save_preferences(TailoringPreferences(framework='STAR',remember=False,include_summary=True))
+    assert s.view(j)['preferences']=={'framework':'PAR','remember':False,'include_summary':False}
+
+
+def test_remember_cached_draft_also_saves_summary_preference(setup):
+    s,j,p,*_=setup
+    generate(s,j,include_summary=True)
+    calls=len(p.calls)
+    s.start(j,Generate(consent_to_send=True,include_summary=True,remember=True))
+    assert s.preferences()['include_summary'] is True
+    assert s.preferences()['remember'] is True
+    assert len(p.calls)==calls

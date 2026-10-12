@@ -238,18 +238,20 @@ class SkillsProfile:
         self.stop.set()
         if self.worker:self.worker.join(timeout=65)
 
-    def upload_resume(self,data):
+    def upload_resume(self,data,prepare=True):
         try:raw=base64.b64decode(data.content_base64,validate=True)
         except ValueError:raise RetrievalError('Invalid file encoding.') from None
         text=extract_document(data.filename,raw)
         if not text.strip() or len(text)>120000:raise RetrievalError('Resume must contain text and be under 120,000 characters.')
+        if not prepare and len(text)>22000:
+            raise RetrievalError('This resume exceeds the 22,000-character tailoring limit. No resume was replaced.',422)
         from .resume_master import file_template
         try:template=file_template(data.filename,raw)
         except Exception:raise RetrievalError('Resume layout could not be read. Upload a clean DOCX or text-based PDF.') from None
         with self.lock:
             self.engine.put('skills:resume',{'id':'skills-resume','title':data.filename,'employer':'See resume','project':'Resume',
                                            'path':'Local resume upload','text':text,'resume_template':template})
-        self.start()
+        if prepare:self.start()
         return {'saved':True}
 
     def remove_resume(self):

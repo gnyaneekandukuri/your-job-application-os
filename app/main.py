@@ -21,7 +21,7 @@ from .store import Conflict, Missing, Store
 from .workflow import build_graph
 from .retrieval import BuildInput, SearchInput, RetrievalService, RetrievalError, SOURCE
 from .model_provider import OpenAIProvider
-from .tailoring import Tailoring, Generate as TailorGenerate, Edit as TailorEdit, Action as TailorAction, ProposalDecision as TailorProposalDecision
+from .tailoring import TailoringPreferences, TailoringResumeUpload, Tailoring, Generate as TailorGenerate, Edit as TailorEdit, Action as TailorAction, ProposalDecision as TailorProposalDecision
 from fastapi.responses import PlainTextResponse
 from .job_requirements import ExtractRequirements
 from .jev_requirements import extract as extract_requirements, key_for as jev_requirements_key
@@ -105,7 +105,7 @@ def create_app(data_dir: Path | None = None):
             origin = request.headers.get("origin")
             if origin and origin != str(request.base_url).rstrip("/"):
                 return JSONResponse({"detail": "Cross-origin writes are not allowed."}, status_code=403)
-            limit = 2_800_000 if request.url.path in ("/api/library/upload", "/api/library/skills/resume") else 300000
+            limit = 2_800_000 if request.url.path in ("/api/library/upload", "/api/library/skills/resume", "/api/tailoring/resume") else 300000
             if len(await request.body()) > limit:
                 return JSONResponse({"detail": "Request too large."}, status_code=413)
         response = await call_next(request)
@@ -505,6 +505,14 @@ def create_app(data_dir: Path | None = None):
     @api.post("/api/jobs/{job_id}/application-answers/save")
     def application_answer_save(job_id: str, data: application_answer.SaveInput, request: Request):
         return application_answer.save(request.app.state.retrieval, request.app.state.service.review(job_id).job, data)
+
+    @api.post("/api/tailoring/preferences")
+    def tailoring_preferences(data: TailoringPreferences, request: Request):
+        return request.app.state.tailoring.save_preferences(data)
+
+    @api.post("/api/tailoring/resume")
+    def tailoring_resume(data: TailoringResumeUpload, request: Request):
+        return request.app.state.skills.upload_resume(data, prepare=False)
 
     @api.get("/api/jobs/{job_id}/tailoring")
     def tailoring_view(job_id: str, request: Request):

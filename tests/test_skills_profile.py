@@ -139,3 +139,15 @@ def test_first_context_save_starts_skills_only_for_experience(tmp_path,monkeypat
             'text':'I interviewed customers and defined product requirements.','category':category,'consent_to_send':True})
         assert result.status_code==200
         assert len(calls)==expected
+
+
+def test_tailoring_upload_saves_template_without_paid_preparation(profile,monkeypatch):
+    import base64
+    from app.resume_pdf import render_resume
+    from app.tailoring import TailoringResumeUpload
+    s,*_=profile
+    monkeypatch.setattr(s,'start',lambda:pytest.fail('Upload must not start paid preparation'))
+    s.upload_resume(TailoringResumeUpload(filename='resume.pdf',content_base64=base64.b64encode(render_resume([{'kind':'contact','text':'Alex Example'},{'kind':'bullet','text':'Built tools for 12 users.'}])).decode()),prepare=False)
+    saved=s.engine.get('skills:resume')
+    assert 'Built tools for 12 users.' in saved['text']
+    assert saved['resume_template']
