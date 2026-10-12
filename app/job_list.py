@@ -95,7 +95,7 @@ class JobList:
                     priority_key, (item.get('location_match') or {}).get('status','unclear'),
                     fit.get('group','unknown'), fit.get('sort_order',100), fit.get('backing_boost',0),
                     item['first_seen'], item.get('freshness','unknown'), item['description_length'],
-                    int((item.get('assessment') or {}).get('state') == 'COMPLETE')))
+                    int((item.get('assessment') or {}).get('state') == 'COMPLETE' or bool(item.get('passed')))))
                 for board in {s['board'] for s in item['sources']}:
                     boards.append((item['id'],board))
                     board_counts[board] = board_counts.get(board,0) + 1
@@ -139,7 +139,8 @@ class JobList:
         records = [json.loads(r[1]) for r in rows]
         urls = {r.get('url','').rstrip('/') for r in records if r.get('url')}
         if not self.discovery.path.exists(): return ids, urls
-        from .job_identity import identity
+        # Applying to one location of an identical posting covers its other locations.
+        from .job_identity import same_job as identity
         keys = {identity({**r.get('job_snapshot',{}), 'location':r.get('location','')}) for r in records} - {None}
         with closing(sqlite3.connect('file:'+self.discovery.path.as_posix()+'?mode=ro',uri=True,timeout=5)) as db:
             opportunities = [(oid, jid, json.loads(payload)) for oid,jid,payload in db.execute('SELECT id,job_id,payload FROM opportunities')]
@@ -171,13 +172,18 @@ class JobList:
             metadata = json.loads(row['metadata'])
             metadata.pop('assessment_results',None)
             focus = (metadata.get('company_preference') or {}).get('focus','any')
-            where, args = ['completed=0'], []
+            where, args = (["json_extract(payload,'$.passed')=1"] if show == 'passed' else ['completed=0']), []
             applied_ids, applied_urls = self.applied_keys()
             for field, values in (('job_id',applied_ids),('url',applied_urls),('id',{v.removeprefix('opportunity:') for v in applied_ids if v.startswith('opportunity:')})):
                 if values:
                     where.append("COALESCE(rtrim(json_extract(payload,'$."+field+"'),'/'),'') NOT IN ("+','.join('?' for _ in values)+')')
                     args.extend(sorted(values))
+            # Requests for help ignore list filters so nothing stuck is hidden.
+            help_where = where + ["json_array_length(COALESCE(json_extract(payload,'$.needs_help'),'[]'))>0"]
+            help_count = db.execute('SELECT count(*) FROM listings WHERE '+' AND '.join(help_where), args).fetchone()[0]
+            if show == 'help': where, args = help_where, list(args)
             include_unknown = company == 'focus' and focus == 'startups'
+            if show == 'help': company, location, priority, board = 'all', 'all', 'all', 'all'
             if company == 'focus': company = 'startups' if focus == 'startups' else 'established' if focus == 'established' else 'all'
             if company == 'startups': where.append("company_group IN ('preferred','other_startup','unknown')" if include_unknown else "company_group IN ('preferred','other_startup')")
             elif company != 'all': where.append('company_group=?'); args.append(company)
@@ -216,7 +222,7 @@ class JobList:
                     metadata['scan']['payload'] = {k:v for k,v in metadata['scan']['payload'].items()
                         if k in ('state','phase','new_count','error')}
             return {**metadata,'ready':True,'items':items,'total':total,'page':page,'pages':pages,
-                    'freshness_counts':freshness_counts,
+                    'freshness_counts':freshness_counts,'help_count':help_count,
                     'revision':row['revision'],'updated_at':row['updated']}
 
     def assessments(self):

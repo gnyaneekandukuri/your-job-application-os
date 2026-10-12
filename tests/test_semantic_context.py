@@ -128,11 +128,11 @@ def test_context_changes_invalidate_cached_priority_without_network():
 def test_oversized_jd_fails_before_any_embedding(tmp_path):
     provider=Embeddings();engine=RetrievalService(tmp_path/'r.sqlite3',tmp_path/'unused',provider)
     item={'id':'large','title':'PM','description':'x'*65000}
+    # Unreadable text is routed to the candidate before any paid embedding or screening call.
     counts=screen(engine,[item],profile_for(),Event())
-    assert counts['errors']==1 and provider.inputs==[]
-    assert screen(engine,[item],profile_for(),Event())['cached']==1
+    assert counts['needs_description']==1 and provider.inputs==[]
     annotate(engine,[item],profile_for())
-    assert item['keyword_match']['priority']=='worth_checking'
+    assert item['keyword_match']['priority']=='worth_checking' and item['keyword_match']['label']=='Needs information'
 
 
 def test_error_circuit_breaks_without_repeated_provider_calls(tmp_path,monkeypatch):

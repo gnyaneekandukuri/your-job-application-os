@@ -14,10 +14,15 @@ def identity(item):
     return hashlib.sha256(json.dumps(values).encode()).hexdigest()
 
 
+def same_job(item):
+    """Identical company, title and description posted for several locations (e.g. one LinkedIn ID per city)."""
+    return identity({**item, 'location': 'any'})
+
+
 def group_listings(items):
     groups = {}
     for item in items:
-        groups.setdefault(identity(item) or item['id'], []).append(item)
+        groups.setdefault(same_job(item) or item['id'], []).append(item)
     result = []
     for members in groups.values():
         # Keep an existing assessment/selection as the primary action target.
@@ -27,9 +32,13 @@ def group_listings(items):
         row['duplicate_job_ids'] = [r['job_id'] for r in members if r.get('job_id')]
         row['listing_urls'] = sorted({s.get('url') for r in members for s in [r, *r.get('sources', [])] if s.get('url')})
         row['sources'] = list({(s['board'], s.get('url','')):s for r in members for s in r.get('sources', [])}.values())
+        locations = list(dict.fromkeys(r.get('location') for r in members if r.get('location')))
+        if len(locations) > 1: row['location'] = '; '.join(locations)
+        rank = {'match': 0, 'unclear': 1}
+        row['location_match'] = min((r.get('location_match') or {} for r in members), key=lambda m: rank.get(m.get('status'), 2))
         row['first_seen'] = min(r['first_seen'] for r in members)
         row['last_seen'] = max(r['last_seen'] for r in members)
-        for flag in ('kept', 'retention_protected', 'company_watched'):
+        for flag in ('kept', 'retention_protected', 'company_watched', 'passed'):
             row[flag] = any(r.get(flag) for r in members)
         result.append(row)
     return result

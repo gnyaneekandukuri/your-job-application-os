@@ -4,6 +4,7 @@ from threading import Thread
 from pydantic import BaseModel, ConfigDict, Field
 from .store import Conflict
 from .cost_tracking import opportunity_scope
+from .needs_help import description_problem
 
 
 class Selection(BaseModel):
@@ -34,6 +35,7 @@ class SelectedQueue:
                 reason = ('Role no longer exists.' if not item else
                           'Listing changed. Review it before selecting again.' if selected.content_hash != item['content_hash'] or item['description_changed'] else
                           'Add the full JD first.' if len(item.get('description','')) < 200 else
+                          'Replace the job description first; it includes page text that cannot be analyzed.' if description_problem(item.get('description','')) else
                           'Already being assessed or complete.' if item.get('assessment',{}).get('state') in ('COMPLETE','RUNNING') or item.get('queued_for_assessment') else None)
                 if reason:
                     rejected.append({'id':selected.id,'reason':reason}); continue

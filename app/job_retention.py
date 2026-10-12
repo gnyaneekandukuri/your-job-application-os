@@ -9,6 +9,10 @@ class KeepJob(BaseModel):
     keep: bool
 
 
+class PassJob(BaseModel):
+    passed: bool
+
+
 class WatchCompany(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True, extra='forbid')
     company: str = Field(min_length=1, max_length=200)
@@ -25,6 +29,7 @@ def company_key(name):
 def initialize(db):
     db.executescript('''
         CREATE TABLE IF NOT EXISTS kept_jobs (opportunity_id TEXT PRIMARY KEY);
+        CREATE TABLE IF NOT EXISTS passed_jobs (opportunity_id TEXT PRIMARY KEY, passed_at TEXT);
         CREATE TABLE IF NOT EXISTS seen_jobs (id TEXT PRIMARY KEY, url TEXT, first_seen TEXT,
             posted_at TEXT, deleted_at TEXT);
         CREATE UNIQUE INDEX IF NOT EXISTS seen_job_url ON seen_jobs(url);
@@ -73,6 +78,18 @@ def keep(discovery, oid, value):
         else:
             db.execute('DELETE FROM kept_jobs WHERE opportunity_id=?', (oid,))
     return {'kept': value}
+
+
+def pass_job(discovery, oid, value):
+    """The candidate is not pursuing this listing: hide it from New jobs and automatic analysis."""
+    with discovery.lock, discovery.db() as db:
+        if not db.execute('SELECT 1 FROM opportunities WHERE id=?', (oid,)).fetchone():
+            raise Missing('Opportunity not found')
+        if value:
+            db.execute('INSERT OR IGNORE INTO passed_jobs VALUES(?,?)', (oid, datetime.now(timezone.utc).isoformat()))
+        else:
+            db.execute('DELETE FROM passed_jobs WHERE opportunity_id=?', (oid,))
+    return {'passed': value}
 
 
 def watchlist(discovery):
