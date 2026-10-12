@@ -1121,3 +1121,23 @@ button.text-button { border: 0; background: transparent; padding: .2rem .25rem; 
 .writing-help[open] { flex-basis:100%; }
 .writing-help-options > button { margin:0; padding:8px 12px; font-size:14px; min-height:36px; }
 .role-actions > button:focus-visible, .writing-help > summary:focus-visible { outline:3px solid #8badcd; outline-offset:2px; }
+
+/* Application answers use aligned form rows, independent of list action styles. */
+.application-answer-dialog { width:min(760px,calc(100vw - 32px)); font-size:15px; line-height:1.5; }
+.application-answer-dialog .skills-dialog-heading {align-items:center; margin-bottom:12px;}
+.application-answer-dialog .skills-dialog-heading h2 {margin:0; font-size:24px; line-height:1.25;}
+.application-answer-dialog > p {margin:0 0 20px;}
+.application-answer-dialog label {margin:0 0 18px; font-size:14px; font-weight:600; gap:8px; min-width:0;}
+.application-answer-dialog input,.application-answer-dialog select,.application-answer-dialog textarea {width:100%;box-sizing:border-box;margin:0; font:inherit; font-weight:400; padding:10px 12px; border:1px solid #c4d2c8; border-radius:8px;}
+.application-answer-dialog input,.application-answer-dialog select {height:44px; min-height:44px;}
+.application-answer-dialog textarea {line-height:1.5;resize:vertical;}
+.application-answer-dialog button {font-size:14px;padding:10px 14px;min-height:44px;}
+.application-answer-dialog .answer-saved-row {display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:end;margin:0 0 18px;}
+.application-answer-dialog .answer-limit-row {display:grid;grid-template-columns:1fr 1fr;gap:16px;max-width:420px;margin:0 0 18px;}
+.application-answer-dialog .answer-saved-row label,.application-answer-dialog .answer-limit-row label {margin:0;}
+.application-answer-dialog > button {margin-bottom:18px;}
+.application-answer-dialog section[aria-label="Details needed"] {padding:16px;background:#f5f7f4;border-radius:8px;margin:0 0 18px;}
+.application-answer-dialog section h3 {margin:0 0 8px;font-size:16px;}
+.application-answer-dialog .selection-actions {gap:10px;align-items:center;margin:18px 0 0;}
+@media(max-width:480px){.application-answer-dialog{padding:18px;}.application-answer-dialog .skills-dialog-heading h2{font-size:20px;}.application-answer-dialog .answer-saved-row{grid-template-columns:1fr;}.application-answer-dialog .answer-saved-row button{justify-self:start;}.application-answer-dialog .answer-limit-row{gap:12px;}}
+.application-answer-dialog .answer-saved-row button {margin:0;align-self:end;}
