@@ -1141,3 +1141,8 @@ button.text-button { border: 0; background: transparent; padding: .2rem .25rem; 
 .application-answer-dialog .selection-actions {gap:10px;align-items:center;margin:18px 0 0;}
 @media(max-width:480px){.application-answer-dialog{padding:18px;}.application-answer-dialog .skills-dialog-heading h2{font-size:20px;}.application-answer-dialog .answer-saved-row{grid-template-columns:1fr;}.application-answer-dialog .answer-saved-row button{justify-self:start;}.application-answer-dialog .answer-limit-row{gap:12px;}}
 .application-answer-dialog .answer-saved-row button {margin:0;align-self:end;}
+.resume-page-warning {margin:16px 0;}
+.resume-page-warning h3 {margin:0 0 6px;}
+.resume-page-warning ul {margin:8px 0 0;padding-left:18px;}
+.resume-page-warning li {margin:4px 0;}
+.link-button {background:none;border:none;padding:0;margin:0 4px 0 0;color:inherit;font:inherit;font-weight:600;text-decoration:underline;cursor:pointer;}

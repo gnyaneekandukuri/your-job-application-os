@@ -1,4 +1,6 @@
 """Render saved resume blocks only; no evidence annotations or model calls."""
+import json
+from functools import lru_cache
 from io import BytesIO
 from pathlib import Path
 from threading import Lock
@@ -86,6 +88,17 @@ def render_resume(blocks):
             return compact
     # Long documents remain complete instead of being clipped or silently cut.
     return original
+
+
+@lru_cache(maxsize=64)
+def _page_count(serialized):
+    from pypdf import PdfReader
+    return len(PdfReader(BytesIO(render_resume(json.loads(serialized)))).pages)
+
+
+def page_count(blocks):
+    """Pages in the exported PDF, after the same one-page fitting as the download."""
+    return _page_count(json.dumps(blocks, sort_keys=True)) if blocks else 0
 
 
 def download_filename(blocks, company):
