@@ -492,6 +492,20 @@ def create_app(data_dir: Path | None = None):
     def team_message_save(job_id: str, data: team_message.SaveInput, request: Request):
         return team_message.save(request.app.state.retrieval, request.app.state.service.review(job_id).job, data)
 
+    from . import application_answer
+
+    @api.get("/api/jobs/{job_id}/application-answers")
+    def application_answers(job_id: str, request: Request):
+        return application_answer.view(request.app.state.retrieval, request.app.state.service.review(job_id).job)
+
+    @api.post("/api/jobs/{job_id}/application-answers/draft")
+    def application_answer_draft(job_id: str, data: application_answer.AnswerInput, request: Request):
+        return application_answer.generate(request.app.state.tailoring, request.app.state.service.review(job_id).job, data)
+
+    @api.post("/api/jobs/{job_id}/application-answers/save")
+    def application_answer_save(job_id: str, data: application_answer.SaveInput, request: Request):
+        return application_answer.save(request.app.state.retrieval, request.app.state.service.review(job_id).job, data)
+
     @api.get("/api/jobs/{job_id}/tailoring")
     def tailoring_view(job_id: str, request: Request):
         return request.app.state.tailoring.view(request.app.state.service.review(job_id).job)

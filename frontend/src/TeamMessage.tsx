@@ -1,3 +1,4 @@
+import {ApplicationAnswer} from './ApplicationAnswer';
 import {useEffect,useRef,useState} from 'react';
 type Saved={text:string;note:string;revision:string;question?:string;kind?:string};
 export function isYCListing(url:string){try{return ['workatastartup.com','www.workatastartup.com','ycombinator.com','www.ycombinator.com'].includes(new URL(url).hostname);}catch{return false;}}
@@ -39,5 +40,5 @@ export function TeamMessage({jobId,company,url,kind='introduction'}:{jobId:strin
 }
 
 export function WritingHelp({jobId,company,url,yc}:{jobId:string;company:string;url:string;yc:boolean}){
- return <details className="writing-help"><summary>Writing help</summary><div className="writing-help-options"><TeamMessage kind="cover_letter" jobId={jobId} company={company} url={url}/><TeamMessage kind="why_company" jobId={jobId} company={company} url={url}/>{yc&&<TeamMessage jobId={jobId} company={company} url={url}/>}</div></details>;
+ return <details className="writing-help"><summary>Writing help</summary><div className="writing-help-options"><ApplicationAnswer jobId={jobId} company={company} url={url}/><TeamMessage kind="cover_letter" jobId={jobId} company={company} url={url}/><TeamMessage kind="why_company" jobId={jobId} company={company} url={url}/>{yc&&<TeamMessage jobId={jobId} company={company} url={url}/>}</div></details>;
 }
