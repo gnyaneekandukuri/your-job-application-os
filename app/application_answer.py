@@ -34,6 +34,10 @@ class Answer(Strict):
     questions: list[str] = Field(max_length=4)
     evidence: list[Evidence] = Field(max_length=6)
 
+TYPOGRAPHY = str.maketrans({'‘':"'",'’':"'",'“':'"','”':'"','–':'-','—':'-',' ':' '})
+
+def loose(text): return ' '.join(text.translate(TYPOGRAPHY).replace('…','...').split())
+
 def key(job): return 'application-answers:'+job.id
 
 def view(engine,job): return engine.get(key(job)) or {'items':[]}
@@ -57,7 +61,8 @@ def save(engine,job,data):
     with LOCK:
         old=current(engine,job,data)
         unchanged=old and all(old.get(k)==getattr(data,k) for k in ('text','question','note'))
-        return persist(engine,job,data,{'text':data.text,'questions':old.get('questions',[]) if unchanged else [],'evidence':old.get('evidence',[]) if unchanged else []})
+        return persist(engine,job,data,{'text':data.text,'questions':old.get('questions',[]) if unchanged else [],'evidence':old.get('evidence',[]) if unchanged else [],
+            'evidence_dropped':old.get('evidence_dropped',0) if unchanged else 0})
 
 def context(tailoring,job,data):
     sources,_=tailoring.baseline()
@@ -75,6 +80,7 @@ def context(tailoring,job,data):
         guidance.append({'title':entry['title'],'text':document['text']})
     docs=control_documents(library.root)
     return {'question':data.question,'length_limit':{'maximum':data.limit,'unit':data.unit},
+        'candidate_directions':data.note,
         'job':{'company':job.company,'title':job.title,'description':job.description},
         'candidate_sources':sources,'positioning_guidance':guidance,
         'candidate_fact_rules':{k:json.loads(docs[k]) for k in ('facts','forbidden','conflicts')}}
@@ -99,9 +105,12 @@ def generate(tailoring,job,data):
                 result=parse_response(engine.paid('tailoring',payload),Answer).model_dump()
             by_id={s['id']:s for s in body['candidate_sources']}
             if not result['text'].strip() and not result['questions']:raise RetrievalError('No answer or clarification was returned. No automatic retry was made.',502)
+            # Excerpts are shown for review only; hide unmatched ones instead of discarding a paid answer.
+            evidence=[]
             for ref in result['evidence']:
                 source=by_id.get(ref['source_id'])
-                if not source or ref['quote'] not in source['text']:raise RetrievalError('The answer returned an invalid source excerpt. No automatic retry was made.',502)
-                ref['title']=source['title']
+                if source and loose(ref['quote']) in loose(source['text']):evidence.append({**ref,'title':source['title']})
+            result['evidence_dropped']=len(result['evidence'])-len(evidence)
+            result['evidence']=evidence
             engine.put(cache,result)
         return persist(engine,job,data,result)

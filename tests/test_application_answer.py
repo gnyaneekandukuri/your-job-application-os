@@ -60,12 +60,26 @@ def test_length_warning_preserves_full_answer_and_counts_characters(setup):
     e,t,j=setup;result=a.generate(t,j,question(limit=3,unit='characters'))
     assert result['limit_exceeded'] and result['text']==e.result['text']
 
-def test_invalid_citation_does_not_replace_saved_answer(setup):
+def test_unmatched_excerpt_is_hidden_without_discarding_paid_redraft(setup):
     e,t,j=setup;data=question();saved=a.generate(t,j,data)
-    e.result['evidence'][0]['quote']='Invented ownership of public SDK'
-    with pytest.raises(RetrievalError,match='source excerpt'):
-        a.generate(t,j,data.model_copy(update={'revision':saved['revision'],'note':'Another note'}))
-    assert a.view(e,j)['items'][0]==saved
+    e.result={'text':'I redrafted around the pilot.','questions':[],'evidence':[{'source_id':'story','quote':'Invented ownership of public SDK'}]}
+    redraft=a.generate(t,j,data.model_copy(update={'revision':saved['revision'],'note':'Use the pilot story instead.'}))
+    assert redraft['text']=='I redrafted around the pilot.' and redraft['note']=='Use the pilot story instead.'
+    assert redraft['evidence']==[] and redraft['evidence_dropped']==1
+    assert a.view(e,j)['items'][0]==redraft
+
+def test_excerpts_match_despite_typographic_quotes_and_spacing(setup):
+    e,t,j=setup
+    t.baseline=lambda:([{'id':'story','title':'My experience','text':"Led Acme's CAD -\n inspection pilot."}],None)
+    e.result={'text':'Answer.','questions':[],'evidence':[{'source_id':'story','quote':'Led Acme’s CAD – inspection pilot.'}]}
+    result=a.generate(t,j,question())
+    assert result['evidence_dropped']==0 and result['evidence'][0]['title']=='My experience'
+
+def test_additional_details_are_sent_as_candidate_directions(setup):
+    e,t,j=setup;a.generate(t,j,question(note='Feature the platform MCP project, not the inspection work.'))
+    body=json.loads(e.calls[0]['input'])
+    assert body['candidate_directions']=='Feature the platform MCP project, not the inspection work.'
+    assert 'candidate_directions' in e.calls[0]['instructions']
 
 def test_empty_question_and_oversized_context_never_sent(setup):
     e,t,j=setup
