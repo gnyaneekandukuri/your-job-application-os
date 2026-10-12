@@ -4,7 +4,7 @@ const blank=():Entry=>({id:crypto.randomUUID(),revision:'',question:'',note:'',l
 export function ApplicationAnswer({jobId,company,url}:{jobId:string;company:string;url:string}){
  const dialog=useRef<HTMLDialogElement>(null);
  const [open,setOpen]=useState(false),[busy,setBusy]=useState(false),[loaded,setLoaded]=useState(false),[items,setItems]=useState<Entry[]>([]),[entry,setEntry]=useState<Entry>(blank),[saved,setSaved]=useState(''),[error,setError]=useState(''),[notice,setNotice]=useState('');
- const dirty=JSON.stringify(entry)!==saved;
+ const dirty=loaded&&JSON.stringify(entry)!==saved;
  useEffect(()=>{if(open)dialog.current?.showModal();else dialog.current?.close();},[open]);
  function select(value:Entry){setEntry(value);setSaved(JSON.stringify(value));setNotice('');}
  async function request(action='',body?:object){const r=await fetch(`/api/jobs/${jobId}/application-answers${action}`,body?{method:'POST',headers:{'Content-Type':'application/json','X-Local-Review':'1'},body:JSON.stringify(body)}:undefined);const v=await r.json();if(!r.ok)throw Error(typeof v.detail==='string'?v.detail:'Could not complete the request. Check the question and length limit.');return v;}
