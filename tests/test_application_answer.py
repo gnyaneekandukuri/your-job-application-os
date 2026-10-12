@@ -70,15 +70,15 @@ def test_unmatched_excerpt_is_hidden_without_discarding_paid_redraft(setup):
 
 def test_excerpts_match_despite_typographic_quotes_and_spacing(setup):
     e,t,j=setup
-    t.baseline=lambda:([{'id':'story','title':'My experience','text':"Led Acme's CAD -\n inspection pilot."}],None)
-    e.result={'text':'Answer.','questions':[],'evidence':[{'source_id':'story','quote':'Led Acme’s CAD – inspection pilot.'}]}
+    t.baseline=lambda:([{'id':'story','title':'My experience','text':"Led Example Labs's CAD -\n inspection pilot."}],None)
+    e.result={'text':'Answer.','questions':[],'evidence':[{'source_id':'story','quote':'Led Example Labs’s CAD – inspection pilot.'}]}
     result=a.generate(t,j,question())
     assert result['evidence_dropped']==0 and result['evidence'][0]['title']=='My experience'
 
 def test_additional_details_are_sent_as_candidate_directions(setup):
-    e,t,j=setup;a.generate(t,j,question(note='Feature the platform MCP project, not the inspection work.'))
+    e,t,j=setup;a.generate(t,j,question(note='Feature the reporting prototype, not the pilot.'))
     body=json.loads(e.calls[0]['input'])
-    assert body['candidate_directions']=='Feature the platform MCP project, not the inspection work.'
+    assert body['candidate_directions']=='Feature the reporting prototype, not the pilot.'
     assert 'candidate_directions' in e.calls[0]['instructions']
 
 def test_empty_question_and_oversized_context_never_sent(setup):
