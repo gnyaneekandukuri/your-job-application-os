@@ -11,7 +11,9 @@ POLICY = json.loads((Path(__file__).resolve().parents[1]/'criteria/discovery-scr
 # Model-input cache identity excludes local routing and documentation changes.
 MODEL_POLICY = {k:v for k,v in POLICY.items() if k not in ('decisive_confidence', 'high_confidence', 'notes')}
 VERSION = POLICY['version'] + ':' + digest(json.dumps(MODEL_POLICY, sort_keys=True))
-LEGACY_VERSION = 'semantic-screen-v1:23bbb85d38cface3e3ff7dc29c56d5782635f527c5f26452c5b635b3a94ef1ea'
+# Title levels above a PM / Senior PM target; kept out of POLICY so cached screens stay valid.
+TOO_SENIOR = ['staff', 'principal', 'director', 'head of', 'vp', 'vice president', 'chief', 'group product']
+LEGACY_VERSION ='semantic-screen-v1:23bbb85d38cface3e3ff7dc29c56d5782635f527c5f26452c5b635b3a94ef1ea'
 _legacy_policy = {**POLICY, 'decisive_confidence': 0.8,
                   'notes': [note.replace('0.7', '0.8') for note in POLICY['notes']]}
 _legacy_policy.pop('high_confidence', None)
@@ -149,7 +151,12 @@ def annotate(engine, items, profile):
         needs_information = missing or not profile.get('current') or (saved and saved['state']=='needs_information')
         priority = saved['priority'] if complete and not missing else 'worth_checking'
         label = 'Needs information' if needs_information else {'high':'High priority','worth_checking':'Worth checking','low':'Low priority'}[priority] if complete else 'Not screened'
-        if missing:
+        senior = exact_matches(item.get('title', ''), TOO_SENIOR)
+        if senior:
+            # Title-only rule; no model call. Keeps the listing visible but ranked last.
+            priority, label = 'low', 'Low priority'
+            reason = 'More senior than your target level (' + ', '.join(senior) + ' in title).'
+        elif missing:
             reason = 'Add the full job description to match this role.'
         elif not profile.get('current'):
             reason = profile.get('error') or 'Add experience or a resume in Your context before matching jobs.'

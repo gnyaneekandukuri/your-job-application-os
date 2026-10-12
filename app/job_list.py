@@ -204,7 +204,9 @@ class JobList:
             clause = ' AND '.join(where)
             total = db.execute('SELECT count(*) FROM listings WHERE '+clause,args).fetchone()[0]
             pages = max(1,math.ceil(total/size)); page = min(max(1,page),pages)
-            order = ('sort_order,backing DESC,' if focus == 'startups' else 'backing DESC,' if focus != 'any' else '')+'first_seen DESC,id'
+            # High priority first and Low last, then newest discovery day; company preference only breaks ties within a day.
+            order = ("CASE priority WHEN 'high' THEN 0 WHEN 'low' THEN 2 ELSE 1 END,substr(first_seen,1,10) DESC,"
+                     + ('sort_order,backing DESC,' if focus == 'startups' else 'backing DESC,' if focus != 'any' else '')+'first_seen DESC,id')
             items = [] if runs else [json.loads(r[0]) for r in db.execute(
                 'SELECT payload FROM listings WHERE '+clause+' ORDER BY '+order+' LIMIT ? OFFSET ?',
                 [*args,size,(page-1)*size])]

@@ -244,7 +244,7 @@ class Discovery:
                 from .job_retention import age_state, company_key
                 item['kept'] = row['id'] in kept
                 item['retention_protected'] = bool(row['job_id'] or row['id'] in kept or row['id'] in selected_rows)
-                item['age_state'] = age_state(item)
+                item['age_state'] = age_state({**item, 'first_seen': row['first_seen']})
                 item['company_watched'] = company_key(item.get('company','')) in watched
                 sources = sightings.get(row['id'], [])
                 item.update(id=row['id'], first_seen=row['first_seen'], last_seen=row['last_seen'], job_id=row['job_id'],
