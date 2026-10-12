@@ -56,7 +56,11 @@ def age_state(item, current=None):
     current = current or datetime.now(timezone.utc)
     stamp = posting_upper_bound(item)
     if stamp is None or stamp.tzinfo is None or stamp > current:
-        return 'unknown'
+        # Without a source date, age from first discovery so undated listings leave Active too.
+        try: seen = datetime.fromisoformat(str(item.get('first_seen') or '').replace('Z', '+00:00'))
+        except ValueError: return 'unknown'
+        if seen.tzinfo is None or current - seen < timedelta(days=4): return 'unknown'
+        return 'older_than_four_days'
     return 'older_than_four_days' if current - stamp >= timedelta(days=4) else 'active'
 
 

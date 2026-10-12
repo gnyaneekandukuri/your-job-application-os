@@ -81,7 +81,7 @@ The collector scrolls the directory and reads linked job descriptions. Coverage 
 
 ### Additional public sources
 
-Full discovery runs also check HN's official hiring-thread API, Lenny's Jobs, and Cosign. HN collection looks for explicit PM titles in top-level comments from the latest hiring thread posted within 24 hours (up to 400 comments). That is the hiring comment's date, not the employer's original vacancy date. Informal titles may be missed.
+Full discovery runs also check HN's official hiring-thread API, Lenny's Jobs, and Cosign. HN collection looks for explicit PM titles in top-level comments from the current monthly hiring thread, posted within the past 31 days (up to 800 comments). That is the hiring comment's date, not the employer's original vacancy date. Informal titles may be missed.
 
 Lenny's uses a fresh anonymous Edge session with the optional Playwright dependency above. It reads only the first publicly available PM results page. Its gated date filter is not used, and update timestamps are not treated as posting dates. Cosign supplies only its public subset; fuller account-only results are not collected. These sources report partial coverage, including when no PM listings appear in their public preview. Missing JDs enter the existing description-retrieval flow.
 
