@@ -1,11 +1,12 @@
 import {useEffect,useRef,useState} from 'react';
 type Entry={id:string;revision:string;question:string;note:string;limit:number|null;unit:'words'|'characters';text:string;questions:string[];evidence:{source_id:string;title:string;quote:string}[];evidence_dropped?:number;limit_exceeded?:boolean};
 const blank=():Entry=>({id:crypto.randomUUID(),revision:'',question:'',note:'',limit:null,unit:'words',text:'',questions:[],evidence:[]});
-export function ApplicationAnswer({jobId,company,url}:{jobId:string;company:string;url:string}){
+export function ApplicationAnswer({jobId,company,url,autoOpen=false}:{jobId:string;company:string;url:string;autoOpen?:boolean}){
  const dialog=useRef<HTMLDialogElement>(null);
  const [open,setOpen]=useState(false),[busy,setBusy]=useState(false),[loaded,setLoaded]=useState(false),[items,setItems]=useState<Entry[]>([]),[entry,setEntry]=useState<Entry>(blank),[saved,setSaved]=useState(''),[error,setError]=useState(''),[notice,setNotice]=useState(''),[where,setWhere]=useState<'draft'|'actions'>('draft');
  const dirty=loaded&&JSON.stringify(entry)!==saved;
  useEffect(()=>{if(open)dialog.current?.showModal();else dialog.current?.close();},[open]);
+ useEffect(()=>{if(autoOpen)void show();},[]);
  function select(value:Entry){setEntry(value);setSaved(JSON.stringify(value));setNotice('');}
  async function request(action='',body?:object){const r=await fetch(`/api/jobs/${jobId}/application-answers${action}`,body?{method:'POST',headers:{'Content-Type':'application/json','X-Local-Review':'1'},body:JSON.stringify(body)}:undefined);const v=await r.json();if(!r.ok)throw Error(typeof v.detail==='string'?v.detail:'Could not complete the request. Check the question and length limit.');return v;}
  async function act(work:()=>Promise<void>,at:'draft'|'actions'='actions'){setWhere(at);setBusy(true);setError('');setNotice('');try{await work();}catch(e){setError(e instanceof Error?e.message:'Could not complete this action.');}finally{setBusy(false);}}

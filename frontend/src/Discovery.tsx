@@ -1,4 +1,5 @@
 import {MarkApplied} from './MarkApplied';
+import {ApplicationAnswer} from './ApplicationAnswer';
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { ScanReport, type ScanReportData } from "./ScanReport";
@@ -23,6 +24,14 @@ async function request<T>(path="",body?:unknown,signal?:AbortSignal):Promise<T> 
 const statusLabel=(state:string):string=>({complete:"Completed",incomplete:"Incomplete coverage",failed:"Failed",blocked:"Access denied / limited",partial:"Partial coverage",checked:"Checked",login_required:"Sign in to YC",busy:"YC browser busy"} as Record<string,string>)[state]??state;
 const when=(date:string)=>new Date(date).toLocaleString();
 const freshnessLabel=(item:Item)=>item.date_basis==="hiring_comment_timestamp"?"Vacancy date unknown (HN comment dated below)":item.freshness==="within_24h"?"Source reports <24h":item.freshness==="older"?"Older than 24h":item.freshness==="date_only"?"Date only - age uncertain":"Date unknown";
+/** Saves a listing as a role (free, no analysis) the first time an answer is requested. */
+function RowAnswer({oid,jobId,company,url,hasDescription}:{oid:string;jobId:string|null;company:string;url:string;hasDescription:boolean}){
+ const [id,setId]=useState(jobId||''),[busy,setBusy]=useState(false),[error,setError]=useState('');
+ if(id)return <ApplicationAnswer jobId={id} company={company} url={url} autoOpen={!jobId}/>;
+ async function start(){setBusy(true);setError('');try{const r=await fetch(`/api/discovery/${oid}/save`,{method:'POST',headers:{'X-Local-Review':'1'}});const v=await r.json();if(!r.ok)throw Error(typeof v.detail==='string'?v.detail:'Could not save this job.');setId(v.job_id);}catch(e){setError(e instanceof Error?e.message:'Could not save this job.');}finally{setBusy(false);}}
+ return <><button disabled={busy||!hasDescription} title={hasDescription?'No deep analysis needed':'Add the full job description first'} onClick={()=>void start()}>{busy?'Opening…':'Answer an application question'}</button>{error&&<small role="alert">{error}</small>}</>;
+}
+
 export function Discovery({onOpen,onResults,onAdd,initialReviewId,view="opportunities"}:{onAdd:()=>void;initialReviewId?:string|null;onResults:(tab?:string)=>void;view?:"runs"|"opportunities";onOpen:(jobId:string)=>Promise<void>}) {
  const queryClient=useQueryClient();
  const [selected,setSelected]=useState<Record<string,string>>({});
@@ -59,11 +68,16 @@ export function Discovery({onOpen,onResults,onAdd,initialReviewId,view="opportun
  useEffect(()=>setPage(1),[query,priorityFilter,locationFilter,boardFilter,filter,companyFilter]);
  async function act(work:()=>Promise<void>){setBusy(true);setError("");try{await work();}catch(e){setError(e instanceof Error?e.message:"Action failed");}finally{setBusy(false);}}
  async function openJD(item:{id:string}){const detail=await request<JDDraft & {content_hash:string}>(`/${item.id}/detail`);setError("");setJD({...detail,expected_hash:detail.content_hash});}
- async function assess(item:Item){await analyzeSelected({[item.id]:item.content_hash});}
  async function analyzeSelected(roles=selected){
   const result=await request<{accepted:string[];rejected:{id:string;reason:string}[]}>("/assess-selected",{roles:Object.entries(roles).map(([id,content_hash])=>({id,content_hash}))});
   setSelected(current=>Object.fromEntries(Object.entries(current).filter(([id])=>!result.accepted.includes(id))));
   setSelectionNotice(`${result.accepted.length} roles queued.${result.accepted.length&&state?.running ? " Analysis will start after the current scan finishes." : ""} ${result.rejected.map(r=>`${state?.items.find(i=>i.id===r.id)?.company??'Role'}: ${r.reason}`).join(' ')}`);
+  setState();
+ }
+ const [rowNotice,setRowNotice]=useState<Record<string,string>>({});
+ async function analyzeRow(item:Item){
+  const result=await request<{accepted:string[];rejected:{id:string;reason:string}[]}>("/assess-selected",{roles:[{id:item.id,content_hash:item.content_hash}]});
+  setRowNotice(n=>({...n,[item.id]:result.accepted.length?(state?.running?'Queued. Starts after the current scan.':'Queued for deep analysis.'):(result.rejected[0]?.reason||'Could not queue this job.')}));
   setState();
  }
  const queueActive=(item:Item)=>['QUEUED','RUNNING'].includes(item.selected_assessment?.state??'');
@@ -158,27 +172,30 @@ export function Discovery({onOpen,onResults,onAdd,initialReviewId,view="opportun
    {selectionNotice&&<p role="status">{selectionNotice}</p>}
    <div className="opportunity-pagination"><small>{total?`${(currentPage-1)*25+1}–${Math.min(currentPage*25,total)} of ${total}`:'No matching roles'} · API usage applies when analyzing</small><div><button disabled={listing.isPlaceholderData||currentPage===1} onClick={()=>setPage(currentPage-1)}>Previous</button><span>Page {currentPage} of {pages}</span><button disabled={listing.isPlaceholderData||currentPage===pages} onClick={()=>setPage(currentPage+1)}>Next</button></div></div>
    {state.freshness_counts&&<p className="muted">For these preferences: <button className="text-button" onClick={()=>setFilter("recent")}>{state.freshness_counts.recent} posted &lt;24h</button> · <button className="text-button" onClick={()=>setFilter("older")}>{state.freshness_counts.older} older</button> · <button className="text-button" onClick={()=>setFilter("uncertain")}>{state.freshness_counts.uncertain} date uncertain</button></p>}
-   {!total?<p>{state.scan?"No jobs match these filters. Check older jobs or uncertain posting dates above, or broaden the company and location filters.":"Open Discovery runs and choose Check now to collect listings."}</p>:<div className="discovery-table-scroll" tabIndex={0} role="region" aria-label="All opportunities"><table className="discovery-table opportunities-table"><thead><tr><th scope="col">Company / role</th><th scope="col">Priority / skills</th><th scope="col">Link</th><th scope="col">Job board</th><th scope="col">Location</th><th scope="col">Posted / freshness</th><th scope="col">Analysis</th></tr></thead><tbody>
+   {!total?<p>{state.scan?"No jobs match these filters. Check older jobs or uncertain posting dates above, or broaden the company and location filters.":"Open Discovery runs and choose Check now to collect listings."}</p>:<div className="discovery-table-scroll" tabIndex={0} role="region" aria-label="All opportunities"><table className="discovery-table opportunities-table"><thead><tr><th scope="col">Company / role</th><th scope="col">Priority / skills</th><th scope="col">Link</th><th scope="col">Job board</th><th scope="col">Location</th><th scope="col">Posted / freshness</th></tr></thead><tbody>
     {pageRows.map(item=><tr key={item.id}><td>{<label className="select-role"><input type="checkbox" aria-label={`Select ${item.company} · ${item.title} for deep analysis`} disabled={busy||!selectable(item)||(!selected[item.id]&&Object.keys(selected).length>=100)} checked={!!selected[item.id]} onChange={e=>{const checked=e.target.checked;setSelectionNotice('');setSelected(current=>{const next={...current};if(checked)next[item.id]=item.content_hash;else delete next[item.id];return next;});}}/>Select</label>}<strong>{item.company}</strong>{item.company_fit&&<small title={item.company_fit.reason}>{item.company_fit.label}{item.company_fit.backing_reported?" · Backing reported":""}</small>}<div className="discovery-role">{item.title}</div>{item.role_classification && <small title={`Jev · ${item.role_classification.model} · advisory classification`}>{Object.values(item.role_classification.labels).join(" · ")}</small>}
-     <JobDetails item={item} boards={state.boards}/><MarkApplied jobId={item.job_id||undefined} opportunityId={item.id} company={item.company}/><div><button className="text-action" disabled={busy} onClick={()=>void act(async()=>{await request(`/${item.id}/keep`,{keep:!item.kept});setState();})}>{item.kept?"Unkeep job":"Keep job"}</button> · <button className="text-action" onClick={()=>setWatchCompany(item.company)}>{item.company_watched?"Watching company":"Watch company"}</button></div></td>
-     <td>{item.keyword_match && <div className="opportunity-priority"><span className={`preference-badge preference-${item.keyword_match.priority}`} title={item.keyword_match.reason}>{item.keyword_match.priority==='low'?'Low priority':item.keyword_match.label}</span>{item.keyword_match.reason&&<details><summary>Why this priority</summary><p>{item.keyword_match.reason}</p></details>}</div>}<div className="keyword-tags">{item.keyword_match?.experience.length ? item.keyword_match.experience.map(match=><span key={match.term}>{match.term}</span>) : <span className="muted">—</span>}</div></td>
-     <td><a href={item.url} target="_blank" rel="noreferrer">View listing ↗</a></td>
-     <td>{[...new Set(item.sources.map(s=>state.boards[s.board]||s.board))].join(", ")}</td><td>{item.location||"Unknown"}</td>
-     <td><span className="discovery-status">{freshnessLabel(item)}</span><small>{item.posted_at?(/^\d{4}-\d{2}-\d{2}$/.test(item.posted_at)?item.posted_at:when(item.posted_at)):"Not provided"}</small>{item.date_label&&<small>{item.date_label}</small>}<small>Discovered: {when(item.first_seen)}</small></td>
-     <td>
+     <div className="row-actions">
+      {rowNotice[item.id]&&<small role="status">{rowNotice[item.id]}</small>}
       {item.description_length<200 && item.description_fetch?.state==="NEEDS_PASTE" && <small>Open the listing and paste its full JD.</small>}
       {item.selected_assessment?.state==="QUEUED"&&<strong role="status">Queued for deep analysis</strong>}
       {item.selected_assessment?.state==="RUNNING"&&item.assessment?.state!=="RUNNING"&&<strong role="status">Starting analysis</strong>}
       {item.selected_assessment?.state==="NEEDS_ATTENTION"&&item.selected_assessment.error&&<small role="status">{item.selected_assessment.error}</small>}
       {item.queued_for_assessment && <strong role="status">Queued for automatic analysis</strong>}
       {item.assessment?.state==="RUNNING" && <strong role="status">Analyzing</strong>}
-      {["ERROR","INTERRUPTED","NEEDS_ATTENTION"].includes(item.assessment?.state??"") && <strong>Needs attention</strong>}
+      {["ERROR","INTERRUPTED","NEEDS_ATTENTION","PAUSED"].includes(item.assessment?.state??"") && <><strong>Deep analysis stopped</strong>{item.assessment?.error&&<small>{item.assessment.error}</small>}</>}
+      {["ERROR","INTERRUPTED","PAUSED"].includes(item.assessment?.state??"") && !queueActive(item) && item.description_length>=200 && !item.description_changed && <button className="primary" disabled={busy} onClick={()=>void act(()=>analyzeRow(item))}>Retry deep analysis · API usage</button>}
       {["ERROR","INTERRUPTED","STALE","NEEDS_ATTENTION"].includes(item.assessment?.state??"") && <button onClick={()=>onResults("issues")}>Review analysis issue</button>}
       {item.description_length<200 || item.description_changed ? <button disabled={busy} onClick={()=>void act(()=>openJD(item))}>{item.description_changed ? "Review updated JD" : "Get full JD"}</button> : <>
-       {!queueActive(item) && !item.queued_for_assessment && ["NOT_STARTED", ""].includes(item.assessment?.state ?? "") && <button disabled={busy} onClick={()=>void act(()=>assess(item))}>{item.job_id ? "Analyze deeply again" : "Analyze deeply"}</button>}
+       {!queueActive(item) && !item.queued_for_assessment && ["NOT_STARTED", ""].includes(item.assessment?.state ?? "") && <button className="primary" disabled={busy} onClick={()=>void act(()=>analyzeRow(item))}>{item.job_id ? "Analyze deeply again" : "Analyze deeply"} · API usage</button>}
       </>}
       {item.job_id && item.assessment?.state==="NOT_STARTED" && <button disabled={busy} onClick={()=>void act(()=>onOpen(item.job_id!))}>Open role &amp; analysis</button>}
-     </td>
+      {item.description_length>=200&&!item.description_changed&&<RowAnswer oid={item.id} jobId={item.job_id||null} company={item.company} url={item.url} hasDescription/>}
+     </div>
+     <JobDetails item={item} boards={state.boards}/><MarkApplied jobId={item.job_id||undefined} opportunityId={item.id} company={item.company}/><div><button className="text-action" disabled={busy} onClick={()=>void act(async()=>{await request(`/${item.id}/keep`,{keep:!item.kept});setState();})}>{item.kept?"Unkeep job":"Keep job"}</button> · <button className="text-action" onClick={()=>setWatchCompany(item.company)}>{item.company_watched?"Watching company":"Watch company"}</button></div></td>
+     <td>{item.keyword_match && <div className="opportunity-priority"><span className={`preference-badge preference-${item.keyword_match.priority}`} title={item.keyword_match.reason}>{item.keyword_match.priority==='low'?'Low priority':item.keyword_match.label}</span>{item.keyword_match.reason&&<details><summary>Why this priority</summary><p>{item.keyword_match.reason}</p></details>}</div>}{item.keyword_match?.experience.length ? <details className="keyword-details"><summary>Matched skills ({item.keyword_match.experience.length})</summary><div className="keyword-tags">{item.keyword_match.experience.map(match=><span key={match.term}>{match.term}</span>)}</div></details> : null}</td>
+     <td><a href={item.url} target="_blank" rel="noreferrer">View listing ↗</a></td>
+     <td>{[...new Set(item.sources.map(s=>state.boards[s.board]||s.board))].join(", ")}</td><td>{item.location||"Unknown"}</td>
+     <td><span className="discovery-status">{freshnessLabel(item)}</span><small>{item.posted_at?(/^\d{4}-\d{2}-\d{2}$/.test(item.posted_at)?item.posted_at:when(item.posted_at)):"Not provided"}</small>{item.date_label&&<small>{item.date_label}</small>}<small>Discovered: {when(item.first_seen)}</small></td>
     </tr>)}
    </tbody></table></div>}
   </>}
