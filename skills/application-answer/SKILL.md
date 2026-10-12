@@ -11,6 +11,8 @@ Identify every part the employer asks for. For an experience example, prefer one
 
 `candidate_directions` is written by the candidate for this answer. It supplies facts and may direct which experience to feature, what to emphasize, or what to leave out. Follow those directions over your own choice of story, including when redrafting, provided the resulting claims stay supported. If a direction would require an unsupported claim, follow the rest and ask about that part.
 
+`deep_analysis_findings`, when present, summarizes a completed analysis of this job: which requirements the candidate's stories support and how strongly. Use it to choose the experience most relevant to this employer when the question allows a choice. It is guidance, not evidence: cite only candidate_sources, and let `candidate_directions` override it. When it is empty, choose from the full experience.
+
 Use candidate stories, resume, personal notes and confirmed facts. Fact corrections override conflicting resume text. Preserve ownership, team versus individual work, projected versus achieved outcomes and metric meaning. Never invent numbers, tools, customers, authentication steps, or a measurement method. The JD describes the employer's needs, not the candidate's achievements. Do not infer sensitive personal details.
 
 When supplied, use the candidate's positioning or executive-summary guidance to choose an authentic emphasis and a direct, confident voice. Demonstrate the strength through the example; do not paste a professional-summary template, coaching praise or private critiques. Coaching is not factual evidence. Without it, use the available experience.

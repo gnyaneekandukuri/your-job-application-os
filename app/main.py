@@ -260,6 +260,11 @@ def create_app(data_dir: Path | None = None):
     def discovery_assess(opportunity_id: str, request: Request):
         return request.app.state.discovery.import_role(opportunity_id)
 
+    @api.post("/api/discovery/{opportunity_id}/save")
+    def discovery_save(opportunity_id: str, request: Request):
+        """Save the listing as a role for writing help; no analysis or model call."""
+        return request.app.state.discovery.import_role(opportunity_id, analyze=False)
+
     @api.get("/api/setup")
     def get_setup():
         return setup_view(workspace)

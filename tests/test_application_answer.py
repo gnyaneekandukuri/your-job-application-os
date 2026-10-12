@@ -107,3 +107,19 @@ def test_api_saves_multiple_answers_without_resume_or_analysis(tmp_path):
         assert client.get(route).json()['items'][0]['text']==body['text']
         assert client.post(route+'/save',headers=headers,json=body).status_code==409
         assert client.post(route+'/draft',headers=headers,json={**question().model_dump(mode='json'),'limit':0}).status_code==422
+
+def test_completed_deep_analysis_guides_story_choice_without_becoming_evidence(setup):
+    e,t,j=setup
+    run={'state':'COMPLETE','requirements':[{'id':'R1','interpretation':'Own developer onboarding'},{'id':'R2','interpretation':'Run pricing'}],
+         'results':{'a':{'requirement_id':'R1','judgment':{'support':'direct','explanation':'Prototype fixed setup.','evidence':[{'passage_id':'p1','quote':'Built an internal integration prototype.'}]},
+                         'passages':[{'passage_id':'p1','source_title':'My experience'}]},
+                    'b':{'requirement_id':'R2','judgment':{'support':'unclear','explanation':'','evidence':[]},'passages':[]}}}
+    t.analysis.view=lambda job,compact=False:{'run':run}
+    a.generate(t,j,question())
+    body=json.loads(e.calls[0]['input'])
+    assert body['deep_analysis_findings']==[{'requirement':'Own developer onboarding','support':'direct','explanation':'Prototype fixed setup.',
+        'stories':[{'title':'My experience','quote':'Built an internal integration prototype.'}]}]
+    assert all(s['id']!='deep-analysis' for s in body['candidate_sources'])
+    run['state']='RUNNING';e.calls.clear();e.data.clear()
+    a.generate(t,j,question())
+    assert json.loads(e.calls[0]['input'])['deep_analysis_findings']==[]
