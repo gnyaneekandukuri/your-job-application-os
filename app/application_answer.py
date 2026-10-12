@@ -64,6 +64,23 @@ def save(engine,job,data):
         return persist(engine,job,data,{'text':data.text,'questions':old.get('questions',[]) if unchanged else [],'evidence':old.get('evidence',[]) if unchanged else [],
             'evidence_dropped':old.get('evidence_dropped',0) if unchanged else 0})
 
+def findings(tailoring,job):
+    """Supported requirement matches from a completed deep analysis; guidance only, never citable evidence."""
+    try:run=(tailoring.analysis.view(job,compact=True) or {}).get('run') or {}
+    except Exception:return []
+    if run.get('state')!='COMPLETE':return []
+    requirements={r['id']:r for r in run.get('requirements') or []}
+    rows=[]
+    for result in (run.get('results') or {}).values():
+        judgment=result.get('judgment') or {}
+        if judgment.get('support') not in ('direct','transferable'):continue
+        requirement=requirements.get(result.get('requirement_id'),{})
+        titles={p['passage_id']:p.get('source_title','') for p in result.get('passages') or []}
+        rows.append({'requirement':requirement.get('interpretation') or requirement.get('quote',''),'support':judgment['support'],
+            'explanation':(judgment.get('explanation') or '')[:600],
+            'stories':[{'title':titles.get(e.get('passage_id'),''),'quote':(e.get('quote') or '')[:400]} for e in (judgment.get('evidence') or [])[:3]]})
+    return sorted(rows,key=lambda r:r['support']!='direct')[:20]
+
 def context(tailoring,job,data):
     sources,_=tailoring.baseline()
     sources=[{k:s.get(k,'') for k in ('id','title','text','employer','project')} for s in sources if s.get('text','').strip()]
@@ -80,7 +97,7 @@ def context(tailoring,job,data):
         guidance.append({'title':entry['title'],'text':document['text']})
     docs=control_documents(library.root)
     return {'question':data.question,'length_limit':{'maximum':data.limit,'unit':data.unit},
-        'candidate_directions':data.note,
+        'candidate_directions':data.note,'deep_analysis_findings':findings(tailoring,job),
         'job':{'company':job.company,'title':job.title,'description':job.description},
         'candidate_sources':sources,'positioning_guidance':guidance,
         'candidate_fact_rules':{k:json.loads(docs[k]) for k in ('facts','forbidden','conflicts')}}
