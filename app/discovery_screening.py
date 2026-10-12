@@ -6,6 +6,7 @@ from .cost_tracking import opportunity_scope, usage_scope, scan_id
 from .retrieval import digest, RetrievalError, normalized
 from .jev_assessment import excerpt_units
 from .discovery_preferences import matches as exact_matches
+from .needs_help import description_problem, UNREADABLE
 
 POLICY = json.loads((Path(__file__).resolve().parents[1]/'criteria/discovery-screening.json').read_text())
 # Model-input cache identity excludes local routing and documentation changes.
@@ -77,7 +78,7 @@ def screen(engine, items, profile, stop):
         if stop.is_set(): break
         if item.get('location_match', {}).get('status') == 'outside': continue
         state, key = inputs(item, profile)
-        if len(item.get('description', '').strip()) < 200:
+        if description_problem(item.get('description', '')):
             engine.put(key, {'state': 'needs_information', 'reason': 'Add the full job description to match this role.'})
             counts['needs_description'] += 1
             continue
@@ -147,7 +148,7 @@ def annotate(engine, items, profile):
                 saved['reason'] = 'Specific work in this role connects with your experience and preferences.'
         item['initial_evaluation'] = saved
         complete = saved and saved['state'] == 'classified' and profile.get('current')
-        missing = len(item.get('description', '').strip()) < 200
+        missing = bool(description_problem(item.get('description', '')))
         needs_information = missing or not profile.get('current') or (saved and saved['state']=='needs_information')
         priority = saved['priority'] if complete and not missing else 'worth_checking'
         label = 'Needs information' if needs_information else {'high':'High priority','worth_checking':'Worth checking','low':'Low priority'}[priority] if complete else 'Not screened'
@@ -157,7 +158,7 @@ def annotate(engine, items, profile):
             priority, label = 'low', 'Low priority'
             reason = 'More senior than your target level (' + ', '.join(senior) + ' in title).'
         elif missing:
-            reason = 'Add the full job description to match this role.'
+            reason = UNREADABLE if description_problem(item.get('description', '')) == 'unreadable' else 'Add the full job description to match this role.'
         elif not profile.get('current'):
             reason = profile.get('error') or 'Add experience or a resume in Your context before matching jobs.'
         elif saved:

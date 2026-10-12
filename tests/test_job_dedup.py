@@ -67,3 +67,16 @@ def test_applied_deleted_alias_still_hides_canonical_role(tmp_path):
     ids,urls=model.applied_keys()
     assert 'opportunity:b' in ids and 'saved-job' in ids
     assert 'https://example.com/b' in urls
+
+
+def test_same_posting_in_several_cities_shows_once_with_all_locations():
+    from app.job_identity import group_listings
+    jd = 'Own product telemetry for data teams and partner with engineering on governed metrics. ' * 4
+    base = {'company': 'Example', 'title': 'Senior Data PM', 'description': jd, 'first_seen': '2026-10-01', 'last_seen': '2026-10-02', 'sources': []}
+    rows = group_listings([{**base, 'id': 'ny', 'location': 'New York, NY', 'location_match': {'status': 'outside'}},
+                           {**base, 'id': 'sf', 'location': 'San Francisco, CA', 'location_match': {'status': 'match'}, 'job_id': 'j1'},
+                           {**base, 'id': 'other', 'location': 'Austin, TX', 'title': 'Data PM'}])
+    assert len(rows) == 2
+    grouped = next(r for r in rows if r['title'] == 'Senior Data PM')
+    assert grouped['id'] == 'sf' and sorted(grouped['duplicate_ids']) == ['ny', 'sf']
+    assert grouped['location'] == 'New York, NY; San Francisco, CA' and grouped['location_match']['status'] == 'match'

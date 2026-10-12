@@ -238,11 +238,13 @@ class Discovery:
             selected_rows = {r['opportunity_id']:dict(r) for r in db.execute('SELECT opportunity_id,state,error FROM selected_assessments')}
             fetched_rows = {r['opportunity_id']:dict(r) for r in db.execute('SELECT * FROM description_fetches')}
             kept = {r[0] for r in db.execute('SELECT opportunity_id FROM kept_jobs')}
+            passed = {r[0] for r in db.execute('SELECT opportunity_id FROM passed_jobs')}
             watched = {r[0] for r in db.execute('SELECT id FROM company_watchlist')}
             for row in db.execute('SELECT * FROM opportunities ORDER BY first_seen DESC'):
                 item = json.loads(row['payload'])
                 from .job_retention import age_state, company_key
                 item['kept'] = row['id'] in kept
+                item['passed'] = row['id'] in passed
                 item['retention_protected'] = bool(row['job_id'] or row['id'] in kept or row['id'] in selected_rows)
                 item['age_state'] = age_state({**item, 'first_seen': row['first_seen']})
                 item['company_watched'] = company_key(item.get('company','')) in watched
@@ -285,6 +287,8 @@ class Discovery:
             from .discovery_screening import annotate
             annotate(self.analysis.engine, items, keyword_profile)
             apply_company_priority(items)
+            from .needs_help import needs_help
+            for item in items: item['needs_help'] = needs_help(item)
         return {'company_preference':company_policy, 'jev': self.jev.status(), 'yc_connection': self.yc.status(), 'keyword_profile': keyword_profile, 'items': items, 'location_preference': preferences.get('location_filter', {}), 'settings': self.settings(), 'running': bool(self.worker and self.worker.is_alive()),
                 'scan': {**dict(scan), 'payload': scan_summary(json.loads(scan['payload']))} if scan else None,
                 'boards': BOARDS, 'unavailable': UNAVAILABLE, 'timezone': str(datetime.now().astimezone().tzinfo),
@@ -594,7 +598,16 @@ class Discovery:
 
     def assess_high_priority(self, seen_ids):
         # Current-run sightings only; publication age does not imply poor fit.
-        candidates = [item for item in self.view()['items'] if item['id'] in seen_ids and self.auto_eligible(item)]
+        from .job_identity import same_job
+        items = self.view()['items']
+        # One paid analysis per identical posting, even when it is listed for several locations.
+        taken, candidates = {same_job(i) for i in items if i.get('job_id')} - {None}, []
+        for item in items:
+            if item['id'] not in seen_ids or not self.auto_eligible(item): continue
+            key = same_job(item)
+            if key in taken: continue
+            if key: taken.add(key)
+            candidates.append(item)
         candidates.sort(key=lambda item: -item.get('keyword_match',{}).get('ranking',{}).get('points',0))
         self.queued_ids = {item['id'] for item in candidates if self.auto_eligible(item)}
         last_job = None
@@ -641,7 +654,10 @@ class Discovery:
 
     @staticmethod
     def auto_eligible(item):
+        from .needs_help import description_problem
         return (item.get('keyword_match',{}).get('priority')=='high'
+                and not description_problem(item.get('description',''))
+                and not item.get('passed')
                 and (item.get('age_state') != 'older_than_four_days' or item.get('retention_protected'))
                 and (item.get('assessment') or {}).get('state') in (None, 'NOT_STARTED', 'STALE', 'JD_CHANGED')
                 and item.get('location_match',{}).get('status')=='match'
