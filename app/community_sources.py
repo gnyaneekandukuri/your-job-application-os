@@ -25,13 +25,18 @@ def timestamp(value, milliseconds=False):
         return None
 
 
+# Monthly threads collect most posts early; read the whole current month, not only the last day.
+HN_WINDOW = timedelta(days=31)
+HN_COMMENTS = 800
+
+
 def hn_listing(item, thread_id, current):
     if not isinstance(item, dict) or item.get('deleted') or item.get('dead'):
         return None
     if item.get('type') != 'comment' or item.get('parent') != thread_id:
         return None
     posted = timestamp(item.get('time'))
-    if not posted or not current - timedelta(hours=24) <= datetime.fromisoformat(posted) <= current:
+    if not posted or not current - HN_WINDOW <= datetime.fromisoformat(posted) <= current:
         return None
     text = plain_text(item.get('text', ''))
     # A hiring comment may advertise several roles. Require an explicit PM title,
@@ -46,6 +51,7 @@ def hn_listing(item, thread_id, current):
         r'(?:product manager|head of product|director of product|product lead)\b', line, re.I)), None)
     if not title:
         return None
+    title = re.sub(r'\s*[:\-–(]?\s*https?://\S*.*$', '', title).strip() or title
     return {'source_id': str(item['id']), 'title': title[:200], 'company': header[0][:200],
             'location': ' | '.join(header[1:])[:500],
             'url': f'https://news.ycombinator.com/item?id={item["id"]}',
@@ -71,7 +77,7 @@ def collect_hn(client, fetch, current=None):
     if not thread or not isinstance(thread.get('kids', []), list):
         raise ValueError('Current HN hiring thread not found')
     warnings, rows = [], []
-    ids = thread.get('kids', [])[:400]
+    ids = thread.get('kids', [])[:HN_COMMENTS]
     def read(ident):
         try:
             data = json.loads(fetch(client, HN + f'item/{int(ident)}.json'))
@@ -86,9 +92,9 @@ def collect_hn(client, fetch, current=None):
                 rows.append(row)
             if warning and warning not in warnings:
                 warnings.append(warning)
-    if len(thread.get('kids', [])) > 400:
-        warnings.append('Reached the 400-comment limit; coverage is partial.')
-    return rows, ('Partial coverage: explicit PM titles in top-level hiring comments posted in the past 24 hours. '
+    if len(thread.get('kids', [])) > HN_COMMENTS:
+        warnings.append(f'Reached the {HN_COMMENTS}-comment limit; coverage is partial.')
+    return rows, ('Partial coverage: explicit PM titles in top-level comments of the current monthly hiring thread (past 31 days). '
                   'Comment dates are not vacancy creation dates. Informal or ambiguous ads may be missed.'), warnings
 
 

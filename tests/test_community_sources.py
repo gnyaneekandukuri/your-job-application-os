@@ -27,7 +27,7 @@ def test_hn_comment_date_not_thread_date_and_no_replies():
     assert row['date_basis'] == 'hiring_comment_timestamp'
     assert row['url'].endswith('id=12')
     for change in ({'parent': 12}, {'deleted': True}, {'dead': True},
-                   {'time': NOW.timestamp()-86401}, {'time': NOW.timestamp()+1}):
+                   {'time': NOW.timestamp()-31*86400-1}, {'time': NOW.timestamp()+1}):
         assert hn_listing({**comment, **change}, 10, NOW) is None
 
 
