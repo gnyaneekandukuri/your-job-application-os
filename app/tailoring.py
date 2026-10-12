@@ -19,6 +19,24 @@ VERSION = 'tailoring-reviewed-repairs-v11'
 REQUEST_BYTE_LIMIT = 512000
 
 
+def response_schema(model):
+    """Require all wire fields while retaining defaults for older saved records."""
+    schema = model.model_json_schema()
+    def visit(node):
+        if isinstance(node, dict):
+            node.pop('default', None)
+            if node.get('type') == 'object':
+                node['required'] = list(node.get('properties', {}))
+                node['additionalProperties'] = False
+            for value in node.values():
+                visit(value)
+        elif isinstance(node, list):
+            for value in node:
+                visit(value)
+    visit(schema)
+    return schema
+
+
 def model_context(body):
     """Compact only the wire copy; preserve the editable/citable original locally."""
     result = dict(body)
@@ -420,7 +438,7 @@ class Tailoring:
     def call(self, job_id, stage, instructions, body, schema, tokens):
         payload = {'model':MODEL,'store':False,'max_output_tokens':tokens,'reasoning':{'effort':'none'},
                    'instructions':instructions,'input':json.dumps(model_context(body), ensure_ascii=False),
-                   'text':{'format':{'type':'json_schema','name':'resume_'+stage,'strict':True,'schema':schema.model_json_schema()}}}
+                   'text':{'format':{'type':'json_schema','name':'resume_'+stage,'strict':True,'schema':response_schema(schema)}}}
         if len(json.dumps(payload, ensure_ascii=False).encode('utf-8')) > REQUEST_BYTE_LIMIT:
             raise RetrievalError('Tailoring request exceeds the 512 KB local limit, including instructions and output schema. Nothing was sent or charged. Saved context is unchanged.', 422)
         with usage_scope(job_id, 'resume_'+stage):

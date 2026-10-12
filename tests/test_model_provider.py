@@ -57,3 +57,7 @@ def test_tailoring_can_allow_longer_single_request(monkeypatch):
     OpenAIProvider(request_timeout=120).request('responses',{})
     OpenAIProvider().request('responses',{})
     assert timeouts==[120,60]
+
+def test_invalid_schema_error_identifies_app_problem_without_exposing_body():
+    msg=failure_message(httpx.Response(400,json={'error':{'code':'invalid_json_schema','message':'PRIVATE'}}))
+    assert 'application fix' in msg and 'PRIVATE' not in msg

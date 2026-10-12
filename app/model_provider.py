@@ -12,6 +12,17 @@ def failure_message(response):
                403: "API access denied. Check project permissions and model access.",
                404: "Requested model or endpoint is unavailable to this project."}.get(
                    response.status_code, "OpenAI request failed. Check model access and request compatibility.")
+    if response.status_code == 400:
+        try:
+            body = response.json()
+            error = body.get('error', {}) if isinstance(body, dict) else {}
+            code = error.get('code') if isinstance(error, dict) else None
+        except ValueError:
+            code = None
+        if code == 'invalid_json_schema':
+            message = 'The app sent an invalid response format. This needs an application fix; your saved draft is preserved.'
+        elif code == 'context_length_exceeded':
+            message = 'The request exceeds the model context window. Your saved draft is preserved.'
     if response.status_code == 429:
         try:
             body = response.json()

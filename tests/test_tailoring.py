@@ -691,3 +691,40 @@ def test_format_saved_draft_is_free_and_keeps_previous_revision(setup):
     assert result['draft']['blocks'][0]['format']['bold']
     key=s.engine.get('tailoring:latest:'+j.id)
     assert s.engine.get(key+':revision:'+old_revision)['draft']==record['draft']
+
+def test_wire_schemas_require_all_fields_without_changing_saved_defaults():
+    from app.tailoring import TailoringPlan,TailoringReview,response_schema
+    def verify(node):
+        if isinstance(node,dict):
+            assert 'default' not in node
+            if node.get('type')=='object':
+                assert set(node['required'])==set(node['properties'])
+                assert node['additionalProperties'] is False
+            for value in node.values():verify(value)
+        elif isinstance(node,list):
+            for value in node:verify(value)
+    for model in (TailoringPlan,TailoringReview):verify(response_schema(model))
+    assert 'repairs' in response_schema(TailoringReview)['required']
+    assert not TailoringReview.model_fields['repairs'].is_required()
+
+
+def test_claim_check_dispatches_required_repairs_in_wire_schema(setup):
+    s,j,p,*_=setup
+    record=generate(s,j)
+    assert record['draft']
+    checks=[payload for payload in p.calls if payload.get('text',{}).get('format',{}).get('name')=='resume_claim_check']
+    assert checks
+    assert 'repairs' in checks[0]['text']['format']['schema']['required']
+
+def test_failed_review_resumes_saved_draft_without_generating_again(setup):
+    s,j,p,*_=setup
+    p.fail_check=True
+    stopped=generate(s,j)
+    assert stopped['state']=='ERROR' and stopped['draft']
+    before=json.loads(json.dumps(stopped['draft']))
+    p.fail_check=False
+    s.recheck(j,Action(revision=stopped['revision'],confirmed=True));s.worker.join(5)
+    saved=s.view(j)['record']
+    assert saved['state']!='ERROR'
+    assert saved['draft']==before
+    assert [c['text']['format']['name'] for c in p.calls].count('resume_draft')==1
