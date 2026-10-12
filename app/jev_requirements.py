@@ -15,10 +15,15 @@ CATEGORIES = {
 }
 
 
+# Board descriptions sometimes keep HTML block markup instead of line breaks.
+BLOCK_TAGS = re.compile(r'(?:<br\s*/?>|</?(?:li|ul|ol|p|div|h[1-6])(?:\s[^>]*)?>)+', re.I)
+
+
 def spans(text, maximum=1200):
     """Exact source substrings; do not split conjunctions, ORs or semicolons."""
     result, heading = [], ''
-    for line in text.splitlines():
+    lines = [piece for line in text.splitlines() for piece in BLOCK_TAGS.split(line)]
+    for line in lines:
         line = line.strip()
         if not line:
             continue
