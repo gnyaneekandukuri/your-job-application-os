@@ -10,6 +10,7 @@ No automatic resume after restart or unknown paid outcome. No apply recommendati
 """
 import hashlib
 import json
+import logging
 import re
 from threading import RLock, Thread
 from typing import Literal
@@ -384,6 +385,7 @@ class RoleAnalysis:
             run.state = "PAUSED" if exc.status in (409, 503) else "ERROR"
             run.stage, run.error = "Analysis stopped; completed work is saved.", str(exc)
         except Exception:
+            logging.getLogger(__name__).exception("Role analysis failed for job %s", job.id)
             run.state, run.stage, run.error = "ERROR", "Analysis stopped; completed work is saved.", "Unexpected processing failure. Inspect local diagnostics before retrying."
         finally:
             self.save(key, run)
