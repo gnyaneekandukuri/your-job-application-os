@@ -19,9 +19,12 @@ test('negative recommendations and unfinished work remain accessible separately'
  assert.equal(analysisFilter(role({recommendation:'SKIP'}),'consider_passing'),true);
  assert.equal(analysisFilter(role({recommendation:'SKIP'}),'all'),true);
  for(const state of ['STALE','ERROR','RUNNING','NOT_STARTED']) {
-  assert.equal(analysisFilter(role({state}),'all'),false);
+  assert.equal(analysisFilter(role({state,score:null}),'all'),false);
   assert.ok(processingStatus(role({state})));
  }
+ // Outdated results that kept a score stay visible under All (tagged Outdated), never under Worth applying.
+ assert.equal(analysisFilter(role({state:'STALE',score:61}),'all'),true);
+ assert.equal(analysisFilter(role({state:'STALE',score:61}),'worth'),false);
 
 });
 test('evidence review is visible but never labeled worth applying',()=>{

@@ -36,6 +36,8 @@ export function processingStatus(r:Result):string|null {
 export function analysisFilter(r:Result,filter:string):boolean {
  const a=r.assessment;
  if(filter==='passed')return a.choice==='SKIP';
+ // Outdated results keep their score; they stay visible under All with an Outdated tag until re-run.
+ if(filter==='all'&&a.choice!=='SKIP'&&a.state==='STALE'&&a.score!==null)return true;
  if(a.choice==='SKIP'||a.state!=='COMPLETE')return false;
  if(filter==='all')return true;
  if(filter==='unavailable')return !a.recommendation;
@@ -59,6 +61,7 @@ export function recentResultsFirst(a:Result,b:Result):number {
 export type HelpAction='rerun'|'fix_description'|'open';
 export function helpFor(r:Result):{issue:string;todo:string;action:HelpAction}|null {
  const a=r.assessment;if(a.choice==='SKIP'||!processingStatus(r)||['RUNNING','QUEUED'].includes(a.state))return null;
+ if(a.state==='STALE'&&a.score!==null&&!a.listing_changed)return null; // shown in Results with a Re-run action
  const error=a.recommendation_error||a.error||'';
  const fix:HelpAction=r.opportunity_id?'fix_description':'open';
  if(a.listing_changed)return {issue:'The job listing changed after you analyzed it.',todo:'Review the updated description, then analyze it again.',action:fix};
