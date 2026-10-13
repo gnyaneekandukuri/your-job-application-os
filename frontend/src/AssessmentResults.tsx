@@ -4,7 +4,7 @@ import { TailorResume } from "./TailorResume";
 import { RecommendationWhy } from './RecommendationWhy';
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { analysisFilter, processingStatus, recentResultsFirst, type Result } from "./assessmentQueue";
+import { analysisFilter, helpFor, recentResultsFirst, type Result } from "./assessmentQueue";
 type State={ready:boolean;items:Result[];queued_count:number;settings:{auto_assess:boolean;auto_assess_pause_reason?:string}};
 const filters=[["all","All"],["worth","Worth applying"],["review","Needs review"],["consider_passing","Consider passing"],["unavailable","Unavailable"],["passed","Passed by me"]];
 const recommendation=(r:Result)=>r.assessment.listing_changed?'Review updated JD':r.assessment.state!=='COMPLETE'?'Not finished':!r.assessment.recommendation?'Recommendation unavailable':r.assessment.recommendation==='REVIEW'?'Needs review before deciding':r.assessment.recommendation==='SKIP'?'Consider passing':r.assessment.recommendation==='ATTACK_HARD'?'Worth applying · prioritize':'Worth applying';
@@ -18,9 +18,19 @@ export function AssessmentResults({onOpen,onDiscover,onUpdatedJD,initialTab="all
  const all=(data?.items??[]).map(r=>choices[r.job_id]?{...r,assessment:{...r.assessment,choice:choices[r.job_id]}}:r).filter(r=>!applications.data?.some(a=>a.job_id===r.job_id||(a.url&&a.url.replace(/\/$/,'')===r.url?.replace(/\/$/,'')))),items=all.filter(r=>analysisFilter(r,filter)).sort(recentResultsFirst);
  const active=all.filter(r=>r.assessment.state==='RUNNING');
  const queued=all.filter(r=>r.assessment.state==='QUEUED');
- const processing=all.filter(r=>processingStatus(r)&&!['RUNNING','QUEUED'].includes(r.assessment.state));
+ const helpRows=all.flatMap(r=>{const h=helpFor(r);return h?[{r,h}]:[];});
+ const [view,setView]=useState<'results'|'help'>(initialTab==='issues'?'help':'results');
  const pending=(data?.queued_count??0)+active.length+queued.length;
  const open=async(id:string)=>{try{await onOpen(id);}catch(e){setError(String(e));}};
+ async function rerun(r:Result){
+  setSaving(r.job_id);setError('');setNotice('');
+  try{
+   const base=`/api/jobs/${r.job_id}/analysis`;const current=await (await fetch(base)).json();
+   const response=await fetch(base,{method:'POST',headers:{'Content-Type':'application/json','X-Local-Review':'1'},body:JSON.stringify({consent_to_send:true,input_version:current.input_version})});
+   const result=await response.json();if(!response.ok)throw new Error(typeof result.detail==='string'?result.detail:'Could not queue this analysis.');
+   setNotice(`${r.company}: queued for analysis. It moves to Results when it finishes.`);void saved.refetch();
+  }catch(e){setError(String(e));}finally{setSaving(null);}
+ }
  async function choose(r:Result,choice:'SKIP'|'CASUAL') {
   setSaving(r.job_id);setError('');setNotice('');
   try {
@@ -40,13 +50,20 @@ export function AssessmentResults({onOpen,onDiscover,onUpdatedJD,initialTab="all
   {active.map(r=><p key={r.job_id}><strong>{r.company} · {r.title}</strong><br/>{r.assessment.stage?.replace('Matching evidence:', 'Requirements checked for this job:')||'Preparing analysis…'} <button className="text-action" onClick={()=>void open(r.job_id)}>View progress</button></p>)}
   <p>Analysis continues on the local server when you refresh or leave this page. The counter starts at zero for each new job; completed results appear below.</p>
  </section>}
- {data&&processing.length>0&&<details className="discovery-preferences" open={initialTab==='issues'}>
-  <summary>Processing status · {processing.length} jobs need attention</summary>
-  <p>Unfinished work, outdated results and processing errors. These are separate from application recommendations.</p>
-  <div className="discovery-table-scroll"><table className="discovery-table" aria-label="Processing status"><thead><tr><th>Company / role</th><th>Status</th><th>Details</th><th>Action</th></tr></thead><tbody>
-   {processing.map(r=><tr key={r.job_id}><td><strong>{r.company}</strong><div>{r.title}</div></td><td>{processingStatus(r)}</td><td>{r.assessment.recommendation_error||r.assessment.error||(r.assessment.state==='STALE'||r.assessment.listing_changed?'Saved results need updating because inputs changed.':r.assessment.stage)}</td><td className="role-action-cell"><div className="role-actions">{r.assessment.listing_changed&&r.opportunity_id?<button onClick={()=>onUpdatedJD(r.opportunity_id!)}>Review updated JD</button>:<button onClick={()=>void open(r.job_id)}>Open assessment</button>}<WritingHelp jobId={r.job_id} company={r.company} url={r.url} yc={!!r.yc_listing||isYCListing(r.url)}/><MarkApplied jobId={r.job_id} company={r.company}/></div></td></tr>)}
-  </tbody></table></div>
- </details>}
+ <div className="view-tabs" role="tablist" aria-label="Analyzed jobs views"><button role="tab" aria-selected={view==="results"} className={view==="results"?"active":""} onClick={()=>setView("results")}>Results</button><button role="tab" aria-selected={view==="help"} className={view==="help"?"active":""} onClick={()=>setView("help")}>Needs your help{helpRows.length?` (${helpRows.length})`:""}</button></div>
+ {view==="help"&&<>
+  <p className="muted">These analyses couldn't produce a usable result. Each needs one thing from you. They leave this list once fixed.</p>
+  {error&&<p role="alert">{error}</p>}{notice&&<p role="status">{notice}</p>}
+  {!helpRows.length?<p>Nothing needs your help right now.</p>:<div className="discovery-table-scroll"><table className="discovery-table help-table" aria-label="Analyzed jobs that need your help"><thead><tr><th>Job</th><th>What's wrong</th><th>What to do</th><th>Action</th></tr></thead><tbody>
+   {helpRows.map(({r,h})=><tr key={r.job_id}><td><strong>{r.company}</strong><div>{r.title}</div>{r.url&&<div><a href={r.url} target="_blank" rel="noreferrer">View listing ↗</a></div>}</td><td>{h.issue}</td><td>{h.todo}</td>
+    <td><div className="row-actions">
+     {h.action==="rerun"&&<button className="primary" disabled={!!saving} onClick={()=>void rerun(r)}>{saving===r.job_id?"Queuing…":"Re-run analysis · API usage"}</button>}
+     {h.action==="fix_description"&&<button className="primary" onClick={()=>onUpdatedJD(r.opportunity_id!)}>{r.assessment.listing_changed?"Review description":"Paste description"}</button>}
+     <button onClick={()=>void open(r.job_id)}>{h.action==="open"?"Open assessment":"Open details"}</button>
+    </div></td></tr>)}
+  </tbody></table></div>}
+ </>}
+ {view==="results"&&<>
  {data&&<p role="status"><strong>{all.filter(r=>r.assessment.state==='COMPLETE').length} completed analyses</strong> · Scores stay visible even when a recommendation needs review or could not finish.</p>}
  <div className="analysis-toolbar"><label>Show<select value={filter} onChange={e=>setFilter(e.target.value)}>{filters.map(([id,label])=><option key={id} value={id}>{label}{data?` (${all.filter(r=>analysisFilter(r,id)).length})`:''}</option>)}</select></label><span>Deep assessment explains the fit. You decide whether to pursue the job.</span></div>
  <p className="discovery-clock">Latest scan first · highest score within each scan.</p>
@@ -60,5 +77,6 @@ export function AssessmentResults({onOpen,onDiscover,onUpdatedJD,initialTab="all
  {r.assessment.state==='COMPLETE'&&!r.assessment.listing_changed&&<><TailorResume jobId={r.job_id} label={`${r.company} · ${r.title}`}/><button disabled={!!saving} onClick={()=>void choose(r,r.assessment.choice==='SKIP'?'CASUAL':'SKIP')}>{saving===r.job_id?'Saving…':r.assessment.choice==='SKIP'?'Reconsider':'Pass'}</button></>}
  <WritingHelp jobId={r.job_id} company={r.company} url={r.url} yc={!!r.yc_listing||isYCListing(r.url)}/><MarkApplied jobId={r.job_id} company={r.company}/></div></td></tr>)}
  </tbody></table></div>}
+ </>}
  </section>;
 }

@@ -11,7 +11,7 @@ type KeywordMatch = {reason?:string;priority:"high"|"worth_checking"|"low";label
 type Assessment = {state:string;stage?:string;error?:string;score:number|null;provisional?:boolean;recommendation:string|null;choice?:string|null;recommendation_state?:string;recommendation_error?:string};
 type JDDraft = {url:string;id:string;expected_hash:string;title:string;company:string;description:string;extraction_id?:string;warnings?:string[]};
 type CompanyFit={group:string;label:string;sort_order:number;backing_boost:number;backing_reported:boolean;reason:string;evidence:{quote:string;url?:string;checked_at?:string}[]};
-type Item = {passed?:boolean;duplicate_ids?:string[];needs_help?:{kind:string;message:string}[];listing_urls?:string[];kept?:boolean;company_watched?:boolean;retention_protected?:boolean;age_state?:string;company_fit?:CompanyFit;selected_assessment?:{state:string;error:string}|null;role_classification?:{labels:Record<string,string>;model:string;checked_at:string}|null;queued_for_assessment?:boolean;description_fetch?:{state:string;error:string}|null;automatic_assessment?:{state:string;error:string}|null;assessment?:Assessment;content_hash:string;keyword_match?:KeywordMatch;location_match?:{status:"match"|"outside"|"unclear";reason:string};id:string;title:string;company:string;location:string;url:string;description_length:number;posted_at:string|null;date_label:string;date_basis:string;funding:string;freshness:string;first_seen:string;last_seen:string;job_id:string|null;description_changed:boolean;assessment_state:string|null;sources:{board:string}[]};
+type Item = {passed?:boolean;duplicate_ids?:string[];needs_help?:{kind:string;message:string;issue?:string;todo?:string}[];listing_urls?:string[];kept?:boolean;company_watched?:boolean;retention_protected?:boolean;age_state?:string;company_fit?:CompanyFit;selected_assessment?:{state:string;error:string}|null;role_classification?:{labels:Record<string,string>;model:string;checked_at:string}|null;queued_for_assessment?:boolean;description_fetch?:{state:string;error:string}|null;automatic_assessment?:{state:string;error:string}|null;assessment?:Assessment;content_hash:string;keyword_match?:KeywordMatch;location_match?:{status:"match"|"outside"|"unclear";reason:string};id:string;title:string;company:string;location:string;url:string;description_length:number;posted_at:string|null;date_label:string;date_basis:string;funding:string;freshness:string;first_seen:string;last_seen:string;job_id:string|null;description_changed:boolean;assessment_state:string|null;sources:{board:string}[]};
 type Diagnostic = {reason:string;kind:string;http_status?:number;host:string;path:string;attempts:number;causes:string[]};
 type Source = {checked_at?:string;state:string;count?:number;error?:string;coverage?:string;warnings?:(string | (Diagnostic & {listing:string}))[];diagnostic?:Diagnostic};
 type YCConnection = {state:string;message:string;busy:boolean;checked_at?:string};
@@ -39,6 +39,7 @@ export function Discovery({onOpen,onResults,onAdd,initialReviewId,view="opportun
  const [companyFilter,setCompanyFilter]=useState("focus");
  const [priorityFilter,setPriorityFilter]=useState("all");
  const [page,setPage]=useState(1);
+ const [tab,setTab]=useState<"jobs"|"help">("jobs");
  const [error,setError]=useState("");
  const [busy,setBusy]=useState(false);
  const [filter,setFilter]=useState("active");
@@ -57,7 +58,7 @@ export function Discovery({onOpen,onResults,onAdd,initialReviewId,view="opportun
  const status=useQuery({queryKey:['job-list-status'],queryFn:({signal})=>request<{ready:boolean;revision:string;refreshing:boolean;error:string|null;running:boolean;automatic_running?:boolean}>('/status',undefined,signal),refetchInterval:4000,refetchIntervalInBackground:true});
  const [search,setSearch]=useState(query);
  useEffect(()=>{const timer=setTimeout(()=>setSearch(query),250);return()=>clearTimeout(timer);},[query]);
- const params=new URLSearchParams({page:String(page),query:search,priority:priorityFilter,location:locationFilter,company:companyFilter,board:boardFilter,show:filter,runs:String(view==='runs')});
+ const params=new URLSearchParams({page:String(page),query:search,priority:priorityFilter,location:locationFilter,company:companyFilter,board:boardFilter,show:tab==="help"?"help":filter,runs:String(view==='runs')});
  const listing=useQuery({queryKey:['job-list',view,params.toString(),status.data?.revision],queryFn:({signal})=>request<State>('/page?'+params.toString(),undefined,signal),enabled:!!status.data?.ready,placeholderData:(previous,previousQuery)=>previousQuery?.queryKey[1]===view?keepPreviousData(previous):undefined});
  const state=listing.data?.ready?{...listing.data,running:status.data?.running??listing.data.running,automatic_running:status.data?.automatic_running}:null;
  const connectionError=(status.error||listing.error)?.message;
@@ -75,8 +76,13 @@ export function Discovery({onOpen,onResults,onAdd,initialReviewId,view="opportun
   setState();
  }
  const [rowNotice,setRowNotice]=useState<Record<string,string>>({});
+ // Listings whose description was just saved, keyed to the old content hash until the list refreshes.
+ const [saved,setSaved]=useState<Record<string,string>>({});
+ // Passed in this session; hidden at once instead of waiting for the list to refresh.
+ const [hidden,setHidden]=useState<Record<string,boolean>>({});
  async function passRow(item:Item,passed:boolean){
   for(const id of item.duplicate_ids?.length?item.duplicate_ids:[item.id])await request(`/${id}/pass`,{passed});
+  setHidden(h=>({...h,[item.id]:passed}));
   setRowNotice(n=>({...n,[item.id]:passed?'Passed. Find it under Show → Passed by me.':'Restored to New jobs.'}));
   setState();
  }
@@ -91,7 +97,7 @@ export function Discovery({onOpen,onResults,onAdd,initialReviewId,view="opportun
  const total=state?.total??0;
  const pages=state?.pages??1;
  const currentPage=state?.page??page;
- const pageRows=state?.items??[];
+ const pageRows=(state?.items??[]).filter(item=>!(tab==="help"&&saved[item.id]&&saved[item.id]===item.content_hash)&&(filter==="passed"&&tab==="jobs"?hidden[item.id]!==false:!hidden[item.id]));
  return <section className="panel discovery">
   {view==='opportunities'&&<div className="section-heading"><div><h2>New jobs</h2><p>Found a role elsewhere? Add its link for deep analysis.</p></div><button className="primary" onClick={onAdd}>+ Add a job</button></div>}
   {view==="runs"&&<div className="section-heading"><div><div className="eyebrow">LOCAL JOB DISCOVERY</div><h1>{view==="runs"?"Discovery runs":"New opportunities"}</h1><p>{view==="runs"?"Check job boards and review the latest run.":"Find roles that overlap with your experience and what you want to do next."}</p></div>
@@ -161,13 +167,15 @@ export function Discovery({onOpen,onResults,onAdd,initialReviewId,view="opportun
 
    </details>}
    <p>Initial matches help you prioritize. Select any job for deep analysis, including low-priority or unassessed jobs.</p>
+   <div className="view-tabs" role="tablist" aria-label="New jobs views"><button role="tab" aria-selected={tab==="jobs"} className={tab==="jobs"?"active":""} onClick={()=>{setTab("jobs");setPage(1);}}>Jobs</button><button role="tab" aria-selected={tab==="help"} className={tab==="help"?"active":""} onClick={()=>{setTab("help");setPage(1);}}>Needs your help{state.help_count?` (${state.help_count})`:""}</button></div>
+   {tab==="jobs"&&<>
    <div className="opportunity-filters discovery-filters">
     <label>Search<input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Company, role or location"/></label>
     <label>Priority<select value={priorityFilter} onChange={e=>setPriorityFilter(e.target.value)}><option value="all">All priorities</option><option value="worth_checking">Worth checking</option><option value="high">High priority</option><option value="not_screened">Not screened</option><option value="low">Low priority</option></select></label>
     <label>Companies<select value={companyFilter} onChange={e=>setCompanyFilter(e.target.value)}><option value="focus">{companyFocus==='startups'?'Your startup focus':companyFocus==='established'?'Established companies':'All companies'}</option><option value="all">All companies</option><option value="preferred">Preferred stages</option><option value="startups">All reported startups</option><option value="established">Established companies</option><option value="unknown">Company / stage unknown</option></select></label>
     <label>Location<select value={locationFilter} onChange={e=>setLocationFilter(e.target.value)}><option value="match">{state.location_preference?.label || "Preferred country"} matches</option><option value="unclear">Location unclear</option><option value="all">All locations</option></select></label>
     <label>Job board<select value={boardFilter} onChange={e=>setBoardFilter(e.target.value)}><option value="all">All boards</option>{Object.entries(state.boards).map(([id,name])=><option key={id} value={id}>{name}</option>)}</select></label>
-    <label>Show<select value={filter} onChange={e=>setFilter(e.target.value)}>{[["active","Active jobs (4 days + kept / date unknown)"],["help","Needs your help"],["passed","Passed by me"],["kept","Kept jobs"],["watched","Watched companies"],["recent","Posted <24h (source-reported)"],["older","Older than 24h"],["uncertain","Posting date uncertain"],["all","All saved"],["discovered","Discovered <24h (any posting age)"],["missing","Description needed"]].map(([id,label])=><option key={id} value={id}>{label}</option>)}</select></label>
+    <label>Show<select value={filter} onChange={e=>setFilter(e.target.value)}>{[["active","Active jobs (4 days + kept / date unknown)"],["passed","Passed by me"],["kept","Kept jobs"],["watched","Watched companies"],["recent","Posted <24h (source-reported)"],["older","Older than 24h"],["uncertain","Posting date uncertain"],["all","All saved"],["discovered","Discovered <24h (any posting age)"],["missing","Description needed"]].map(([id,label])=><option key={id} value={id}>{label}</option>)}</select></label>
    </div>
    {companyFilter==='focus'&&companyFocus!=='any'&&<p className="discovery-clock">Showing your company focus. <button className="text-action" onClick={()=>setCompanyFilter('unknown')}>Review unknown companies</button> · <button className="text-action" onClick={()=>setCompanyFilter('all')}>Show all companies</button></p>}
    <div className="opportunity-toolbar">
@@ -177,12 +185,10 @@ export function Discovery({onOpen,onResults,onAdd,initialReviewId,view="opportun
    {selectionNotice&&<p role="status">{selectionNotice}</p>}
    <div className="opportunity-pagination"><small>{total?`${(currentPage-1)*25+1}–${Math.min(currentPage*25,total)} of ${total}`:'No matching roles'} · API usage applies when analyzing</small><div><button disabled={listing.isPlaceholderData||currentPage===1} onClick={()=>setPage(currentPage-1)}>Previous</button><span>Page {currentPage} of {pages}</span><button disabled={listing.isPlaceholderData||currentPage===pages} onClick={()=>setPage(currentPage+1)}>Next</button></div></div>
    {state.freshness_counts&&<p className="muted">For these preferences: <button className="text-button" onClick={()=>setFilter("recent")}>{state.freshness_counts.recent} posted &lt;24h</button> · <button className="text-button" onClick={()=>setFilter("older")}>{state.freshness_counts.older} older</button> · <button className="text-button" onClick={()=>setFilter("uncertain")}>{state.freshness_counts.uncertain} date uncertain</button></p>}
-   {!!state.help_count&&filter!=="help"&&<p className="needs-help-banner"><strong>{state.help_count} {state.help_count===1?"job needs":"jobs need"} your help</strong> to continue. <button className="text-action" onClick={()=>{setFilter("help");setPage(1);}}>Show them</button></p>}
-   {filter==="help"&&<p className="needs-help-banner">Each job below needs one thing from you. It leaves this list once it's fixed. <button className="text-action" onClick={()=>{setFilter("active");setPage(1);}}>Back to active jobs</button></p>}
    {!total?<p>{state.scan?"No jobs match these filters. Check older jobs or uncertain posting dates above, or broaden the company and location filters.":"Open Discovery runs and choose Check now to collect listings."}</p>:<div className="discovery-table-scroll" tabIndex={0} role="region" aria-label="All opportunities"><table className="discovery-table opportunities-table"><thead><tr><th scope="col">Company / role</th><th scope="col">Priority / skills</th><th scope="col">Link</th><th scope="col">Job board</th><th scope="col">Location</th><th scope="col">Posted / freshness</th></tr></thead><tbody>
     {pageRows.map(item=><tr key={item.id}><td>{<label className="select-role"><input type="checkbox" aria-label={`Select ${item.company} · ${item.title} for deep analysis`} disabled={busy||!selectable(item)||(!selected[item.id]&&Object.keys(selected).length>=100)} checked={!!selected[item.id]} onChange={e=>{const checked=e.target.checked;setSelectionNotice('');setSelected(current=>{const next={...current};if(checked)next[item.id]=item.content_hash;else delete next[item.id];return next;});}}/>Select</label>}<strong>{item.company}</strong>{item.company_fit&&<small title={item.company_fit.reason}>{item.company_fit.label}{item.company_fit.backing_reported?" · Backing reported":""}</small>}<div className="discovery-role">{item.title}</div>{item.role_classification && <small title={`Jev · ${item.role_classification.model} · advisory classification`}>{Object.values(item.role_classification.labels).join(" · ")}</small>}
      <div className="row-actions">
-      {(item.needs_help||[]).map(h=><div className="needs-help" key={h.kind} role="status"><strong>Needs your help</strong><span>{h.message}</span>{h.kind==="retry"?null:h.kind==="review_analysis"?(item.job_id?<button className="primary" disabled={busy} onClick={()=>void act(()=>onOpen(item.job_id!))}>Open role &amp; review</button>:null):<button className="primary" disabled={busy} onClick={()=>void act(()=>openJD(item))}>{h.kind==="paste_jd"?"Paste job description":h.kind==="replace_jd"?"Replace job description":"Review updated description"}</button>}</div>)}
+      {(item.needs_help||[]).length>0&&<button className="text-action" onClick={()=>{setTab("help");setPage(1);}}>Needs your help →</button>}
       {rowNotice[item.id]&&<small role="status">{rowNotice[item.id]}</small>}
       {item.description_length<200 && item.description_fetch?.state==="NEEDS_PASTE" && <small>Open the listing and paste its full JD.</small>}
       {item.selected_assessment?.state==="QUEUED"&&<strong role="status">Queued for deep analysis</strong>}
@@ -208,9 +214,25 @@ export function Discovery({onOpen,onResults,onAdd,initialReviewId,view="opportun
      <td><span className="discovery-status">{freshnessLabel(item)}</span><small>{item.posted_at?(/^\d{4}-\d{2}-\d{2}$/.test(item.posted_at)?item.posted_at:when(item.posted_at)):"Not provided"}</small>{item.date_label&&<small>{item.date_label}</small>}<small>Discovered: {when(item.first_seen)}</small></td>
     </tr>)}
    </tbody></table></div>}
+   </>}
+   {tab==="help"&&<>
+    <p className="muted">Each job here needs one thing from you before it can be screened or analyzed. A job leaves this list as soon as it's fixed or passed.</p>
+    {!pageRows.length?<p>Nothing needs your help right now.</p>:<div className="discovery-table-scroll"><table className="discovery-table help-table" aria-label="Jobs that need your help"><thead><tr><th scope="col">Job</th><th scope="col">What's wrong</th><th scope="col">What to do</th><th scope="col">Action</th></tr></thead><tbody>
+     {pageRows.map(item=>{const h=(item.needs_help||[])[0];if(!h)return null;return <tr key={item.id}>
+      <td><strong>{item.company}</strong><div>{item.title}</div><small>{item.location||"Location unknown"}</small><div><a href={item.url} target="_blank" rel="noreferrer">View listing ↗</a></div></td>
+      <td>{h.issue||h.message}</td><td>{h.todo||""}</td>
+      <td><div className="row-actions">{rowNotice[item.id]&&<small role="status">{rowNotice[item.id]}</small>}
+       {["paste_jd","replace_jd","review_jd"].includes(h.kind)&&<button className="primary" disabled={busy} onClick={()=>void act(()=>openJD(item))}>{h.kind==="review_jd"?"Review description":"Paste description"}</button>}
+       {h.kind==="retry"&&<button className="primary" disabled={busy} onClick={()=>void act(()=>analyzeRow(item))}>Retry analysis · API usage</button>}
+       {h.kind==="review_analysis"&&item.job_id&&<button className="primary" disabled={busy} onClick={()=>void act(()=>onOpen(item.job_id!))}>Open role</button>}
+       <button disabled={busy} title="Not interested: hide this job" onClick={()=>void act(()=>passRow(item,true))}>Pass</button>
+      </div></td></tr>;})}
+    </tbody></table></div>}
+    {pages>1&&<div className="opportunity-pagination"><small>Page {currentPage} of {pages}</small><div><button disabled={currentPage===1} onClick={()=>setPage(currentPage-1)}>Previous</button><button disabled={currentPage===pages} onClick={()=>setPage(currentPage+1)}>Next</button></div></div>}
+   </>}
   </>}
  <dialog ref={jdDialog} className="experience-dialog" aria-label="Review full job description" onCancel={e=>{if(busy)e.preventDefault();else setJD(null);}}>
-  {jd && <form onSubmit={e=>{e.preventDefault();void act(async()=>{setState(await request<State>(`/${jd.id}/description`,{expected_hash:jd.expected_hash,title:jd.title,company:jd.company,description:jd.description,extraction_id:jd.extraction_id}));setJD(null);});}}>
+  {jd && <form onSubmit={e=>{e.preventDefault();void act(async()=>{await request(`/${jd.id}/description`,{expected_hash:jd.expected_hash,title:jd.title,company:jd.company,description:jd.description,extraction_id:jd.extraction_id});setSaved(v=>({...v,[jd.id]:jd.expected_hash}));setRowNotice(n=>({...n,[jd.id]:'Description saved. The list updates within about 30 seconds.'}));setState();setJD(null);});}}>
    <h2>Review full job description</h2>
    {error && <p role="alert" className="error">{error}</p>}
    <fieldset disabled={busy}>

@@ -1153,3 +1153,8 @@ button.text-button { border: 0; background: transparent; padding: .2rem .25rem; 
 .needs-help {display:flex;flex-direction:column;gap:6px;flex-basis:100%;background:#fff7e6;border:1px solid #f0d49a;border-radius:8px;padding:10px 12px;}
 .needs-help strong {color:#7a4b00;}
 .needs-help button {align-self:flex-start;}
+.view-tabs {display:flex;gap:4px;border-bottom:1px solid #d9e0d9;margin:12px 0 16px;}
+.view-tabs button {border:none;border-bottom:3px solid transparent;border-radius:0;background:none;padding:10px 16px;font-weight:600;color:#526359;}
+.view-tabs button.active {border-bottom-color:#2f5d46;color:#20382d;}
+.help-table td {vertical-align:top;}
+.help-table td:nth-child(2), .help-table td:nth-child(3) {max-width:320px;}

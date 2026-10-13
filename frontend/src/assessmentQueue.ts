@@ -53,3 +53,19 @@ export function recentResultsFirst(a:Result,b:Result):number {
   || a.company.localeCompare(b.company)
   || a.job_id.localeCompare(b.job_id);
 }
+
+/** Plain-language request for an analyzed job that cannot show a usable result. */
+export type HelpAction='rerun'|'fix_description'|'open';
+export function helpFor(r:Result):{issue:string;todo:string;action:HelpAction}|null {
+ const a=r.assessment;if(!processingStatus(r)||['RUNNING','QUEUED'].includes(a.state))return null;
+ const error=a.recommendation_error||a.error||'';
+ const fix:HelpAction=r.opportunity_id?'fix_description':'open';
+ if(a.listing_changed)return {issue:'The job listing changed after you analyzed it.',todo:'Review the updated description, then analyze it again.',action:fix};
+ if(/too long to classify/i.test(error))return {issue:"The saved description includes website text that isn't part of the job (such as a country list), so it can't be analyzed.",todo:'Open the listing, copy just the job description, and paste it.',action:fix};
+ if(/too many jd criteria/i.test(error))return {issue:'The description lists too many requirements to score reliably.',todo:'Check the description for repeated or non-job text, fix it, then analyze again.',action:fix};
+ if(/budget|limit|quota|rate/i.test(error))return {issue:'The API budget or provider limit was reached during analysis.',todo:'Check API costs, then retry.',action:'rerun'};
+ if(a.state==='STALE')return {issue:'Your experience or settings changed after this analysis, so its score may be out of date.',todo:'Re-run to update the score.',action:'rerun'};
+ if(['ERROR','INTERRUPTED','PAUSED','NEEDS_ATTENTION'].includes(a.state))return {issue:'The analysis stopped before finishing'+(error?`: ${error}`:'.'),todo:'Retry. Steps that already finished are reused.',action:'rerun'};
+ if(a.state==='COMPLETE')return {issue:"The score finished, but the apply/pass recommendation didn't.",todo:'Open the assessment and retry the recommendation.',action:'open'};
+ return {issue:"The analysis hasn't finished.",todo:'Open it to continue.',action:'open'};
+}

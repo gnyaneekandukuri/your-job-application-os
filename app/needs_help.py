@@ -21,21 +21,30 @@ def description_problem(text):
     return None
 
 
+def ask(kind, issue, todo):
+    return [{'kind': kind, 'issue': issue, 'todo': todo, 'message': issue + ' ' + todo}]
+
+
 def needs_help(item):
     """At most one request per listing, most blocking first."""
     if item.get('completed'):
         return []
     problem = description_problem(item.get('description', ''))
     if problem == 'unreadable':
-        return [{'kind': 'replace_jd', 'message': UNREADABLE}]
+        return ask('replace_jd', "The saved description includes website text that isn't part of the job "
+                   "(such as a country list or menu), so it can't be analyzed.",
+                   'Open the listing, copy just the job description, and paste it here.')
     if problem == 'missing' and (item.get('description_fetch') or {}).get('state') == 'NEEDS_PASTE':
-        return [{'kind': 'paste_jd', 'message': "We couldn't fetch this job's full description. "
-                 "Open the listing, copy the description, and paste it here."}]
+        return ask('paste_jd', "We couldn't get the job description from the job board.",
+                   'Open the listing, copy the job description, and paste it here.')
     if item.get('description_changed'):
-        return [{'kind': 'review_jd', 'message': 'This listing changed since you saved it. Review the updated description.'}]
+        return ask('review_jd', 'The listing changed after you saved it.',
+                   'Review the updated description so analysis uses the current version.')
     assessment = item.get('assessment') or {}
     if problem is None and assessment.get('state') == 'NEEDS_ATTENTION':
-        return [{'kind': 'review_analysis', 'message': 'Deep analysis needs your review: ' + (assessment.get('error') or 'open the role to see why.')}]
+        return ask('review_analysis', 'Deep analysis could not finish: ' + (assessment.get('error') or 'reason not recorded.'),
+                   'Open the role to see what needs checking.')
     if problem is None and assessment.get('state') in ('PAUSED', 'ERROR', 'INTERRUPTED'):
-        return [{'kind': 'retry', 'message': 'Deep analysis stopped: ' + (assessment.get('error') or 'no reason was recorded.')}]
+        return ask('retry', 'Deep analysis stopped before finishing: ' + (assessment.get('error') or 'reason not recorded.'),
+                   'Retry the analysis. Completed steps are reused.')
     return []

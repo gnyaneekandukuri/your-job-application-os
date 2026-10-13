@@ -30,6 +30,7 @@ def initialize(db):
     db.executescript('''
         CREATE TABLE IF NOT EXISTS kept_jobs (opportunity_id TEXT PRIMARY KEY);
         CREATE TABLE IF NOT EXISTS passed_jobs (opportunity_id TEXT PRIMARY KEY, passed_at TEXT);
+        CREATE TABLE IF NOT EXISTS superseded_jobs (job_id TEXT PRIMARY KEY, replaced_at TEXT);
         CREATE TABLE IF NOT EXISTS seen_jobs (id TEXT PRIMARY KEY, url TEXT, first_seen TEXT,
             posted_at TEXT, deleted_at TEXT);
         CREATE UNIQUE INDEX IF NOT EXISTS seen_job_url ON seen_jobs(url);
