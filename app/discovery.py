@@ -168,6 +168,7 @@ class Discovery:
         """All saved deep analyses, including roles entered without discovery."""
         with self.db() as db:
             discovered = {r['job_id']: dict(r) for r in db.execute('SELECT * FROM opportunities WHERE job_id IS NOT NULL')}
+            superseded = {r[0] for r in db.execute('SELECT job_id FROM superseded_jobs')}
             for alias in db.execute('SELECT canonical_id,job_id FROM opportunity_aliases WHERE job_id IS NOT NULL'):
                 primary = db.execute('SELECT * FROM opportunities WHERE id=?',(alias['canonical_id'],)).fetchone()
                 if primary and alias['job_id'] not in discovered:
@@ -191,6 +192,7 @@ class Discovery:
                 if summary['state'] == 'NOT_STARTED':
                     summary.update(state='JD_CHANGED', stage='Review the updated listing before assessment.')
             if summary['state'] == 'NOT_STARTED': continue
+            if job_id in superseded and summary['state'] != 'COMPLETE': continue
             items.append({'yc_listing':bool(row and row['id'] in yc_ids),'job_id':job_id,'opportunity_id':row['id'] if row else None,'company':job.company,'title':job.title,'url':str(job.source_url or ''),'assessment':summary, **(scans.get(row['id'], {}) if row else {})})
         with self.db() as db:
             manual = {r[0] for r in db.execute("SELECT opportunity_id FROM selected_assessments WHERE state='QUEUED'")}
@@ -406,10 +408,14 @@ class Discovery:
             # Explicitly accepting a changed snapshot starts a new role version;
             # the previous saved role/report remains available in All roles.
             changed = bool(row['imported_hash'] and row['imported_hash'] != content_hash)
+            if changed and row['job_id']:
+                # Unfinished work on the replaced description no longer needs the candidate's help.
+                db.execute('INSERT OR IGNORE INTO superseded_jobs VALUES(?,?)', (row['job_id'], now()))
             db.execute('UPDATE opportunities SET payload=?,job_id=?,imported_hash=?,assessment_state=? WHERE id=?',
                        (json.dumps(item),None if changed else row['job_id'],None if changed else row['imported_hash'],None if changed else row['assessment_state'],oid))
             db.execute('INSERT OR IGNORE INTO revisions VALUES(?,?,?,?)',(oid,content_hash,json.dumps(item),now()))
-        return self.view()
+        # The list projection refreshes in the background; rebuilding the full view here took ~30s.
+        return {'id':oid,'saved':True,'content_hash':content_hash}
 
     @staticmethod
     def content_hash(item):
