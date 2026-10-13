@@ -66,7 +66,7 @@ export function AssessmentResults({onOpen,onDiscover,onUpdatedJD,initialTab="all
  {view==="results"&&<>
  {data&&<p role="status"><strong>{all.filter(r=>r.assessment.state==='COMPLETE').length} completed analyses</strong> · Scores stay visible even when a recommendation needs review or could not finish.</p>}
  <div className="analysis-toolbar"><label>Show<select value={filter} onChange={e=>setFilter(e.target.value)}>{filters.map(([id,label])=><option key={id} value={id}>{label}{data?` (${all.filter(r=>analysisFilter(r,id)).length})`:''}</option>)}</select></label><span>Deep assessment explains the fit. You decide whether to pursue the job.</span></div>
- <p className="discovery-clock">Latest scan first · highest score within each scan.</p>
+ <p className="discovery-clock">Most recently analyzed first.</p>
  {data?.settings.auto_assess_pause_reason&&<p role="status">{data.settings.auto_assess_pause_reason}</p>}
  {status.data?.refreshing&&data&&<p role="status">Updating saved results…</p>}
  {(status.error||status.data?.error)&&<p role="alert">{status.error?.message||status.data?.error}</p>}

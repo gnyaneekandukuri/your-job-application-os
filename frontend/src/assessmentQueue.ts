@@ -47,9 +47,10 @@ export function analysisFilter(r:Result,filter:string):boolean {
 /** Most recent scan first, highest score within that scan; unscanned roles follow. */
 export function recentResultsFirst(a:Result,b:Result):number {
  const stamp=(s?:string|null)=>{const n=s?Date.parse(s):0;return Number.isFinite(n)?n:0;};
- return (b.last_scan_id??0)-(a.last_scan_id??0)
+ // Most recently analyzed first, so a job just analyzed from New jobs is at the top.
+ return stamp(b.assessment.assessed_at)-stamp(a.assessment.assessed_at)
   || (b.assessment.score??-1)-(a.assessment.score??-1)
-  || stamp(b.assessment.assessed_at)-stamp(a.assessment.assessed_at)
+  || (b.last_scan_id??0)-(a.last_scan_id??0)
   || a.company.localeCompare(b.company)
   || a.job_id.localeCompare(b.job_id);
 }
