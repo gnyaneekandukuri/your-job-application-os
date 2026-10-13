@@ -96,7 +96,12 @@ def assess(client, job_id, requirements, passages, rules, jd='', feedback=None):
             # Relevance is a retrieval step, not permission to grant credit.
             # Keep promising tentative excerpts for downstream judgment and review.
             promising = [u for u in candidates if answers[u['id']]['choice'] in ('supports','transferable')]
-            selected = sorted(promising, key=lambda u: -answers[u['id']]['confidence'])[:3]
+            ranked = sorted(promising, key=lambda u: -answers[u['id']]['confidence'])
+            selected = ranked[:3]
+            # Stories give context; a supporting resume line can add the numbers they omit.
+            resume = next((u for u in ranked[3:] if by_id[u['passage_id']].get('source_class') == 'RESUME_CLAIM'), None)
+            if resume and not any(by_id[u['passage_id']].get('source_class') == 'RESUME_CLAIM' for u in selected):
+                selected.append(resume)
             if any(not confident(answers[u['id']]) for u in selected):
                 review_reasons.append('Evidence relevance is tentative. Confirm that the selected excerpts support this requirement.')
             elif not selected and any(not confident(a) for a in answers.values()):

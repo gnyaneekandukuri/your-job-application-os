@@ -40,3 +40,22 @@ def test_saving_a_replacement_description_is_fast_and_retires_the_old_unfinished
         with discovery.db() as db:
             assert db.execute('SELECT 1 FROM superseded_jobs WHERE job_id=?', (job_id,)).fetchone()
             assert db.execute('SELECT job_id FROM opportunities WHERE id=?', (oid,)).fetchone()[0] is None
+
+
+def test_passing_an_unfinished_saved_role_hides_it_and_its_listing_and_can_be_undone(tmp_path):
+    with TestClient(create_app(tmp_path)) as client:
+        client.post('/api/setup', headers=H, json={'target_roles': ['Product Manager'], 'countries': ['US']})
+        discovery = client.app.state.discovery
+        oid, _ = discovery.save('yc', {'source_id': 'three', 'title': 'Product Manager', 'company': 'Example Labs',
+                                       'url': 'https://example.com/jobs/pm3', 'location': 'New York, NY, USA',
+                                       'description': JD, 'posted_at': None})
+        job_id = discovery.import_role(oid, analyze=False)['job_id']
+        assert client.post(f'/api/assessments/{job_id}/pass', headers=H, json={'passed': True}).json() == {'passed': True}
+        with discovery.db() as db:
+            assert db.execute('SELECT 1 FROM passed_saved_jobs WHERE job_id=?', (job_id,)).fetchone()
+            assert db.execute('SELECT 1 FROM passed_jobs WHERE opportunity_id=?', (oid,)).fetchone()
+        client.post(f'/api/assessments/{job_id}/pass', headers=H, json={'passed': False})
+        with discovery.db() as db:
+            assert not db.execute('SELECT 1 FROM passed_saved_jobs WHERE job_id=?', (job_id,)).fetchone()
+            assert not db.execute('SELECT 1 FROM passed_jobs WHERE opportunity_id=?', (oid,)).fetchone()
+        assert client.post('/api/assessments/missing/pass', headers=H, json={'passed': True}).status_code == 404

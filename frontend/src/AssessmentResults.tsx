@@ -18,10 +18,46 @@ export function AssessmentResults({onOpen,onDiscover,onUpdatedJD,initialTab="all
  const all=(data?.items??[]).map(r=>choices[r.job_id]?{...r,assessment:{...r.assessment,choice:choices[r.job_id]}}:r).filter(r=>!applications.data?.some(a=>a.job_id===r.job_id||(a.url&&a.url.replace(/\/$/,'')===r.url?.replace(/\/$/,'')))),items=all.filter(r=>analysisFilter(r,filter)).sort(recentResultsFirst);
  const active=all.filter(r=>r.assessment.state==='RUNNING');
  const queued=all.filter(r=>r.assessment.state==='QUEUED');
- const helpRows=all.flatMap(r=>{const h=helpFor(r);return h?[{r,h}]:[];});
+ // Paste box for fixing a description without leaving this page.
+ const [paste,setPaste]=useState<{r:Result;id:string;title:string;company:string;description:string;expected_hash:string}|null>(null);
+ const [fixed,setFixed]=useState<Record<string,boolean>>({});
+ const [analyzeNext,setAnalyzeNext]=useState<{company:string;id:string;hash:string}|null>(null);
+ const helpRows=all.flatMap(r=>{const h=fixed[r.job_id]?null:helpFor(r);return h?[{r,h}]:[];});
  const [view,setView]=useState<'results'|'help'>(initialTab==='issues'?'help':'results');
  const pending=(data?.queued_count??0)+active.length+queued.length;
  const open=async(id:string)=>{try{await onOpen(id);}catch(e){setError(String(e));}};
+ async function passSaved(r:Result,passed:boolean){
+  setSaving(r.job_id);setError('');setNotice('');
+  try{
+   const response=await fetch(`/api/assessments/${r.job_id}/pass`,{method:'POST',headers:{'Content-Type':'application/json','X-Local-Review':'1'},body:JSON.stringify({passed})});
+   const result=await response.json();if(!response.ok)throw new Error(typeof result.detail==='string'?result.detail:'Could not save your choice.');
+   setChoices(c=>{const next={...c};if(passed)next[r.job_id]='SKIP';else delete next[r.job_id];return next;});
+   setData(d=>d?{...d,items:d.items.map(i=>i.job_id===r.job_id?{...i,assessment:{...i.assessment,choice:passed?'SKIP':null}}:i)}:d);
+   setNotice(`${r.company}: ${passed?'passed. Find it under Results → Passed by me.':'restored.'}`);
+  }catch(e){setError(String(e));}finally{setSaving(null);}
+ }
+ const post=(url:string,body:unknown)=>fetch(url,{method:'POST',headers:{'Content-Type':'application/json','X-Local-Review':'1'},body:JSON.stringify(body)}).then(async response=>{const v=await response.json();if(!response.ok)throw new Error(typeof v.detail==='string'?v.detail:'Could not complete this action.');return v;});
+ async function openPaste(r:Result){
+  setError('');setNotice('');
+  try{const response=await fetch(`/api/discovery/${r.opportunity_id}/detail`);const d=await response.json();if(!response.ok)throw new Error(typeof d.detail==='string'?d.detail:'Could not open this listing.');
+   setPaste({r,id:d.id,title:d.title,company:d.company,description:d.description,expected_hash:d.content_hash});}catch(e){setError(String(e));}
+ }
+ async function savePaste(){
+  if(!paste)return;setSaving(paste.r.job_id);setError('');
+  try{const v=await post(`/api/discovery/${paste.id}/description`,{expected_hash:paste.expected_hash,title:paste.title,company:paste.company,description:paste.description});
+   setFixed(f=>({...f,[paste.r.job_id]:true}));setPaste(null);
+   // You analyzed this job before, so re-analyzing the fixed version is the next step; no second click.
+   const q=await post('/api/discovery/assess-selected',{roles:[{id:paste.id,content_hash:v.content_hash}]});
+   if(q.accepted.length)setNotice(`${paste.r.company}: description saved and queued for analysis. It appears in Results when it finishes.`);
+   else setAnalyzeNext({company:paste.r.company,id:paste.id,hash:v.content_hash});
+  }catch(e){setError(String(e));}finally{setSaving(null);}
+ }
+ async function analyzeUpdated(){
+  if(!analyzeNext)return;setError('');
+  try{const v=await post('/api/discovery/assess-selected',{roles:[{id:analyzeNext.id,content_hash:analyzeNext.hash}]});
+   setNotice(v.accepted.length?`${analyzeNext.company}: queued for analysis. It appears in Results when it finishes.`:`${analyzeNext.company}: ${v.rejected[0]?.reason||'could not be queued.'}`);setAnalyzeNext(null);
+  }catch(e){setError(String(e));}
+ }
  async function rerun(r:Result){
   setSaving(r.job_id);setError('');setNotice('');
   try{
@@ -54,12 +90,20 @@ export function AssessmentResults({onOpen,onDiscover,onUpdatedJD,initialTab="all
  {view==="help"&&<>
   <p className="muted">These analyses couldn't produce a usable result. Each needs one thing from you. They leave this list once fixed.</p>
   {error&&<p role="alert">{error}</p>}{notice&&<p role="status">{notice}</p>}
+  {analyzeNext&&<p className="needs-help-banner" role="status">Saved the new description for <strong>{analyzeNext.company}</strong>, but it couldn't be queued automatically. <button className="primary" onClick={()=>void analyzeUpdated()}>Analyze updated job · API usage</button> <button className="text-action" onClick={()=>setAnalyzeNext(null)}>Not now</button></p>}
+  {paste&&<form className="help-paste" onSubmit={e=>{e.preventDefault();void savePaste();}}>
+   <h3>{paste.r.company} · {paste.r.title}</h3>
+   <p>Paste just the job description: responsibilities and requirements. Leave out site menus, country lists and benefits boilerplate.</p>
+   <textarea rows={14} value={paste.description} onChange={e=>setPaste({...paste,description:e.target.value})}/>
+   <div className="row-actions"><button className="primary" type="submit" disabled={!!saving||paste.description.trim().length<200}>{saving?"Saving…":"Save description"}</button><button type="button" onClick={()=>setPaste(null)}>Cancel</button>{paste.description.trim().length<200&&<small>Paste at least a few paragraphs (200+ characters).</small>}</div>
+  </form>}
   {!helpRows.length?<p>Nothing needs your help right now.</p>:<div className="discovery-table-scroll"><table className="discovery-table help-table" aria-label="Analyzed jobs that need your help"><thead><tr><th>Job</th><th>What's wrong</th><th>What to do</th><th>Action</th></tr></thead><tbody>
    {helpRows.map(({r,h})=><tr key={r.job_id}><td><strong>{r.company}</strong><div>{r.title}</div>{r.url&&<div><a href={r.url} target="_blank" rel="noreferrer">View listing ↗</a></div>}</td><td>{h.issue}</td><td>{h.todo}</td>
     <td><div className="row-actions">
      {h.action==="rerun"&&<button className="primary" disabled={!!saving} onClick={()=>void rerun(r)}>{saving===r.job_id?"Queuing…":"Re-run analysis · API usage"}</button>}
-     {h.action==="fix_description"&&<button className="primary" onClick={()=>onUpdatedJD(r.opportunity_id!)}>{r.assessment.listing_changed?"Review description":"Paste description"}</button>}
+     {h.action==="fix_description"&&<button className="primary" onClick={()=>void openPaste(r)}>{r.assessment.listing_changed?"Review description":"Paste description"}</button>}
      <button onClick={()=>void open(r.job_id)}>{h.action==="open"?"Open assessment":"Open details"}</button>
+     <button disabled={!!saving} title="Not interested: remove from this list" onClick={()=>void passSaved(r,true)}>Pass</button>
     </div></td></tr>)}
   </tbody></table></div>}
  </>}
@@ -74,6 +118,7 @@ export function AssessmentResults({onOpen,onDiscover,onUpdatedJD,initialTab="all
  {!data?<p>Loading analyzed jobs…</p>:!items.length?<div className="decision-empty"><h2>{pending>0?"No completed jobs match this filter yet":"No jobs in this view"}</h2><p>{pending>0?"Analysis is underway above. Choose All recommendations to see every completed result.":"No completed analyses have this recommendation. Choose All to see every completed result."}</p><button onClick={()=>setFilter("all")}>Show all recommendations</button><button onClick={onDiscover}>Go to New jobs</button></div>:<div className="discovery-table-scroll" tabIndex={0} role="region" aria-label="Analyzed jobs"><table className="discovery-table"><thead><tr><th>Company / role</th><th>Evidence score</th><th>Listing</th><th>Recommendation & why</th><th>Next action</th></tr></thead><tbody>
  {items.map(r=><tr key={r.job_id}><td><strong>{r.company}</strong><div>{r.title}</div>{r.last_scanned_at&&<small>Seen in scan #{r.last_scan_id} · {new Date(r.last_scanned_at).toLocaleString()}</small>}{r.assessment.assessed_at&&<small>Analyzed · {new Date(r.assessment.assessed_at).toLocaleString()}</small>}</td><td>{r.assessment.score===null?'—':`${r.assessment.score}/100`}{r.assessment.provisional&&<small>Provisional</small>}{r.assessment.state==='STALE'&&<small>Outdated</small>}</td><td>{r.url&&<a href={r.url} target="_blank" rel="noreferrer">View listing ↗</a>}</td><td><strong>{recommendation(r)}</strong>{r.assessment.explanation&&<RecommendationWhy value={r.assessment.explanation}/>}{!r.assessment.recommendation&&(r.assessment.recommendation_error||r.assessment.error)&&<p>{r.assessment.recommendation_error||r.assessment.error}</p>}{r.assessment.choice&&<small>Your choice: {r.assessment.choice==='SKIP'?'Passed':'Want to pursue'}</small>}</td><td className="role-action-cell"><div className="role-actions">
  {r.assessment.listing_changed&&r.opportunity_id?<button onClick={()=>onUpdatedJD(r.opportunity_id!)}>Review updated JD</button>:<button onClick={()=>void open(r.job_id)}>{r.assessment.state==='COMPLETE'?'Review evidence':'Open unfinished analysis'}</button>}
+ {r.assessment.choice==='SKIP'&&r.assessment.state!=='COMPLETE'&&<button disabled={!!saving} onClick={()=>void passSaved(r,false)}>Undo pass</button>}
  {r.assessment.state==='COMPLETE'&&!r.assessment.listing_changed&&<><TailorResume jobId={r.job_id} label={`${r.company} · ${r.title}`}/><button disabled={!!saving} onClick={()=>void choose(r,r.assessment.choice==='SKIP'?'CASUAL':'SKIP')}>{saving===r.job_id?'Saving…':r.assessment.choice==='SKIP'?'Reconsider':'Pass'}</button></>}
  <WritingHelp jobId={r.job_id} company={r.company} url={r.url} yc={!!r.yc_listing||isYCListing(r.url)}/><MarkApplied jobId={r.job_id} company={r.company}/></div></td></tr>)}
  </tbody></table></div>}
