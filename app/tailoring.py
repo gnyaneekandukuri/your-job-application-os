@@ -83,12 +83,31 @@ class Ref(Strict):
     source_id: str
     quote: str = Field(min_length=1, max_length=3000)
 
+class LeadFormat(Strict):
+    text: str = Field(max_length=200)
+    bold: bool = False
+    italic: bool = False
+
+class PageFormat(Strict):
+    width: float = Field(default=612, ge=200, le=1500)
+    height: float = Field(default=792, ge=200, le=2000)
+    margins: list[float] = Field(default_factory=lambda: [30, 36, 30, 36], min_length=4, max_length=4)
+    line_spacing: float = Field(default=1, ge=.8, le=3)
+
 class BlockFormat(Strict):
     font_family: Literal['Times New Roman','Arial','Calibri','serif'] = 'Arial'
     font_size: float = Field(default=10, ge=6, le=36)
     bold: bool = False
     italic: bool = False
     align: Literal['left','center','right'] = 'left'
+    # Layout read from an uploaded Word master; optional so older drafts stay valid.
+    lead: LeadFormat|None = None
+    right_bold: bool|None = None
+    right_italic: bool|None = None
+    rule: Literal['above','below','none']|None = None
+    space_before: float|None = Field(default=None, ge=0, le=48)
+    space_after: float|None = Field(default=None, ge=0, le=48)
+    page: PageFormat|None = None
 
 class Block(Strict):
     change_type: Literal['job_alignment','fact_correction','framework','manual','unspecified'] = 'unspecified'
@@ -516,9 +535,10 @@ class Tailoring:
             if not record['draft']:
                 from .resume_pdf import page_count
                 master = body.get('master') or []
-                length_rule = ('The master resume fits on one exported page and the tailored resume must too. Keep each rewritten item no longer than its original, '
+                master_pages = page_count(master) if master else 0
+                length_rule = ('The master resume fits on '+('one exported page' if master_pages == 1 else 'two exported pages')+' and the tailored resume must too. Keep each rewritten item no longer than its original, '
                     'unless the same response shortens other items by at least as many words. Tighten wording instead of adding length; never drop supported facts, metrics or items to do this.'
-                    ) if master and page_count(master) == 1 else 'Do not assume a one-page constraint or silently drop details to shorten bullets.'
+                    ) if master_pages in (1, 2) else 'Do not assume a one-page constraint or silently drop details to shorten bullets.'
                 prompt = policy + '\nTailor this resume for the actual responsibilities in job.description. Use the retrieved deep-analysis passages to identify stronger, relevant accomplishments beyond the master. ' \
                     'Assessment judgments are navigation aids, not candidate facts; cite original sources only. ' \
                     'Each edit must identify change_type: job_alignment, fact_correction or framework. Job alignment requires an exact jd_quote. Factual corrections and framework-only improvements may use an empty jd_quote; do not invent a job motivation. The reason must connect old wording, new wording and the actual requirement or correction. ' \
