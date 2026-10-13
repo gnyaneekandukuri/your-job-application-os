@@ -8,7 +8,7 @@ from pypdf import PdfReader
 SECTION_NAMES = {'summary', 'professional summary', 'profile', 'education', 'education & certifications',
     'experience', 'professional experience', 'work experience', 'employment history', 'skills',
     'technical skills', 'skills & competencies', 'projects', 'certifications', 'additional information',
-    'leadership', 'volunteering', 'awards', 'publications', 'interests', 'languages'}
+    'leadership', 'volunteering', 'awards', 'publications', 'interests', 'languages', 'additional'}
 MONTH = r'(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)'
 DATE_END = re.compile(r'(?<!\w)(?:'+MONTH+r'\.?\s+)?(?:19|20)\d{2}(?:\s*[-–—]\s*(?:(?:'+MONTH+r'\.?\s+)?(?:19|20)\d{2}|Present|Current|Now))?\s*$',re.I)
 
@@ -153,32 +153,145 @@ def file_template(filename, raw):
     from .document_text import extract_document
     text=extract_document(filename,raw)
     if filename.lower().endswith('.docx'):
-        import zipfile, xml.etree.ElementTree as ET
-        with zipfile.ZipFile(io.BytesIO(raw)) as archive:root=ET.fromstring(archive.read('word/document.xml'))
-        ns={'w':'http://schemas.openxmlformats.org/wordprocessingml/2006/main'};blocks=[]
-        for paragraph in root.findall('.//w:body//w:p',ns):
-            text=''.join((n.text or '') if n.tag.endswith('}t') else '\t' if n.tag.endswith('}tab') else '\n' if n.tag.endswith('}br') else '' for n in paragraph.iter()).strip()
-            if not text:continue
-            style=paragraph.find('w:pPr/w:pStyle',ns)
-            heading=style is not None and 'heading' in style.get('{'+ns['w']+'}val','').lower()
-            kind='heading' if heading or (blocks and text.isupper() and len(text)<65) else 'bullet' if paragraph.find('w:pPr/w:numPr',ns) is not None else 'contact' if len(blocks)<2 else 'text'
-            def prop(name):
-                return paragraph.find('.//w:rPr/w:'+name,ns)
-            fmt=default_format(kind,not blocks)
-            for name,key in [('b','bold'),('i','italic')]:
-                node=prop(name)
-                if node is not None:fmt[key]=node.get('{'+ns['w']+'}val','true') not in ('0','false','off')
-            size=prop('sz')
-            if size is not None:
-                try:fmt['font_size']=max(6,min(36,float(size.get('{'+ns['w']+'}val'))/2))
-                except (TypeError,ValueError):pass
-            font=prop('rFonts')
-            family=font.get('{'+ns['w']+'}ascii') if font is not None else None
-            if family in ('Arial','Calibri','Times New Roman'):fmt['font_family']=family
-            align=paragraph.find('w:pPr/w:jc',ns)
-            if align is not None and align.get('{'+ns['w']+'}val') in ('left','center','right'):
-                fmt['align']=align.get('{'+ns['w']+'}val')
-            if kind=='text' and fmt['bold']:kind='role'
-            blocks.append({'kind':kind,'text':text,'format':fmt})
-        return finish(blocks)
+        return docx_template(raw)
     return text_template(text)
+
+
+W = '{http://schemas.openxmlformats.org/wordprocessingml/2006/main}'
+FAMILIES = ('Arial', 'Calibri', 'Times New Roman')
+
+
+def _on(node):
+    return node is not None and node.get(W+'val', 'true') not in ('0', 'false', 'off')
+
+
+def _run_props(rpr):
+    props = {}
+    if rpr is None: return props
+    for tag, key in (('b', 'bold'), ('i', 'italic')):
+        if rpr.find(W+tag) is not None: props[key] = _on(rpr.find(W+tag))
+    size = rpr.find(W+'sz')
+    if size is not None:
+        try: props['size'] = max(6, min(36, float(size.get(W+'val'))/2))
+        except (TypeError, ValueError): pass
+    fonts = rpr.find(W+'rFonts')
+    family = fonts.get(W+'ascii') or fonts.get(W+'hAnsi') if fonts is not None else None
+    if family: props['family'] = family
+    return props
+
+
+def _par_props(ppr):
+    props = {}
+    if ppr is None: return props
+    spacing = ppr.find(W+'spacing')
+    if spacing is not None:
+        for name in ('before', 'after'):
+            if spacing.get(W+name) is not None: props['space_'+name] = int(spacing.get(W+name))/20
+        if spacing.get(W+'line') and spacing.get(W+'lineRule', 'auto') == 'auto':
+            props['line_spacing'] = int(spacing.get(W+'line'))/240
+    borders = ppr.find(W+'pBdr')
+    if borders is not None:
+        props['rule'] = 'below' if borders.find(W+'bottom') is not None else 'above' if borders.find(W+'top') is not None else 'none'
+    if ppr.find(W+'numPr') is not None: props['numbered'] = True
+    jc = ppr.find(W+'jc')
+    if jc is not None and jc.get(W+'val') in ('left', 'center', 'right'): props['align'] = jc.get(W+'val')
+    return props
+
+
+def _majority(pieces, key):
+    weight = Counter()
+    for piece in pieces:
+        if piece[0].strip(): weight[key(piece)] += len(piece[0].strip())
+    return weight.most_common(1)[0][0] if weight else None
+
+
+def docx_template(raw):
+    """Read paragraphs with resolved Word formatting: style chain, run emphasis, borders and page layout."""
+    import zipfile, xml.etree.ElementTree as ET
+    with zipfile.ZipFile(io.BytesIO(raw)) as archive:
+        root = ET.fromstring(archive.read('word/document.xml'))
+        styles = ET.fromstring(archive.read('word/styles.xml')) if 'word/styles.xml' in archive.namelist() else None
+    table, run_defaults, par_defaults, default_style = {}, {}, {}, None
+    if styles is not None:
+        run_defaults = _run_props(styles.find(W+'docDefaults/'+W+'rPrDefault/'+W+'rPr'))
+        par_defaults = _par_props(styles.find(W+'docDefaults/'+W+'pPrDefault/'+W+'pPr'))
+        for style in styles.findall(W+'style'):
+            sid, name, based = style.get(W+'styleId'), style.find(W+'name'), style.find(W+'basedOn')
+            table[sid] = {'name': (name.get(W+'val') if name is not None else sid or '').lower(),
+                          'based': based.get(W+'val') if based is not None else None,
+                          'run': _run_props(style.find(W+'rPr')), 'par': _par_props(style.find(W+'pPr'))}
+            if style.get(W+'type') == 'paragraph' and style.get(W+'default') in ('1', 'true', 'on'): default_style = sid
+
+    def resolved(sid):
+        seen, styles_used = set(), []
+        while sid in table and sid not in seen:
+            seen.add(sid); styles_used.insert(0, table[sid]); sid = table[sid]['based']
+        run, par = dict(run_defaults), dict(par_defaults)
+        for style in styles_used:
+            run.update(style['run']); par.update(style['par'])
+        return run, par, ' '.join(s['name'] for s in styles_used)
+
+    rows = []
+    for paragraph in root.findall('.//'+W+'body//'+W+'p'):
+        ppr = paragraph.find(W+'pPr')
+        named = ppr.find(W+'pStyle') if ppr is not None else None
+        style_run, par, names = resolved(named.get(W+'val') if named is not None else default_style)
+        par.update(_par_props(ppr))
+        pieces = []
+        for run in paragraph.iter(W+'r'):
+            props = {**style_run, **_run_props(run.find(W+'rPr'))}
+            for node in run:
+                text = (node.text or '') if node.tag == W+'t' else '\t' if node.tag == W+'tab' else '\n' if node.tag == W+'br' else ''
+                if text: pieces.append((text, bool(props.get('bold')), bool(props.get('italic')), props.get('size', 11), props.get('family')))
+        text = ''.join(p[0] for p in pieces).strip()
+        if text: rows.append({'pieces': pieces, 'text': text, 'par': par, 'names': names})
+    if not rows: raise ValueError('Empty document')
+
+    emphasis = lambda p: (p[1], p[2])
+    body_size = Counter(_majority(r['pieces'], lambda p: p[3]) for r in rows).most_common(1)[0][0]
+    blocks = []
+    for row in rows:
+        pieces, par, text = row['pieces'], row['par'], row['text']
+        split = next((i for i, p in enumerate(pieces) if '\t' in p[0] and ''.join(q[0] for q in pieces[:i]).strip()), None)
+        left, right = (pieces[:split], pieces[split:]) if split is not None else (pieces, [])
+        groups = []
+        for piece in left:
+            if not piece[0].strip() and not groups: continue
+            if groups and groups[-1][0] == emphasis(piece): groups[-1][1].append(piece[0])
+            elif piece[0].strip(): groups.append((emphasis(piece), [piece[0]]))
+            else: groups[-1][1].append(piece[0])
+        base = (_majority([p for p in left if emphasis(p) != groups[0][0]], emphasis) if len(groups) > 1 else None) or (groups[0][0] if groups else (False, False))
+        lead = None
+        if len(groups) > 1:
+            lead_text = ''.join(groups[0][1]).strip()
+            if 0 < len(lead_text) <= 120 and text.startswith(lead_text):
+                lead = {'text': lead_text, 'bold': groups[0][0][0], 'italic': groups[0][0][1]}
+        size = _majority(pieces, lambda p: p[3]) or body_size
+        family = _majority(pieces, lambda p: p[4])
+        all_bold = all(p[1] for p in left if p[0].strip())
+        heading = bool(blocks) and ('heading' in row['names'] or (text.isupper() and len(text) < 65) or
+                                    text.casefold() in SECTION_NAMES or
+                                    (all_bold and split is None and len(text) < 40 and size >= body_size + 1.5))
+        bullet = bool(par.get('numbered')) or 'list' in row['names']
+        starts_bold = bool(groups) and groups[0][0][0]
+        kind = ('heading' if heading else 'contact' if len(blocks) < 2 else 'bullet' if bullet else
+                'role' if starts_bold and (all_bold or split is not None) else 'text')
+        fmt = default_format(kind, not blocks)
+        fmt.update(bold=all_bold if not lead else base[0], italic=base[1], font_size=size)
+        if family in FAMILIES: fmt['font_family'] = family
+        if par.get('align'): fmt['align'] = par['align']
+        if lead: fmt['lead'] = lead
+        right_emphasis = _majority(right, emphasis)
+        if right_emphasis: fmt['right_bold'], fmt['right_italic'] = right_emphasis
+        for key in ('space_before', 'space_after'):
+            if key in par: fmt[key] = max(0, min(48, par[key]))
+        if kind == 'heading': fmt['rule'] = par.get('rule', 'none')
+        blocks.append({'kind': kind, 'text': text, 'format': fmt})
+    page = {'line_spacing': max(.8, min(3, resolved(default_style)[1].get('line_spacing') or 1))}
+    section = root.find('.//'+W+'body/'+W+'sectPr')
+    if section is not None:
+        size, margin = section.find(W+'pgSz'), section.find(W+'pgMar')
+        if size is not None: page.update(width=int(size.get(W+'w'))/20, height=int(size.get(W+'h'))/20)
+        if margin is not None: page['margins'] = [max(0, min(144, int(margin.get(W+side, 1440))/20)) for side in ('top', 'right', 'bottom', 'left')]
+    blocks[0]['format']['page'] = page
+    return finish(blocks)
