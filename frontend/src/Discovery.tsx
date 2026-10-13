@@ -76,6 +76,7 @@ export function Discovery({onOpen,onResults,onAdd,initialReviewId,view="opportun
   setState();
  }
  const [rowNotice,setRowNotice]=useState<Record<string,string>>({});
+ const [rowBusy,setRowBusy]=useState<Record<string,boolean>>({});
  // Listings whose description was just saved, keyed to the old content hash until the list refreshes.
  const [saved,setSaved]=useState<Record<string,string>>({});
  // Passed in this session; hidden at once instead of waiting for the list to refresh.
@@ -86,10 +87,16 @@ export function Discovery({onOpen,onResults,onAdd,initialReviewId,view="opportun
   setRowNotice(n=>({...n,[item.id]:passed?'Passed. Find it under Show → Passed by me.':'Restored to New jobs.'}));
   setState();
  }
+ // Queue in the background: only this row waits, the rest of the page stays usable.
  async function analyzeRow(item:Item){
-  const result=await request<{accepted:string[];rejected:{id:string;reason:string}[]}>("/assess-selected",{roles:[{id:item.id,content_hash:item.content_hash}]});
-  setRowNotice(n=>({...n,[item.id]:result.accepted.length?(state?.running?'Queued. Starts after the current scan.':'Queued for deep analysis.'):(result.rejected[0]?.reason||'Could not queue this job.')}));
-  setState();
+  if(rowBusy[item.id])return;
+  setRowBusy(b=>({...b,[item.id]:true}));setRowNotice(n=>({...n,[item.id]:'Queuing…'}));
+  try{
+   const result=await request<{accepted:string[];rejected:{id:string;reason:string}[]}>("/assess-selected",{roles:[{id:item.id,content_hash:item.content_hash}]});
+   setRowNotice(n=>({...n,[item.id]:result.accepted.length?(state?.running?'Queued. Starts after the current scan.':'Queued for deep analysis.'):(result.rejected[0]?.reason||'Could not queue this job.')}));
+   setState();
+  }catch(e){setRowNotice(n=>({...n,[item.id]:e instanceof Error?e.message:'Could not queue this job.'}));}
+  finally{setRowBusy(b=>({...b,[item.id]:false}));}
  }
  const queueActive=(item:Item)=>['QUEUED','RUNNING'].includes(item.selected_assessment?.state??'');
  const selectable=(item:Item)=>item.description_length>=200&&!item.description_changed&&!item.queued_for_assessment&&!queueActive(item)&&!['RUNNING','COMPLETE'].includes(item.assessment?.state??'');
@@ -198,10 +205,10 @@ export function Discovery({onOpen,onResults,onAdd,initialReviewId,view="opportun
       {item.queued_for_assessment && <strong role="status">Queued for automatic analysis</strong>}
       {item.assessment?.state==="RUNNING" && <strong role="status">Analyzing</strong>}
       {["ERROR","INTERRUPTED","NEEDS_ATTENTION","PAUSED"].includes(item.assessment?.state??"") && !(item.needs_help||[]).length && <><strong>Deep analysis stopped</strong>{item.assessment?.error&&<small>{item.assessment.error}</small>}</>}
-      {["ERROR","INTERRUPTED","PAUSED"].includes(item.assessment?.state??"") && !(item.needs_help||[]).some(h=>h.kind==="replace_jd") && !queueActive(item) && item.description_length>=200 && !item.description_changed && <button className="primary" disabled={busy} onClick={()=>void act(()=>analyzeRow(item))}>Retry deep analysis · API usage</button>}
+      {["ERROR","INTERRUPTED","PAUSED"].includes(item.assessment?.state??"") && !(item.needs_help||[]).some(h=>h.kind==="replace_jd") && !queueActive(item) && item.description_length>=200 && !item.description_changed && <button className="primary" disabled={!!rowBusy[item.id]} onClick={()=>void analyzeRow(item)}>Retry deep analysis · API usage</button>}
       {["ERROR","INTERRUPTED","STALE","NEEDS_ATTENTION"].includes(item.assessment?.state??"") && <button onClick={()=>onResults("issues")}>Review analysis issue</button>}
       {item.description_length<200 || item.description_changed ? <button disabled={busy} onClick={()=>void act(()=>openJD(item))}>{item.description_changed ? "Review updated JD" : "Get full JD"}</button> : <>
-       {!queueActive(item) && !item.queued_for_assessment && ["NOT_STARTED", ""].includes(item.assessment?.state ?? "") && <button className="primary" disabled={busy} onClick={()=>void act(()=>analyzeRow(item))}>{item.job_id ? "Analyze deeply again" : "Analyze deeply"} · API usage</button>}
+       {!queueActive(item) && !item.queued_for_assessment && ["NOT_STARTED", ""].includes(item.assessment?.state ?? "") && <button className="primary" disabled={!!rowBusy[item.id]} onClick={()=>void analyzeRow(item)}>{item.job_id ? "Analyze deeply again" : "Analyze deeply"} · API usage</button>}
       </>}
       {item.job_id && item.assessment?.state==="NOT_STARTED" && <button disabled={busy} onClick={()=>void act(()=>onOpen(item.job_id!))}>Open role &amp; analysis</button>}
       {item.passed?<button disabled={busy} onClick={()=>void act(()=>passRow(item,false))}>Undo pass</button>:!queueActive(item)&&item.assessment?.state!=="QUEUED"&&item.assessment?.state!=="RUNNING"&&<button disabled={busy} title="Not interested: hide from New jobs and skip automatic analysis" onClick={()=>void act(()=>passRow(item,true))}>Pass</button>}
@@ -223,7 +230,7 @@ export function Discovery({onOpen,onResults,onAdd,initialReviewId,view="opportun
       <td>{h.issue||h.message}</td><td>{h.todo||""}</td>
       <td><div className="row-actions">{rowNotice[item.id]&&<small role="status">{rowNotice[item.id]}</small>}
        {["paste_jd","replace_jd","review_jd"].includes(h.kind)&&<button className="primary" disabled={busy} onClick={()=>void act(()=>openJD(item))}>{h.kind==="review_jd"?"Review description":"Paste description"}</button>}
-       {h.kind==="retry"&&<button className="primary" disabled={busy} onClick={()=>void act(()=>analyzeRow(item))}>Retry analysis · API usage</button>}
+       {h.kind==="retry"&&<button className="primary" disabled={!!rowBusy[item.id]} onClick={()=>void analyzeRow(item)}>Retry analysis · API usage</button>}
        {h.kind==="review_analysis"&&item.job_id&&<button className="primary" disabled={busy} onClick={()=>void act(()=>onOpen(item.job_id!))}>Open role</button>}
        <button disabled={busy} title="Not interested: hide this job" onClick={()=>void act(()=>passRow(item,true))}>Pass</button>
       </div></td></tr>;})}

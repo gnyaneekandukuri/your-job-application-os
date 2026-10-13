@@ -28,10 +28,9 @@ class SelectedQueue:
 
     def enqueue(self, data):
         with self.d.lock:
-            items = {v['id']:v for v in self.d.view()['items']}
             accepted, rejected = [], []
             for selected in {r.id:r for r in data.roles}.values():
-                item = items.get(selected.id)
+                item = self.lookup(selected.id)
                 reason = ('Role no longer exists.' if not item else
                           'Listing changed. Review it before selecting again.' if selected.content_hash != item['content_hash'] or item['description_changed'] else
                           'Add the full JD first.' if len(item.get('description','')) < 200 else
@@ -46,6 +45,18 @@ class SelectedQueue:
                 accepted.append(selected.id)
             self.start()
             return {'accepted':accepted,'rejected':rejected}
+
+    def lookup(self, oid):
+        """Only the fields enqueue checks, read for one listing; the full view takes ~30s."""
+        with self.d.db() as db:
+            row = db.execute('SELECT * FROM opportunities WHERE id=?', (oid,)).fetchone()
+        if not row: return None
+        item = json.loads(row['payload'])
+        content_hash = self.d.content_hash(item)
+        assessment = self.d.assessment_summary({'job_id': row['job_id'], 'description': item.get('description', '')})
+        return {**item, 'id': oid, 'content_hash': content_hash, 'assessment': assessment,
+                'description_changed': bool(row['imported_hash'] and row['imported_hash'] != content_hash),
+                'queued_for_assessment': oid in self.d.queued_ids}
 
     def start(self):
         with self.d.lock:
