@@ -130,7 +130,14 @@ class Discovery:
                     passages.append({'id':'listed-skill:'+str(n), 'text':'Candidate lists this skill: '+name,
                                      'source_title':'Candidate-listed skills',
                                      'source_caveats':['A listed skill does not establish concrete delivery, ownership or outcomes.']})
-            return candidate_profile(view, preferences, passages)
+            profile = candidate_profile(view, preferences, passages)
+            # Optional private list of lead stories; not part of the screening cache identity.
+            try:
+                anchors = json.loads((self.analysis.library.root / 'knowledge/screening-anchors.json').read_text(encoding='utf-8'))
+                profile['_anchors'] = tuple(anchors.get('anchor_stories', []))
+            except (OSError, ValueError, AttributeError):
+                profile['_anchors'] = ()
+            return profile
         except RetrievalError as exc:
             return {**candidate_profile(view, preferences), 'error':str(exc)}
 
@@ -169,6 +176,7 @@ class Discovery:
         with self.db() as db:
             discovered = {r['job_id']: dict(r) for r in db.execute('SELECT * FROM opportunities WHERE job_id IS NOT NULL')}
             superseded = {r[0] for r in db.execute('SELECT job_id FROM superseded_jobs')}
+            passed_saved = {r[0] for r in db.execute('SELECT job_id FROM passed_saved_jobs')}
             for alias in db.execute('SELECT canonical_id,job_id FROM opportunity_aliases WHERE job_id IS NOT NULL'):
                 primary = db.execute('SELECT * FROM opportunities WHERE id=?',(alias['canonical_id'],)).fetchone()
                 if primary and alias['job_id'] not in discovered:
@@ -180,6 +188,8 @@ class Discovery:
                 WHERE sr.scan_id=(SELECT MAX(recent.scan_id) FROM scan_roles recent
                                   WHERE recent.opportunity_id=sr.opportunity_id)''')}
         items = []
+        from .job_identity import same_job
+        keys = {}
         for job_id in self.service.store.ids():
             job = self.saved_job(job_id)
             row = discovered.get(job_id)
@@ -193,7 +203,12 @@ class Discovery:
                     summary.update(state='JD_CHANGED', stage='Review the updated listing before assessment.')
             if summary['state'] == 'NOT_STARTED': continue
             if job_id in superseded and summary['state'] != 'COMPLETE': continue
+            if job_id in passed_saved and not summary.get('choice'): summary['choice'] = 'SKIP'
+            keys[job_id] = same_job({'company': job.company, 'title': job.title, 'description': job.description})
             items.append({'yc_listing':bool(row and row['id'] in yc_ids),'job_id':job_id,'opportunity_id':row['id'] if row else None,'company':job.company,'title':job.title,'url':str(job.source_url or ''),'assessment':summary, **(scans.get(row['id'], {}) if row else {})})
+        # A stuck copy of a posting already analyzed in another location needs no help.
+        analyzed = {keys.get(i['job_id']) for i in items if i['assessment']['state'] == 'COMPLETE'} - {None}
+        items = [i for i in items if i['assessment']['state'] == 'COMPLETE' or keys.get(i['job_id']) not in analyzed]
         with self.db() as db:
             manual = {r[0] for r in db.execute("SELECT opportunity_id FROM selected_assessments WHERE state='QUEUED'")}
         counts = dict(complete=0, running=0, attention=0, previous=0)
@@ -720,6 +735,31 @@ class Discovery:
                     started = True
                 with self.db() as db: db.execute('UPDATE opportunities SET assessment_state=? WHERE id=?', ('Assessment requested; open role for progress and score.', oid))
             return {'job_id': job_id, 'assessment_started': started}
+
+    def rescreen(self, since, offset=0, limit=10):
+        """Re-run initial screening for unsaved listings seen since a time; returns old vs new results."""
+        from .discovery_screening import screen, annotate
+        # Only a scan changes listings underneath; the automatic-analysis worker does not conflict.
+        if self.worker and self.worker.is_alive() and self.worker.name != 'automatic-assessments':
+            raise Conflict('A scan is running. Re-screen after it finishes.')
+        preferences = load_preferences(self.analysis.library.root / 'knowledge/discovery-preferences.json')
+        profile = self.screening_profile(preferences)
+        with self.db() as db:
+            passed = {r[0] for r in db.execute('SELECT opportunity_id FROM passed_jobs')}
+        items = sorted((i for i in self.view(include_analysis=False)['items']
+                        if (i.get('last_seen') or '') >= since and not i.get('job_id') and i['id'] not in passed
+                        and self.initial_screening_eligible(i)), key=lambda i: i['id'])
+        batch = items[offset:offset + limit]
+        def summary(rows):
+            annotate(self.analysis.engine, rows, profile)
+            return [{'label': (r.get('keyword_match') or {}).get('label'),
+                     'sources': [u.get('source_title') for u in ((r.get('initial_evaluation') or {}).get('retrieved') or [])]} for r in rows]
+        before = summary([dict(i) for i in batch])
+        counts = screen(self.analysis.engine, [dict(i) for i in batch], profile, self.stop, force=True)
+        after = summary([dict(i) for i in batch])
+        return {'total': len(items), 'offset': offset, 'counts': counts,
+                'rows': [{'company': i['company'], 'title': i['title'], 'before': b, 'after': a}
+                         for i, b, a in zip(batch, before, after)]}
 
     def reconcile_automatic(self):
         """Dispatch saved High priority jobs without waiting for another scan."""

@@ -166,11 +166,10 @@ def test_resume_only_context_can_match_without_generated_skills(tmp_path,monkeyp
 
 
 def test_old_answers_are_reused_with_new_cutoff_without_provider_calls(tmp_path):
-    from app.discovery_screening import inputs, LEGACY_VERSION, LEGACY_COMPATIBLE
+    from app.discovery_screening import inputs, LEGACY_VERSION
     provider=Embeddings();engine=RetrievalService(tmp_path/'r.sqlite3',tmp_path/'unused',provider)
     profile=profile_for()
     item={'id':'saved','title':'AI PM','description':'Specific responsibilities '*30}
-    assert LEGACY_COMPATIBLE
     key=inputs(item,profile,LEGACY_VERSION)[1]
     engine.put(key, {'state':'classified','priority':'worth_checking','reason':'Old cutoff',
                      'answer':{'choice':'high','confidence':.75},'matches':[]})

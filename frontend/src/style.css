@@ -1158,3 +1158,5 @@ button.text-button { border: 0; background: transparent; padding: .2rem .25rem; 
 .view-tabs button.active {border-bottom-color:#2f5d46;color:#20382d;}
 .help-table td {vertical-align:top;}
 .help-table td:nth-child(2), .help-table td:nth-child(3) {max-width:320px;}
+.help-paste {border:1px solid #d9e0d9;border-radius:10px;padding:16px;margin:12px 0;background:#fff;}
+.help-paste textarea {width:100%;box-sizing:border-box;margin:8px 0;font:inherit;}

@@ -8,7 +8,7 @@ from fastapi import FastAPI, Request, Query
 from fastapi.responses import JSONResponse, Response
 from . import team_message
 from .applications import Applications, ConfirmApplication, UpdateApplication, ManualApplication
-from .job_retention import KeepJob, PassJob, WatchCompany, keep, pass_job, watch, watchlist, status as retention_status
+from .job_retention import KeepJob, PassJob, Rescreen, WatchCompany, keep, pass_job, pass_saved_job, watch, watchlist, status as retention_status
 from fastapi.staticfiles import StaticFiles
 from langgraph.checkpoint.sqlite import SqliteSaver
 from starlette.middleware.trustedhost import TrustedHostMiddleware
@@ -69,6 +69,7 @@ def create_app(data_dir: Path | None = None):
         if data_dir is None:
             Thread(target=api.state.skills.watch, daemon=True).start()
         api.state.analysis = RoleAnalysis(api.state.retrieval, api.state.library)
+        api.state.analysis.skills = api.state.skills
         from .manual_analysis_queue import ManualAnalysisQueue
         api.state.manual_queue = ManualAnalysisQueue(api.state.analysis, lambda job_id: store.read(job_id)[0])
         api.state.analysis.manual_queue = api.state.manual_queue
@@ -154,6 +155,15 @@ def create_app(data_dir: Path | None = None):
     @api.post("/api/discovery/watchlist")
     def save_company_watchlist(data: WatchCompany, request: Request):
         return watch(request.app.state.discovery, data)
+
+    @api.post("/api/assessments/{job_id}/pass")
+    def pass_saved(job_id: str, data: PassJob, request: Request):
+        request.app.state.service.review(job_id)
+        return pass_saved_job(request.app.state.discovery, job_id, data.passed)
+
+    @api.post("/api/discovery/rescreen")
+    def discovery_rescreen(data: Rescreen, request: Request):
+        return request.app.state.discovery.rescreen(data.since, data.offset, data.limit)
 
     @api.post("/api/discovery/{opportunity_id}/pass")
     def pass_opportunity(opportunity_id: str, data: PassJob, request: Request):

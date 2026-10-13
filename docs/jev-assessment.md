@@ -45,3 +45,7 @@ Initial screening combines the existing weighted keyword High signal with Jev pr
 The fast profile includes uploaded experience/resume documents and the configured current master resume. Historical non-authoritative resume versions and coaching remain excluded from experience screening. Current-master claims are initial signals, not automatic evidence credit.
 
 Live TypeSafe sometimes returned a chosen label within 0.02 probability of a different leading label. Such contradictory near-ties retain the raw provider reply but receive zero classifier confidence and an explicit review flag; they cannot independently establish a trusted decision. Larger contradictions are rejected. This is an integration safeguard, not a claim that the provider output was correct.
+
+Deep analysis searches firsthand stories and also the current master resume. Stories supply how the work was done; a supporting resume line can join the selected evidence to supply numbers, scope or results that stories omit. Resume lines carry a caveat, and numbers covered by fact-conflict rules stay unresolved.
+
+Initial screening sends up to five original passages: titles, headings and short fragments are excluded, stories are preferred over resume lines (at most two resume passages and two per story), passages are matched against individual JD sections, and the candidate's locally matched skills are included. An optional private `knowledge/screening-anchors.json` lists lead stories that receive a small preference. Titles above Senior PM are labeled Low locally without a Jev call.

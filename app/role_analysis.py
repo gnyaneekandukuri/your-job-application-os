@@ -89,7 +89,13 @@ class AnalysisRun(Strict):
         return self
 
 
+RESUME_CAVEAT = ('Candidate resume line: concise claim without story context. Use it for numbers, scope and results; '
+                 'stories supply how the work was done. Numbers covered by conflict rules stay unresolved.')
+
+
 class RoleAnalysis:
+    skills = None  # set by the app; supplies the current master resume
+
     def __init__(self, engine, library):
         self.engine, self.library = engine, library
         self.lock = RLock()
@@ -240,6 +246,24 @@ class RoleAnalysis:
         # the model context budget; growing the library must not send it all.
         return passages
 
+    def resume_passages(self, job_id=None):
+        """Current resume lines as supplementary evidence, mainly for numbers that stories omit."""
+        if not self.skills:
+            return []
+        from .retrieval import chunk_story
+        from .jev_assessment import excerpt_units
+        sources, _ = self.skills.snapshot()
+        source = next((s for s in sources if s['id'] == 'current-resume'), None) or next((s for s in sources if s['id'] == 'skills-resume'), None)
+        if not source or not source.get('text', '').strip():
+            return []
+        sha = hashlib.sha256(source['text'].encode()).hexdigest()
+        passages = [{**chunk, 'id': 'resume:' + chunk['id'], 'source_title': source['title'], 'source_path': 'resume',
+                     'source_sha256': sha, 'source_class': 'RESUME_CLAIM', 'employer': '', 'source_caveats': [RESUME_CAVEAT]}
+                    for chunk in chunk_story(source['text'], max_chunks=100)]
+        with usage_scope(job_id, 'requirement_embedding'):
+            self.engine.incremental_embeddings([u['text'] for u in excerpt_units(passages)])
+        return passages
+
     def batch(self, requirements, passages, rules, review_feedback=None, job_id=None, jd=''):
         from .jev_assessment import assess
         return assess(self.jev_client(), job_id, requirements, passages, rules, jd, review_feedback)
@@ -322,7 +346,7 @@ class RoleAnalysis:
     def assess_run(self, job, key, run):
         try:
             self.current(job, run.input_version)
-            passages = self.passages()
+            passages = self.passages() + self.resume_passages(job.id)
             _, versions, rules, stories = self.environment(job)
             # Completed results in this Jev version are reusable; legacy OpenAI
             # judgments remain historical and cannot be mixed into a new report.

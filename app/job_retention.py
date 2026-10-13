@@ -13,6 +13,12 @@ class PassJob(BaseModel):
     passed: bool
 
 
+class Rescreen(BaseModel):
+    since: str = Field(pattern=r'^\d{4}-\d{2}-\d{2}')
+    offset: int = Field(default=0, ge=0)
+    limit: int = Field(default=10, ge=1, le=50)
+
+
 class WatchCompany(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True, extra='forbid')
     company: str = Field(min_length=1, max_length=200)
@@ -31,6 +37,7 @@ def initialize(db):
         CREATE TABLE IF NOT EXISTS kept_jobs (opportunity_id TEXT PRIMARY KEY);
         CREATE TABLE IF NOT EXISTS passed_jobs (opportunity_id TEXT PRIMARY KEY, passed_at TEXT);
         CREATE TABLE IF NOT EXISTS superseded_jobs (job_id TEXT PRIMARY KEY, replaced_at TEXT);
+        CREATE TABLE IF NOT EXISTS passed_saved_jobs (job_id TEXT PRIMARY KEY, passed_at TEXT);
         CREATE TABLE IF NOT EXISTS seen_jobs (id TEXT PRIMARY KEY, url TEXT, first_seen TEXT,
             posted_at TEXT, deleted_at TEXT);
         CREATE UNIQUE INDEX IF NOT EXISTS seen_job_url ON seen_jobs(url);
@@ -90,6 +97,19 @@ def pass_job(discovery, oid, value):
             db.execute('INSERT OR IGNORE INTO passed_jobs VALUES(?,?)', (oid, datetime.now(timezone.utc).isoformat()))
         else:
             db.execute('DELETE FROM passed_jobs WHERE opportunity_id=?', (oid,))
+    return {'passed': value}
+
+
+def pass_saved_job(discovery, job_id, value):
+    """Pass on a saved role whose analysis is unfinished; also hides its listing from New jobs."""
+    with discovery.lock, discovery.db() as db:
+        listings = [r[0] for r in db.execute('SELECT id FROM opportunities WHERE job_id=?', (job_id,))]
+        if value:
+            db.execute('INSERT OR IGNORE INTO passed_saved_jobs VALUES(?,?)', (job_id, datetime.now(timezone.utc).isoformat()))
+            db.executemany('INSERT OR IGNORE INTO passed_jobs VALUES(?,?)', [(oid, datetime.now(timezone.utc).isoformat()) for oid in listings])
+        else:
+            db.execute('DELETE FROM passed_saved_jobs WHERE job_id=?', (job_id,))
+            db.executemany('DELETE FROM passed_jobs WHERE opportunity_id=?', [(oid,) for oid in listings])
     return {'passed': value}
 
 
