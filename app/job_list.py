@@ -178,8 +178,10 @@ class JobList:
                 if values:
                     where.append("COALESCE(rtrim(json_extract(payload,'$."+field+"'),'/'),'') NOT IN ("+','.join('?' for _ in values)+')')
                     args.extend(sorted(values))
-            # Requests for help ignore list filters so nothing stuck is hidden.
-            help_where = where + ["json_array_length(COALESCE(json_extract(payload,'$.needs_help'),'[]'))>0"]
+            # Only listings worth acting on: still active (or saved/kept), not Low priority, not outside preferred locations.
+            help_where = where + ["json_array_length(COALESCE(json_extract(payload,'$.needs_help'),'[]'))>0",
+                                  "priority!='low'", "location!='outside'",
+                                  "(COALESCE(json_extract(payload,'$.age_state'),'unknown') != 'older_than_four_days' OR json_extract(payload,'$.retention_protected')=1)"]
             help_count = db.execute('SELECT count(*) FROM listings WHERE '+' AND '.join(help_where), args).fetchone()[0]
             if show == 'help': where, args = help_where, list(args)
             include_unknown = company == 'focus' and focus == 'startups'
