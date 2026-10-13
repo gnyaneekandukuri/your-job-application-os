@@ -10,6 +10,8 @@ from contextlib import closing
 from datetime import datetime, timezone, timedelta
 from threading import Event, Lock, Thread
 
+from .job_identity import role_key
+
 VERSION = 'job-list-v8-consolidated'
 log = logging.getLogger(__name__)
 
@@ -157,6 +159,14 @@ class JobList:
         keys.discard(None)
         for oid,jid,p in opportunities:
             if identity(p) in keys:
+                ids.add('opportunity:'+oid)
+                if jid: ids.add(jid)
+                if p.get('url'): urls.add(p['url'].rstrip('/'))
+        # The same role is often posted on several boards with different wording
+        # (e.g. LinkedIn and Greenhouse); applying through one covers the others.
+        roles = {role_key(r) for r in records} - {None}
+        for oid,jid,p in opportunities:
+            if role_key(p) in roles:
                 ids.add('opportunity:'+oid)
                 if jid: ids.add(jid)
                 if p.get('url'): urls.add(p['url'].rstrip('/'))
