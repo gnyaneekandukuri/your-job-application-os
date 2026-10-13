@@ -78,3 +78,16 @@ def test_finished_request_reconciles_after_restart(setup):
 def test_shutdown_does_not_dispatch(setup):
     q,a,j=setup;request(q,j);a.worker.is_alive.return_value=False;q.close();q.step()
     a.start.assert_not_called()
+
+
+def test_requeue_after_context_change_updates_the_waiting_request(setup):
+    q,a,j=setup;request(q,j)
+    first=q.entries()[0]['created_at']
+    a.view.return_value={'input_version':'b'*64,'ready':True,'run':None}
+    q.enqueue(j,AnalyzeInput(consent_to_send=True,input_version='b'*64))
+    rows=q.entries()
+    assert len(rows)==1 and rows[0]['input_version']=='b'*64 and rows[0]['state']=='QUEUED'
+    assert rows[0]['created_at']==first
+    a.worker.is_alive.return_value=False
+    q.step()
+    assert a.start.call_args.args[1].input_version=='b'*64

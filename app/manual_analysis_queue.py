@@ -51,6 +51,11 @@ class ManualAnalysisQueue:
             if not preview['ready']:
                 raise RetrievalError('Prepare the current stories before queuing analysis.',409)
             existing=self.engine.get(PREFIX+job.id)
+            if existing and existing['state']=='QUEUED' and existing['input_version']!=data.input_version:
+                # Stories or facts changed while waiting: keep its place, analyze the current context.
+                row=self.save({**existing,'input_version':data.input_version},'QUEUED')
+                self.start()
+                return {**preview,'queue':row}
             if existing and existing['state'] in ('QUEUED','RUNNING'):
                 return {**preview,'queue':existing}
             if preview.get('run') and preview['run']['state']=='COMPLETE':return preview
