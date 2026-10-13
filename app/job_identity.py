@@ -42,3 +42,10 @@ def group_listings(items):
             row[flag] = any(r.get(flag) for r in members)
         result.append(row)
     return result
+
+
+def role_key(item):
+    """Company and exact title; used only to recognize a role the candidate already applied to."""
+    norm = lambda value: re.sub(r"\s+", " ", unicodedata.normalize("NFKC", str(value or ""))).strip().casefold()
+    company, title = norm(item.get('company')), norm(item.get('title'))
+    return (company, title) if company and title else None

@@ -80,3 +80,23 @@ def test_same_posting_in_several_cities_shows_once_with_all_locations():
     grouped = next(r for r in rows if r['title'] == 'Senior Data PM')
     assert grouped['id'] == 'sf' and sorted(grouped['duplicate_ids']) == ['ny', 'sf']
     assert grouped['location'] == 'New York, NY; San Francisco, CA' and grouped['location_match']['status'] == 'match'
+
+
+def test_applying_on_one_board_hides_the_same_role_from_another(tmp_path):
+    from types import SimpleNamespace
+    from app.job_list import JobList
+    path = tmp_path/'discovery.sqlite3'
+    with sqlite3.connect(path) as db:
+        db.execute('CREATE TABLE opportunities(id TEXT,job_id TEXT,payload TEXT)')
+        db.execute('INSERT INTO opportunities VALUES(?,?,?)', ('gh', 'job-gh', json.dumps(
+            {'company': 'AlphaSense', 'title': 'Senior Product Manager - AI Workflows', 'url': 'https://boards.greenhouse.io/x/1'})))
+        db.execute('INSERT INTO opportunities VALUES(?,?,?)', ('other', 'job-other', json.dumps(
+            {'company': 'AlphaSense', 'title': 'Product Manager - Search', 'url': 'https://boards.greenhouse.io/x/2'})))
+    with sqlite3.connect(tmp_path/'applications.sqlite3') as app:
+        app.execute('CREATE TABLE applications(job_id TEXT,payload TEXT)')
+        app.execute('INSERT INTO applications VALUES(?,?)', ('job-li', json.dumps(
+            {'company': 'AlphaSense', 'title': 'Senior Product Manager -  AI Workflows', 'url': 'https://linkedin.com/jobs/view/9'})))
+    model = JobList.__new__(JobList); model.path = tmp_path/'job-list.sqlite3'; model.discovery = SimpleNamespace(path=path)
+    ids, urls = model.applied_keys()
+    assert 'job-gh' in ids and 'https://boards.greenhouse.io/x/1' in urls
+    assert 'job-other' not in ids
