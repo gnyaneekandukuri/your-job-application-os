@@ -454,8 +454,9 @@ class Tailoring:
                 if p['passage_id'] not in cited: continue
                 original = by_path.get(p['source_path'])
                 if not original or p['source_class'] not in ('FIRSTHAND_EVIDENCE','RAW_EVIDENCE'): continue
-                text = p['text']
-                if text not in original['text']:
+                # Indexed passages keep the file's Windows line endings; read_text() normalizes them.
+                text = p['text'].replace('\r\n', '\n')
+                if text not in original['text'].replace('\r\n', '\n'):
                     raise RetrievalError('A retrieved passage has changed. Reassess this role before tailoring.', 409)
                 key = digest(p['source_path'] + text)
                 if key in seen: continue
