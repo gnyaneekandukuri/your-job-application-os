@@ -177,7 +177,8 @@ def validate_judgment(judgment, passages, rules):
         identity = (citation.passage_id, citation.quote)
         if not p or identity in used or citation.quote not in p["text"]:
             raise RetrievalError("Evidence citation is unknown, duplicated, or not an exact source quote.", 502)
-        if p["source_class"] not in ("FIRSTHAND_EVIDENCE", "RAW_EVIDENCE"):
+        # Resume lines are the candidate's own claims (with a caveat); coaching material is not evidence.
+        if p["source_class"] not in ("FIRSTHAND_EVIDENCE", "RAW_EVIDENCE", "RESUME_CLAIM"):
             raise RetrievalError("Coaching cannot establish experience evidence.", 502)
         used.add(identity)
         result.append(EvidencePassage(passage_id=p["id"], quote=citation.quote,

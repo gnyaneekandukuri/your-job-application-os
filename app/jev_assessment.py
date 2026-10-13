@@ -101,7 +101,8 @@ def assess(client, job_id, requirements, passages, rules, jd='', feedback=None):
             # Stories give context; a supporting resume line can add the numbers they omit.
             resume = next((u for u in ranked[3:] if by_id[u['passage_id']].get('source_class') == 'RESUME_CLAIM'), None)
             if resume and not any(by_id[u['passage_id']].get('source_class') == 'RESUME_CLAIM' for u in selected):
-                selected.append(resume)
+                # At most three citations: the resume line replaces the least confident story excerpt.
+                selected = selected[:2] + [resume]
             if any(not confident(answers[u['id']]) for u in selected):
                 review_reasons.append('Evidence relevance is tentative. Confirm that the selected excerpts support this requirement.')
             elif not selected and any(not confident(a) for a in answers.values()):

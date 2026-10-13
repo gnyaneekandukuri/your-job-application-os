@@ -68,3 +68,9 @@ def test_two_page_resume_is_not_squeezed_to_one():
         {'kind': 'bullet', 'text': 'Led customer discovery and shipped a reporting workflow that reduced weekly preparation time. ' * 2}
         for _ in range(28)]
     assert page_count(blocks) == 2
+
+
+def test_jd_quotes_match_despite_typographic_punctuation():
+    from app.tailoring import normalized_quote
+    jd = 'As Ploy’s first PM — you’ll own “major” initiatives'
+    assert normalized_quote("Ploy's first PM - you'll own \"major\" initiatives") in normalized_quote(jd)
