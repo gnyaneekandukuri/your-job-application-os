@@ -301,8 +301,12 @@ def citation_sources(body):
     return sources
 
 
+# Models often return straight quotes and hyphens for a JD's typographic ones.
+TYPOGRAPHY = str.maketrans({'‘':"'",'’':"'",'“':'"','”':'"','–':'-','—':'-',' ':' '})
+
+
 def normalized_quote(text):
-    return ' '.join(text.split())
+    return ' '.join(text.translate(TYPOGRAPHY).replace('…','...').split())
 
 
 def validate_blocks(blocks, sources):
