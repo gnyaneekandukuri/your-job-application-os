@@ -11,7 +11,7 @@ type KeywordMatch = {reason?:string;priority:"high"|"worth_checking"|"low";label
 type Assessment = {state:string;stage?:string;error?:string;score:number|null;provisional?:boolean;recommendation:string|null;choice?:string|null;recommendation_state?:string;recommendation_error?:string};
 type JDDraft = {url:string;id:string;expected_hash:string;title:string;company:string;description:string;extraction_id?:string;warnings?:string[]};
 type CompanyFit={group:string;label:string;sort_order:number;backing_boost:number;backing_reported:boolean;reason:string;evidence:{quote:string;url?:string;checked_at?:string}[]};
-type Item = {passed?:boolean;duplicate_ids?:string[];needs_help?:{kind:string;message:string;issue?:string;todo?:string}[];listing_urls?:string[];kept?:boolean;company_watched?:boolean;retention_protected?:boolean;age_state?:string;company_fit?:CompanyFit;selected_assessment?:{state:string;error:string}|null;role_classification?:{labels:Record<string,string>;model:string;checked_at:string}|null;queued_for_assessment?:boolean;description_fetch?:{state:string;error:string}|null;automatic_assessment?:{state:string;error:string}|null;assessment?:Assessment;content_hash:string;keyword_match?:KeywordMatch;location_match?:{status:"match"|"outside"|"unclear";reason:string};id:string;title:string;company:string;location:string;url:string;description_length:number;posted_at:string|null;date_label:string;date_basis:string;funding:string;freshness:string;linkedin_repost?:boolean;first_seen:string;last_seen:string;job_id:string|null;description_changed:boolean;assessment_state:string|null;sources:{board:string}[]};
+type Item = {passed?:boolean;duplicate_ids?:string[];needs_help?:{kind:string;message:string;issue?:string;todo?:string}[];listing_urls?:string[];kept?:boolean;company_watched?:boolean;retention_protected?:boolean;age_state?:string;company_fit?:CompanyFit;selected_assessment?:{state:string;error:string;position?:number|null}|null;role_classification?:{labels:Record<string,string>;model:string;checked_at:string}|null;queued_for_assessment?:boolean;description_fetch?:{state:string;error:string}|null;automatic_assessment?:{state:string;error:string}|null;assessment?:Assessment;content_hash:string;keyword_match?:KeywordMatch;location_match?:{status:"match"|"outside"|"unclear";reason:string};id:string;title:string;company:string;location:string;url:string;description_length:number;posted_at:string|null;date_label:string;date_basis:string;funding:string;freshness:string;linkedin_repost?:boolean;first_seen:string;last_seen:string;job_id:string|null;description_changed:boolean;assessment_state:string|null;sources:{board:string}[]};
 type Diagnostic = {reason:string;kind:string;http_status?:number;host:string;path:string;attempts:number;causes:string[]};
 type Source = {checked_at?:string;state:string;count?:number;error?:string;coverage?:string;warnings?:(string | (Diagnostic & {listing:string}))[];diagnostic?:Diagnostic};
 type YCConnection = {state:string;message:string;busy:boolean;checked_at?:string};
@@ -76,6 +76,7 @@ export function Discovery({onOpen,onResults,onAdd,initialReviewId,view="opportun
   setState();
  }
  const [rowNotice,setRowNotice]=useState<Record<string,string>>({});
+ const [justQueued,setJustQueued]=useState<Record<string,boolean>>({});
  const [rowBusy,setRowBusy]=useState<Record<string,boolean>>({});
  // Listings whose description was just saved, keyed to the old content hash until the list refreshes.
  const [saved,setSaved]=useState<Record<string,string>>({});
@@ -92,13 +93,16 @@ export function Discovery({onOpen,onResults,onAdd,initialReviewId,view="opportun
   if(rowBusy[item.id])return;
   setRowBusy(b=>({...b,[item.id]:true}));setRowNotice(n=>({...n,[item.id]:'Queuing…'}));
   try{
-   const result=await request<{accepted:string[];rejected:{id:string;reason:string}[]}>("/assess-selected",{roles:[{id:item.id,content_hash:item.content_hash}]});
-   setRowNotice(n=>({...n,[item.id]:result.accepted.length?(state?.running?'Queued. Starts after the current scan.':'Queued for deep analysis.'):(result.rejected[0]?.reason||'Could not queue this job.')}));
+   const result=await request<{accepted:string[];rejected:{id:string;reason:string}[];positions?:Record<string,number>}>("/assess-selected",{roles:[{id:item.id,content_hash:item.content_hash}]});
+   const place=result.positions?.[item.id];
+   if(result.accepted.length)setJustQueued(q=>({...q,[item.id]:true}));
+   setRowNotice(n=>({...n,[item.id]:result.accepted.length?(state?.running?'Queued. Starts after the current scan.':place?`Queued for deep analysis · #${place} in line. It moves to Analyzed jobs when it finishes.`:'Queued for deep analysis.'):(result.rejected[0]?.reason||'Could not queue this job.')}));
    setState();
   }catch(e){setRowNotice(n=>({...n,[item.id]:e instanceof Error?e.message:'Could not queue this job.'}));}
   finally{setRowBusy(b=>({...b,[item.id]:false}));}
  }
- const queueActive=(item:Item)=>['QUEUED','RUNNING'].includes(item.selected_assessment?.state??'');
+ // A just-queued row hides its start buttons until the slower list refresh catches up.
+ const queueActive=(item:Item)=>!!justQueued[item.id]||['QUEUED','RUNNING'].includes(item.selected_assessment?.state??'');
  const selectable=(item:Item)=>item.description_length>=200&&!item.description_changed&&!item.queued_for_assessment&&!queueActive(item)&&!['RUNNING','COMPLETE'].includes(item.assessment?.state??'');
  const companyFocus=state?.company_preference?.focus??'any';
  const total=state?.total??0;
@@ -195,9 +199,9 @@ export function Discovery({onOpen,onResults,onAdd,initialReviewId,view="opportun
     {pageRows.map(item=><tr key={item.id}><td>{<label className="select-role"><input type="checkbox" aria-label={`Select ${item.company} · ${item.title} for deep analysis`} disabled={busy||!selectable(item)||(!selected[item.id]&&Object.keys(selected).length>=100)} checked={!!selected[item.id]} onChange={e=>{const checked=e.target.checked;setSelectionNotice('');setSelected(current=>{const next={...current};if(checked)next[item.id]=item.content_hash;else delete next[item.id];return next;});}}/>Select</label>}<strong>{item.company}</strong>{item.company_fit&&<small title={item.company_fit.reason}>{item.company_fit.label}{item.company_fit.backing_reported?" · Backing reported":""}</small>}<div className="discovery-role">{item.title}</div>{item.role_classification && <small title={`Jev · ${item.role_classification.model} · advisory classification`}>{Object.values(item.role_classification.labels).join(" · ")}</small>}
      <div className="row-actions">
       {(item.needs_help||[]).length>0&&<button className="text-action" onClick={()=>{setTab("help");setPage(1);}}>Needs your help →</button>}
-      {rowNotice[item.id]&&<small role="status">{rowNotice[item.id]}</small>}
+      {rowNotice[item.id]&&<strong role="status">{rowNotice[item.id]}</strong>}
       {item.description_length<200 && item.description_fetch?.state==="NEEDS_PASTE" && <small>Open the listing and paste its full JD.</small>}
-      {item.selected_assessment?.state==="QUEUED"&&<strong role="status">Queued for deep analysis</strong>}
+      {item.selected_assessment?.state==="QUEUED"&&<strong role="status">Queued for deep analysis{item.selected_assessment.position?` · #${item.selected_assessment.position} in line`:''}</strong>}
       {item.selected_assessment?.state==="RUNNING"&&item.assessment?.state!=="RUNNING"&&<strong role="status">Starting analysis</strong>}
       {item.selected_assessment?.state==="NEEDS_ATTENTION"&&item.selected_assessment.error&&<small role="status">{item.selected_assessment.error}</small>}
       {item.assessment?.state==="QUEUED"&&!item.selected_assessment&&<strong role="status">Queued for deep analysis</strong>}

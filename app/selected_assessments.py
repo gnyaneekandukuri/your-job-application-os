@@ -44,7 +44,13 @@ class SelectedQueue:
                         db.execute('INSERT OR REPLACE INTO selected_assessments VALUES(?,?,?,?)',(selected.id,selected.content_hash,'QUEUED',''))
                 accepted.append(selected.id)
             self.start()
-            return {'accepted':accepted,'rejected':rejected}
+            return {'accepted':accepted,'rejected':rejected,'positions':self.positions()}
+
+    def positions(self):
+        """Place in line for each queued role: 1 starts next, after any running analysis."""
+        with self.d.db() as db:
+            queued=[r[0] for r in db.execute("SELECT opportunity_id FROM selected_assessments WHERE state='QUEUED' ORDER BY rowid")]
+        return {oid:n+1 for n,oid in enumerate(queued)}
 
     def lookup(self, oid):
         """Only the fields enqueue checks, read for one listing; the full view takes ~30s."""

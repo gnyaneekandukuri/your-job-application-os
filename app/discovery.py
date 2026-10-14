@@ -255,7 +255,9 @@ class Discovery:
             newest_linkedin = max((int(s['source_id']) for rows in sightings.values() for s in rows
                                    if s['board'] == 'linkedin' and str(s['source_id']).isdigit()), default=0)
             automatic = {r['opportunity_id']:dict(r) for r in db.execute('SELECT * FROM automatic_assessments')}
-            selected_rows = {r['opportunity_id']:dict(r) for r in db.execute('SELECT opportunity_id,state,error FROM selected_assessments')}
+            selected_rows = {r['opportunity_id']:dict(r) for r in db.execute('SELECT opportunity_id,state,error FROM selected_assessments ORDER BY rowid')}
+            for n, oid in enumerate([oid for oid, r in selected_rows.items() if r['state'] == 'QUEUED']):
+                selected_rows[oid]['position'] = n + 1
             fetched_rows = {r['opportunity_id']:dict(r) for r in db.execute('SELECT * FROM description_fetches')}
             kept = {r[0] for r in db.execute('SELECT opportunity_id FROM kept_jobs')}
             passed = {r[0] for r in db.execute('SELECT opportunity_id FROM passed_jobs')}
@@ -296,7 +298,7 @@ class Discovery:
                 item['automatic_assessment'] = {k:attempt[k] for k in ('state','attempted_at','error')} if attempt else None
                 item['queued_for_assessment'] = row['id'] in self.queued_ids
                 selected = selected_rows.get(row['id'])
-                item['selected_assessment'] = {k:selected[k] for k in ('state','error')} if selected else None
+                item['selected_assessment'] = {k:selected.get(k) for k in ('state','error','position')} if selected else None
                 fetched = fetched_rows.get(row['id'])
                 item['description_fetch'] = {k:fetched[k] for k in ('state','checked_at','error')} if fetched else None
                 items.append(item)
