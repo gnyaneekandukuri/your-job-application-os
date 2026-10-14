@@ -23,7 +23,7 @@ export function TailorResume({jobId,label}:{jobId:string;label?:string}) {
  const [baseSource,setBaseSource]=useState('');
  const [uploadStatus,setUploadStatus]=useState(''),[uploadError,setUploadError]=useState('');
  const [selected,setSelected]=useState(0),[showEvidence,setShowEvidence]=useState(true),[editorReset,setEditorReset]=useState(0);
- const path=`/api/jobs/${jobId}/tailoring`,record=view?.record,running=record?.state==='RUNNING';
+ const path=`/api/jobs/${jobId}/tailoring`,record=view?.record,running=record?.state==='RUNNING'||record?.state==='QUEUED';
  async function request(suffix='',body?:unknown):Promise<View>{
   const response=await fetch(path+suffix,body===undefined?undefined:{method:'POST',headers:{'Content-Type':'application/json','X-Local-Review':'1'},body:JSON.stringify(body)});
   const data=await response.json();if(!response.ok)throw new Error(typeof data.detail==='string'?data.detail:'Could not save this resume. Check the fields and try again.');return data;
@@ -126,7 +126,7 @@ export function TailorResume({jobId,label}:{jobId:string;label?:string}) {
  </details>
  <details><summary>Ground rules included</summary><p>PAR by default, with XYZ, concise STAR, or your existing style. Every claim needs candidate evidence. Preserve ownership, dates, titles, numbers, and project context. Never invent qualifications or copy requirements as experience. Use plain language, relevant accomplishments, and readable formatting. Review changes before approval; no automatic applications.</p><p>Citation checks and an AI claim review help catch errors; they are not independent verification of your experience.</p></details>
  {record&&<><p role="status"><strong>{record.state==='APPROVED'?'Approved resume':['ERROR','INTERRUPTED'].includes(record.state)?'Preparation stopped — draft saved':record.stage||record.state}</strong> · {record.framework} · Rules v{record.policy_version}</p>
- {running&&<p>Preparation continues on the server if you close this window or refresh.</p>}
+ {running&&<p>{record?.state==='QUEUED'?'Queued behind another resume; it starts automatically. ':''}Preparation continues on the server if you close this window or refresh.</p>}
  {record.error&&<p role="alert">{record.error}</p>}
  {['ERROR','INTERRUPTED'].includes(record.state)&&!record.draft&&!editing&&<button disabled={busy} onClick={()=>void act('',{consent_to_send:true,framework:record.framework,base_resume:record.context.sources[0].text,retry:true,...(view.summary_supported?{include_summary:record.include_summary??false}:{})})}>Retry unfinished preparation · API usage</button>}
  {['ERROR','INTERRUPTED'].includes(record.state)&&record.draft&&!editing&&<button disabled={busy||running} onClick={()=>void act('/check',{revision:record.revision,confirmed:true})}>Resume preparation from saved draft · API usage</button>}
