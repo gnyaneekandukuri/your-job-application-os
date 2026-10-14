@@ -1167,3 +1167,11 @@ button.text-button { border: 0; background: transparent; padding: .2rem .25rem; 
 .resume-status-needs_review, .resume-status-draft, .resume-status-edited { background:#dcfce7; color:#166534; }
 .resume-status-approved { background:#245b46; color:#fff; }
 .resume-status-error, .resume-status-interrupted { background:#fee2e2; color:#991b1b; }
+
+.sheets-sync {margin:18px 0;padding:18px;border:1px solid #d5dfd7;border-radius:12px;}
+.sheets-sync p {margin:8px 0;font-size:.9rem;}
+.sheets-actions {display:flex;flex-wrap:wrap;gap:10px;align-items:center;}
+.sheets-settings {margin-top:16px;max-width:760px;}
+.sheets-settings label {display:block;margin:14px 0;}
+.sheets-settings input {display:block;width:100%;margin-top:8px;}
+.sheets-settings ol {padding-left:24px;line-height:1.6;}

@@ -7,6 +7,7 @@ from pathlib import Path
 from fastapi import FastAPI, Request, Query
 from fastapi.responses import JSONResponse, Response
 from . import team_message
+from .google_sheets import GoogleSheets, ClientConfig, SheetTarget
 from .applications import Applications, ConfirmApplication, UpdateApplication, ManualApplication
 from .job_retention import KeepJob, PassJob, Rescreen, WatchCompany, keep, pass_job, pass_saved_job, watch, watchlist, status as retention_status
 from fastapi.staticfiles import StaticFiles
@@ -58,6 +59,7 @@ def create_app(data_dir: Path | None = None):
     async def lifespan(api):
         store = Store(private_dir / "reviews.sqlite3")
         api.state.applications = Applications(private_dir / "applications.sqlite3")
+        api.state.google_sheets = GoogleSheets(private_dir, api.state.applications)
         connection = sqlite3.connect(private_dir / "checkpoints.sqlite3", check_same_thread=False)
         connection.execute("PRAGMA journal_mode=WAL")
         saver = SqliteSaver(connection)
@@ -433,6 +435,43 @@ def create_app(data_dir: Path | None = None):
     @api.get("/api/applications")
     def applications_list(request: Request):
         return request.app.state.applications.list()
+
+    @api.get("/api/applications/sheets")
+    def sheets_status(request: Request):
+        return request.app.state.google_sheets.status()
+
+    @api.post("/api/applications/sheets/configure")
+    def sheets_configure(data: ClientConfig, request: Request):
+        return request.app.state.google_sheets.configure(data)
+
+    @api.post("/api/applications/sheets/connect")
+    def sheets_connect(request: Request):
+        return request.app.state.google_sheets.connect()
+
+    @api.get("/api/applications/sheets/callback")
+    def sheets_callback(request: Request, state: str = '', code: str = '', error: str = ''):
+        from html import escape
+        from fastapi.responses import HTMLResponse
+        try:
+            request.app.state.google_sheets.callback(state, code, error)
+            message = 'Google connected. You can close this tab and return to Applied jobs to choose your spreadsheet.'
+            status = 200
+        except RetrievalError as exc:
+            message, status = str(exc), exc.status
+        return HTMLResponse('<!doctype html><meta charset="utf-8"><meta name="referrer" content="no-referrer"><title>Google Sheets connection</title><h1>Google Sheets</h1><p>' + escape(message) + '</p>', status_code=status,
+                            headers={'Cache-Control': 'no-store', 'Content-Security-Policy': "default-src 'none'"})
+
+    @api.post("/api/applications/sheets/target")
+    def sheets_target(data: SheetTarget, request: Request):
+        return request.app.state.google_sheets.set_target(data)
+
+    @api.post("/api/applications/sheets/sync")
+    def sheets_sync(request: Request):
+        return request.app.state.google_sheets.sync()
+
+    @api.post("/api/applications/sheets/disconnect")
+    def sheets_disconnect(request: Request):
+        return request.app.state.google_sheets.disconnect()
 
     @api.get("/api/applications/export")
     def applications_export(request: Request):
