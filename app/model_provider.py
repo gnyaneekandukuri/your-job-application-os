@@ -12,6 +12,8 @@ def failure_message(response):
                403: "API access denied. Check project permissions and model access.",
                404: "Requested model or endpoint is unavailable to this project."}.get(
                    response.status_code, "OpenAI request failed. Check model access and request compatibility.")
+    if response.status_code >= 500:
+        message = 'OpenAI had a temporary server error; this is not an access or billing problem. Try again in a minute.'
     if response.status_code == 400:
         try:
             body = response.json()

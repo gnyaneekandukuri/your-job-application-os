@@ -29,6 +29,14 @@ def test_unknown_and_malformed_errors_do_not_claim_billing():
     assert '30 seconds' in failure_message(response)
 
 
+@pytest.mark.parametrize('status',[500,502,503,520,524])
+def test_server_errors_are_reported_as_temporary(status):
+    message=failure_message(httpx.Response(status,text='PRIVATE'))
+    assert 'temporary server error' in message
+    assert 'model access' not in message and 'PRIVATE' not in message
+    assert f'(HTTP {status})' in message
+
+
 def test_provider_does_not_retry_or_leak_error_body(monkeypatch):
     calls=[]
     class Client:
