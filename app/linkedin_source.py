@@ -55,6 +55,16 @@ class Cards(HTMLParser):
             self.card = None
 
 
+# LinkedIn job IDs only increase. Reposted and "Promoted by hirer" jobs keep their
+# original ID but show a fresh posting age, so an ID far below the newest one in the
+# same search is an old job. ~350k IDs/day (measured Oct 2026), so this is ~30 days.
+REPOST_ID_GAP = 10_500_000
+
+
+def reposted(source_id, newest):
+    return str(source_id).isdigit() and newest - int(source_id) > REPOST_ID_GAP
+
+
 def age_bounds(label, observed):
     """Keep a range for rounded ages; never invent an exact publication time."""
     match = re.fullmatch(r'(\d+)\s+(minute|hour|day|week)s?\s+ago', label.lower())
@@ -75,6 +85,7 @@ def collect_linkedin(client, fetch, countries, stop=None):
     if not countries or any(code not in names for code in countries):
         raise ValueError('Choose a supported country in your context preferences before scanning LinkedIn')
     rows, warnings, seen = [], [], set()
+    skipped = 0
     for code in countries[:3]:
         if stop and stop.is_set():
             break
@@ -87,8 +98,12 @@ def collect_linkedin(client, fetch, countries, stop=None):
         if not parser.rows:
             raise ValueError('LinkedIn returned no readable job cards; empty results are not verified')
         observed = datetime.now(timezone.utc)
+        newest = max(int(row['source_id']) for row in parser.rows)
         for row in parser.rows[:60]:
             if row['source_id'] in seen or not relevant(row['title']):
+                continue
+            if reposted(row['source_id'], newest):
+                skipped += 1
                 continue
             seen.add(row['source_id'])
             item = {**row, **age_bounds(row['date_label'], observed), 'description': '',
@@ -96,6 +111,8 @@ def collect_linkedin(client, fetch, countries, stop=None):
                          'search_country': code, 'source_filter': 'past_24_hours'}
             if listing_freshness(item, observed) != 'older':
                 rows.append(item)
+    if skipped:
+        warnings.append(f'Skipped {skipped} reposted or promoted LinkedIn jobs created more than about 30 days ago.')
     if len(countries) > 3:
         warnings.append('Only the first three preferred countries were searched.')
     return rows, ('Partial coverage: first 60 public Product Manager results per preferred country; '

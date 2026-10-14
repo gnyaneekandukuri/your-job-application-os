@@ -83,3 +83,27 @@ def test_unknown_rescan_age_does_not_keep_old_freshness(tmp_path):
         assert d.view()['items'][0]['freshness']=='unknown'
         d.save('linkedin',{**row,'location':'Toronto, Canada'})
         assert d.view()['items'][0]['location_match']['status']=='outside'
+
+
+def test_reposted_and_promoted_jobs_with_old_ids_are_skipped():
+    # Old IDs show a fresh "2 hours ago" after a repost; the ID reveals the real age.
+    page = ('Past 24 hours filter is currently applied' + CARD.replace('123','4479000000')
+            + CARD.replace('123','4475000000') + CARD.replace('123','4366508877'))
+    rows,_,warnings = collect_linkedin(None,lambda *args:page,['US'])
+    assert [r['source_id'] for r in rows] == ['4479000000','4475000000']
+    assert any('Skipped 1 reposted or promoted' in w for w in warnings)
+
+
+def test_saved_linkedin_repost_is_shown_as_older(tmp_path):
+    from fastapi.testclient import TestClient
+    from app.main import create_app
+    with TestClient(create_app(tmp_path)) as client:
+        d=client.app.state.discovery
+        fresh=age_bounds('2 hours ago',datetime.now(timezone.utc))
+        for sid,title in (('4479000000','Product Manager'),('4366508877','Senior Product Manager')):
+            parser=Cards();parser.feed(CARD.replace('123',sid).replace('>Product Manager<','>'+title+'<'))
+            d.save('linkedin',{**parser.rows[0],**fresh,'description':'','date_basis':'source_relative_age'})
+        items={i['title']:i for i in d.view(include_analysis=False)['items']}
+        assert items['Product Manager']['freshness']=='within_24h'
+        assert items['Senior Product Manager']['freshness']=='older'
+        assert items['Senior Product Manager']['linkedin_repost']

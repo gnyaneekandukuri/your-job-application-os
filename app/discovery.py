@@ -249,8 +249,11 @@ class Discovery:
             items = []
             locations = {}
             sightings = {}
-            for source in db.execute('SELECT opportunity_id,board,seen_at,payload FROM sightings'):
+            for source in db.execute('SELECT opportunity_id,board,source_id,seen_at,payload FROM sightings'):
                 sightings.setdefault(source['opportunity_id'], []).append(dict(source))
+            from .linkedin_source import reposted
+            newest_linkedin = max((int(s['source_id']) for rows in sightings.values() for s in rows
+                                   if s['board'] == 'linkedin' and str(s['source_id']).isdigit()), default=0)
             automatic = {r['opportunity_id']:dict(r) for r in db.execute('SELECT * FROM automatic_assessments')}
             selected_rows = {r['opportunity_id']:dict(r) for r in db.execute('SELECT opportunity_id,state,error FROM selected_assessments')}
             fetched_rows = {r['opportunity_id']:dict(r) for r in db.execute('SELECT * FROM description_fetches')}
@@ -270,6 +273,10 @@ class Discovery:
                             assessment_state=row['assessment_state'], freshness=listing_freshness(item),
                             description_changed=bool(row['imported_hash'] and row['imported_hash'] != self.content_hash(item)),
                             sources=[{'board': s['board'], 'url': json.loads(s['payload']).get('url'), 'seen_at': s['seen_at'], 'posted_at': json.loads(s['payload']).get('posted_at')} for s in sources])
+                # LinkedIn's fresh age on a reposted/promoted job is not its real age.
+                if item.get('date_basis') == 'source_relative_age' and any(
+                        s['board'] == 'linkedin' and reposted(s['source_id'], newest_linkedin) for s in sources):
+                    item.update(freshness='older', linkedin_repost=True)
                 location = item.get("location")
                 if location not in locations:
                     locations[location] = location_match(location, preferences)
