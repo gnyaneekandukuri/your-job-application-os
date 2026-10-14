@@ -109,7 +109,7 @@ export function Requirements({ jobId }: { jobId: string }) {
     {state && !state.ready && <p className="error">Prepare current stories first: {state.unready_sources.join(", ") || "No stories available"}.</p>}
     {state && !running && !updating && state.experience_update?.state !== 'PENDING' && (outdated || run?.state !== "COMPLETE") && <>
       <p className="muted">Jev assesses your JD against retrieved experience and saved preferences. TypeSafe usage is tracked under API costs. OpenAI is used only for search embeddings; Jev evaluates the evidence. Uncertain classifications stay provisional for your review.</p>
-      <button disabled={busy || !state.ready || state.queue?.state==='QUEUED'} onClick={() => void start()}>{busy ? "Startingâ€¦" : run ? "Resume unfinished analysis" : "Analyze this role"}</button>
+      <button disabled={busy || !state.ready || state.queue?.state==='QUEUED'} onClick={() => void start()}>{busy ? "Startingâ€¦" : run ? "Resume unfinished analysis" : state.previous_result_outdated ? "Re-run analysis" : "Analyze this role"}</button>
     </>}
     {run && <>
       <p role="status">{run.stage}</p>
