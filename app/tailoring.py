@@ -3,7 +3,7 @@ import json
 import base64
 import re
 from pathlib import Path
-from threading import RLock, Thread
+from threading import RLock, Thread, current_thread
 from typing import Literal
 from uuid import uuid4
 
@@ -343,11 +343,15 @@ def parse_response(response, schema):
         raise RetrievalError('Tailoring returned an incomplete or invalid response. No automatic retry was made.', 502) from None
 
 
+QUEUE_KEY = 'tailoring:queue'
+
+
 class Tailoring:
     def __init__(self, analysis, skills, provider):
         self.analysis, self.skills = analysis, skills
         self.engine = RetrievalService(analysis.engine.path, analysis.engine.source, provider)
         self.lock, self.worker, self.active = RLock(), None, None
+        self.next_queued()  # Requests queued before a restart continue.
 
     def preferences(self):
         return self.engine.get('tailoring:preferences') or {
@@ -499,9 +503,10 @@ class Tailoring:
 
     def start(self, job, data):
         with self.lock:
-            if self.worker and self.worker.is_alive():
-                if self.active and self.engine.get(self.active)['job_id'] == job.id: return self.view(job)
-                raise RetrievalError('Another resume is being prepared. Let it finish first.',409)
+            busy = self.worker and self.worker.is_alive()
+            if busy and self.active and self.engine.get(self.active)['job_id'] == job.id: return self.view(job)
+            latest = self.engine.get('tailoring:latest:'+job.id)
+            if latest and (self.engine.get(latest) or {}).get('state') == 'QUEUED': return self.view(job)
             selected = None
             if data.base_source_id:
                 selected = next((o for o in self.resume_options(job) if o['id']==data.base_source_id), None)
@@ -527,11 +532,42 @@ class Tailoring:
             record['base_source'] = {'title':selected['title'] if selected else 'Candidate-provided resume text', 'version':digest(body['sources'][0]['text'])[:10], 'selected_at':now()}
             record.update(state='RUNNING',stage='Checking saved work' if record['draft'] else 'Writing resume',error='',revision=str(uuid4()))
             if data.remember: self.engine.put('tailoring:framework',data.framework)
+            if busy:
+                # Another resume is being prepared: wait in a durable FIFO queue.
+                record.update(state='QUEUED', stage='Queued: starts when the resume being prepared now finishes. You can close this window.')
+                self.engine.put(key,record); self.engine.put('tailoring:latest:'+job.id,key)
+                self.engine.put(QUEUE_KEY, [k for k in (self.engine.get(QUEUE_KEY) or []) if k != key] + [key])
+                return self.view(job)
             self.engine.put(key,record); self.engine.put('tailoring:latest:'+job.id,key)
-            self.active = key
-            self.worker = Thread(target=self.run,args=(key,),daemon=True)
-            self.worker.start()
+            self.launch(key)
             return self.view(job)
+
+    def launch(self, key):
+        self.active = key
+        self.worker = Thread(target=self.run_then_next,args=(key,),daemon=True)
+        self.worker.start()
+
+    def run_then_next(self, key):
+        try:
+            self.run(key)
+        finally:
+            self.next_queued()
+
+    def next_queued(self):
+        """Start the oldest queued tailoring request, if nothing else is running."""
+        with self.lock:
+            # The finishing worker calls this itself, so its own thread does not count as busy.
+            if self.worker and self.worker.is_alive() and self.worker is not current_thread(): return
+            queue = self.engine.get(QUEUE_KEY) or []
+            while queue:
+                key = queue.pop(0)
+                record = self.engine.get(key)
+                if record and record['state'] == 'QUEUED':
+                    record.update(state='RUNNING', stage='Checking saved work' if record['draft'] else 'Writing resume')
+                    self.engine.put(key, record); self.engine.put(QUEUE_KEY, queue)
+                    self.launch(key)
+                    return
+            self.engine.put(QUEUE_KEY, queue)
 
     def run(self, key):
         record = self.engine.get(key)
@@ -784,8 +820,8 @@ class Tailoring:
             self.engine.put(key+':revision:'+record['revision'],record)
             record.update(policy_text=policy,policy_hash=digest(policy),policy_version=re.search(r'Policy version: ([\d.]+)',policy)[1].rstrip('.'),quality=None)
             record.update(state='RUNNING',stage='Checking edited claims',checks=None,error='',revision=str(uuid4()))
-            self.engine.put(key,record); self.active=key
-            self.worker=Thread(target=self.run,args=(key,),daemon=True); self.worker.start()
+            self.engine.put(key,record)
+            self.launch(key)
             return self.view(job)
 
     def ensure_current(self,job,record):
