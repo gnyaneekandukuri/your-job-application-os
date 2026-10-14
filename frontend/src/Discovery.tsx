@@ -204,8 +204,9 @@ export function Discovery({onOpen,onResults,onAdd,initialReviewId,view="opportun
       {item.queued_for_assessment && <strong role="status">Queued for automatic analysis</strong>}
       {item.assessment?.state==="RUNNING" && <strong role="status">Analyzing</strong>}
       {["ERROR","INTERRUPTED","NEEDS_ATTENTION","PAUSED"].includes(item.assessment?.state??"") && !(item.needs_help||[]).length && <><strong>Deep analysis stopped</strong>{item.assessment?.error&&<small>{item.assessment.error}</small>}</>}
-      {["ERROR","INTERRUPTED","PAUSED"].includes(item.assessment?.state??"") && !(item.needs_help||[]).some(h=>h.kind==="replace_jd") && !queueActive(item) && item.description_length>=200 && !item.description_changed && <button className="primary" disabled={!!rowBusy[item.id]} onClick={()=>void analyzeRow(item)}>Retry deep analysis · API usage</button>}
-      {["ERROR","INTERRUPTED","STALE","NEEDS_ATTENTION"].includes(item.assessment?.state??"") && <button onClick={()=>onResults("issues")}>Review analysis issue</button>}
+      {item.assessment?.state==="STALE" && <strong>Outdated analysis{item.assessment.score!==null?` · ${item.assessment.score}/100 before`:''}</strong>}
+      {["ERROR","INTERRUPTED","PAUSED","STALE"].includes(item.assessment?.state??"") && !(item.needs_help||[]).some(h=>h.kind==="replace_jd") && !queueActive(item) && item.description_length>=200 && !item.description_changed && <button className="primary" disabled={!!rowBusy[item.id]} onClick={()=>void analyzeRow(item)}>{item.assessment?.state==="STALE"?"Re-run analysis":"Retry deep analysis"} · API usage</button>}
+      {(["ERROR","INTERRUPTED","NEEDS_ATTENTION"].includes(item.assessment?.state??"") || (item.assessment?.state==="STALE" && item.assessment.score===null)) && <button onClick={()=>onResults("issues")}>Review analysis issue</button>}
       {item.description_length<200 || item.description_changed ? <button disabled={busy} onClick={()=>void act(()=>openJD(item))}>{item.description_changed ? "Review updated JD" : "Get full JD"}</button> : <>
        {!queueActive(item) && !item.queued_for_assessment && ["NOT_STARTED", ""].includes(item.assessment?.state ?? "") && <button className="primary" disabled={!!rowBusy[item.id]} onClick={()=>void analyzeRow(item)}>{item.job_id ? "Analyze deeply again" : "Analyze deeply"} · API usage</button>}
       </>}
