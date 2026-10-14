@@ -95,6 +95,7 @@ export function TailorResume({jobId,label}:{jobId:string;label?:string}) {
    if(editing){current=await request('/edit',{revision:view.record.revision,blocks:blocks.filter(b=>b.text.trim())});setView(current);setEditing(false);}
    current=await request('/prepare-download',{revision:current.record!.revision,confirmed:true});setView(current);
    await downloadPdf(current.record!.revision);
+   setOpen(false);
   }catch(e){setError(String(e));}finally{setBusy(false);}
  }
  return <><button className="tailor-action" onClick={()=>{setError('');setEditing(false);setConfirmed(false);setOpen(true);}}>Tailor resume</button>
