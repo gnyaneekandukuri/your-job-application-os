@@ -4,6 +4,11 @@ import pytest
 from app.linkedin_source import Cards, age_bounds, collect_linkedin
 from app.discovery_sources import listing_freshness
 
+
+@pytest.fixture(autouse=True)
+def no_page_delay(monkeypatch):
+    monkeypatch.setattr('app.linkedin_source.PAGE_DELAY',0)
+
 CARD = '''<div class="base-card job-search-card" data-entity-urn="urn:li:jobPosting:123">
 <a class="base-card__full-link" href="https://www.linkedin.com/jobs/view/product-manager-at-example-123?trackingId=private"></a>
 <img src="image"><div class="base-search-card__info"><h3 class="base-search-card__title">Product Manager</h3>
@@ -107,3 +112,16 @@ def test_saved_linkedin_repost_is_shown_as_older(tmp_path):
         assert items['Product Manager']['freshness']=='within_24h'
         assert items['Senior Product Manager']['freshness']=='older'
         assert items['Senior Product Manager']['linkedin_repost']
+
+
+def test_later_pages_are_read_until_linkedin_refuses(monkeypatch):
+    import httpx
+    first='Past 24 hours filter is currently applied'+CARD.replace('123','4479000001')
+    def fetch(client,url):
+        if '/jobs/search/' in url: return first
+        start=int(parse_qs(urlsplit(url).query)['start'][0])
+        if start>=3: raise httpx.HTTPStatusError('429',request=httpx.Request('GET',url),response=httpx.Response(429))
+        return CARD.replace('123',str(4479000001+start))
+    rows,_,warnings=collect_linkedin(None,fetch,['US'])
+    assert [r['source_id'] for r in rows]==['4479000001','4479000002','4479000003']
+    assert any('limited requests after 3 pages' in w for w in warnings)
