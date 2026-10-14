@@ -78,28 +78,53 @@ def age_bounds(label, observed):
             'age_observed_at': observed.isoformat()}
 
 
+# The search page shows only the first results; LinkedIn's public guest endpoint
+# serves later pages (~10 cards each) and rate-limits quickly, so pages are spaced
+# out and paging stops at the first refusal, keeping what was already read.
+MORE_PAGES = 15
+PAGE_DELAY = 4
+
+
 def collect_linkedin(client, fetch, countries, stop=None):
+    from threading import Event
     from .discovery_sources import relevant, listing_freshness
     from .discovery_location import COUNTRIES
     names = {country['code']: country['name'] for country in COUNTRIES}
     if not countries or any(code not in names for code in countries):
         raise ValueError('Choose a supported country in your context preferences before scanning LinkedIn')
+    stop = stop or Event()
     rows, warnings, seen = [], [], set()
     skipped = 0
     for code in countries[:3]:
-        if stop and stop.is_set():
+        if stop.is_set():
             break
-        query = urlencode({'keywords': 'product manager', 'location': names[code], 'f_TPR': 'r86400', 'sortBy': 'DD'})
-        raw = fetch(client, 'https://www.linkedin.com/jobs/search/?' + query)
+        params = {'keywords': 'product manager', 'location': names[code], 'f_TPR': 'r86400', 'sortBy': 'DD'}
+        raw = fetch(client, 'https://www.linkedin.com/jobs/search/?' + urlencode(params))
         # A login/challenge page must not be treated as a successful empty search.
         if 'Past 24 hours filter is currently applied' not in raw:
             raise ValueError('LinkedIn past-24-hours search could not be verified; login or search format may have changed')
         parser = Cards(); parser.feed(raw)
         if not parser.rows:
             raise ValueError('LinkedIn returned no readable job cards; empty results are not verified')
+        cards = {row['source_id']: row for row in parser.rows}
+        pages = 0
+        for _ in range(MORE_PAGES):
+            if stop.wait(PAGE_DELAY):
+                break
+            try:
+                more = Cards(); more.feed(fetch(client, 'https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?'
+                                                + urlencode({**params, 'start': len(cards)})))
+            except Exception:
+                warnings.append(f'LinkedIn limited requests after {pages + 1} pages in {names[code]}; the rest waits for the next scan.')
+                break
+            new = [row for row in more.rows if row['source_id'] not in cards]
+            if not new:
+                break
+            cards.update((row['source_id'], row) for row in new)
+            pages += 1
         observed = datetime.now(timezone.utc)
-        newest = max(int(row['source_id']) for row in parser.rows)
-        for row in parser.rows[:60]:
+        newest = max(int(sid) for sid in cards)
+        for row in cards.values():
             if row['source_id'] in seen or not relevant(row['title']):
                 continue
             if reposted(row['source_id'], newest):
@@ -115,6 +140,6 @@ def collect_linkedin(client, fetch, countries, stop=None):
         warnings.append(f'Skipped {skipped} reposted or promoted LinkedIn jobs created more than about 30 days ago.')
     if len(countries) > 3:
         warnings.append('Only the first three preferred countries were searched.')
-    return rows, ('Partial coverage: first 60 public Product Manager results per preferred country; '
+    return rows, (f'Partial coverage: up to {MORE_PAGES + 1} pages of public Product Manager results per preferred country; '
                   'LinkedIn Past 24 hours filter verified. Rounded posting ages are preserved; '
-                  'reposts and original employer dates are not verified.'), warnings
+                  'reposts are detected from LinkedIn job IDs.'), warnings

@@ -12,9 +12,10 @@ from .discovery_network import BoardClient, recover, diagnose
 
 BOARDS = {'yc': 'Y Combinator', 'builtin': 'Built In', 'a16z': 'a16z',
           'sequoia': 'Sequoia', 'lightspeed': 'Lightspeed', 'linkedin': 'LinkedIn',
-          'hn': 'HN Who is hiring', 'lenny': "Lenny’s Jobs", 'cosign': 'Cosign'}
+          'hn': 'HN Who is hiring', 'lenny': "Lenny’s Jobs"}
 UNAVAILABLE = {'wellfound': 'Direct access blocked (403)', 'khosla': 'Direct access blocked (403)',
-               'index': 'Direct access blocked (403)', 'welcome_to_the_jungle': 'Collection not verified'}
+               'index': 'Direct access blocked (403)', 'welcome_to_the_jungle': 'Collection not verified',
+               'cosign': 'Jobs now load only inside the browser from Cosign’s private service; no public listing to read'}
 CONSIDER = {'a16z': ('https://portfoliojobs.a16z.com', 'andreessen-horowitz'),
             'sequoia': ('https://jobs.sequoiacap.com', 'sequoia-capital'),
             'lightspeed': ('https://jobs.lsvp.com', 'lightspeed')}
@@ -144,10 +145,6 @@ def collect(board, stop=None, countries=None):
         if board == 'hn':
             from .community_sources import collect_hn
             rows, coverage, warnings = collect_hn(client, fetch)
-        elif board == 'cosign':
-            from .community_sources import cosign_rows
-            rows = cosign_rows(fetch(client, 'https://cosign.co/jobs'))
-            coverage = 'Partial coverage: Cosign public subset only. Fuller results require sign-in; missing descriptions need retrieval or paste.'
         elif board == 'linkedin':
             from .linkedin_source import collect_linkedin
             rows, coverage, warnings = collect_linkedin(client, fetch, countries, stop)
