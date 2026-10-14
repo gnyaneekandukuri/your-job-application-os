@@ -410,6 +410,39 @@ class Tailoring:
                 self.engine.put(key,blocks);return normalize_master(blocks)
         return text_template(base)
 
+    def statuses(self, job_ids):
+        """Latest resume state per job for list views; reads only small JSON fields, not whole drafts."""
+        from contextlib import closing
+        latest = self.engine.get_many(['tailoring:latest:'+j for j in job_ids])
+        keys = {k: j.removeprefix('tailoring:latest:') for j, k in latest.items() if k}
+        exported = self.engine.get_many(['tailoring:export-latest:'+j for j in job_ids])
+        queue = self.engine.get(QUEUE_KEY) or []
+        rows = {}
+        if keys:
+            with closing(self.engine.connect()) as db:
+                for start in range(0, len(keys), 500):
+                    group = list(keys)[start:start+500]
+                    rows.update({k: s for k, s in db.execute(
+                        f"SELECT key, json_extract(payload,'$.state') FROM cache WHERE key IN ({','.join('?' for _ in group)})", group)})
+        alive = self.worker and self.worker.is_alive()
+        result = {}
+        for key, job_id in keys.items():
+            state = rows.get(key)
+            if not state: continue
+            if state == 'QUEUED':
+                position = queue.index(key) + 1 if key in queue else None
+                label = 'Resume queued' + (f' (#{position})' if position else '')
+            elif state == 'RUNNING':
+                state, label = ('RUNNING', 'Preparing resume…') if alive and self.active == key else ('INTERRUPTED', 'Resume stopped · open to retry')
+            elif state in ('ERROR', 'INTERRUPTED'):
+                label = 'Resume stopped · open to retry'
+            elif state == 'APPROVED':
+                label = 'Resume downloaded' if 'tailoring:export-latest:'+job_id in exported else 'Resume approved'
+            else:
+                label = 'Resume ready to review'
+            result[job_id] = {'state': state, 'label': label}
+        return result
+
     def view(self, job):
         latest = self.engine.get('tailoring:latest:' + job.id)
         record = self.engine.get(latest) if latest else None

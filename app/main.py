@@ -201,7 +201,11 @@ def create_app(data_dir: Path | None = None):
 
     @api.get("/api/assessments/saved")
     def saved_assessment_results(request: Request):
-        return request.app.state.job_list.assessments()
+        result = request.app.state.job_list.assessments()
+        resumes = request.app.state.tailoring.statuses([r['job_id'] for r in result.get('items', [])])
+        for item in result.get('items', []):
+            if item['job_id'] in resumes: item['resume'] = resumes[item['job_id']]
+        return result
 
     @api.get("/api/assessments")
     def assessment_results(request: Request):

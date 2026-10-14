@@ -1160,3 +1160,10 @@ button.text-button { border: 0; background: transparent; padding: .2rem .25rem; 
 .help-table td:nth-child(2), .help-table td:nth-child(3) {max-width:320px;}
 .help-paste {border:1px solid #d9e0d9;border-radius:10px;padding:16px;margin:12px 0;background:#fff;}
 .help-paste textarea {width:100%;box-sizing:border-box;margin:8px 0;font:inherit;}
+/* Resume status in Analyzed jobs, so a draft's progress is visible without opening it. */
+.resume-status { display:inline-block; margin:4px 0 2px; padding:2px 8px; border-radius:999px; font-size:12px; font-weight:600; background:#eef2f7; color:#334155; }
+.resume-status-queued { background:#fef3c7; color:#92400e; }
+.resume-status-running { background:#dbeafe; color:#1e40af; }
+.resume-status-needs_review, .resume-status-draft, .resume-status-edited { background:#dcfce7; color:#166534; }
+.resume-status-approved { background:#245b46; color:#fff; }
+.resume-status-error, .resume-status-interrupted { background:#fee2e2; color:#991b1b; }
