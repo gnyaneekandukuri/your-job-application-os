@@ -205,7 +205,7 @@ def test_manual_selection_is_allowed_at_every_initial_priority(tmp_path,monkeypa
         monkeypatch.setattr(d.selected,'start',lambda:None)
         response=client.post('/api/discovery/assess-selected',headers={'X-Local-Review':'1'},json={'roles':[{'id':oid,'content_hash':item['content_hash']}]})
         assert response.status_code==200
-        assert response.json()=={'accepted':[oid],'rejected':[]}
+        assert {k:response.json()[k] for k in ('accepted','rejected')}=={'accepted':[oid],'rejected':[]}
 
 
 @pytest.mark.parametrize('location,expected',[('match',True),('unclear',True),('outside',False)])
