@@ -73,7 +73,13 @@ def test_sync_retries_uncertain_write_without_duplicate_rows(tmp_path):
         if req.method=='GET' and '/values/' not in req.url.path:
             return httpx.Response(200,json={'sheets':[{'properties':{'title':TAB,'sheetId':7,'gridProperties':{'rowCount':1000,'columnCount':26}}}]})
         if req.method=='GET':return httpx.Response(200,json={'values':saved})
-        body=json.loads(req.content);writes.append(body)
+        body=json.loads(req.content)
+        if 'requests' in body:
+            sort=body['requests'][0]['sortRange']
+            assert sort['range']=={'sheetId':7,'startRowIndex':1,'endRowIndex':2}
+            assert sort['sortSpecs'][0]=={'dimensionIndex':3,'sortOrder':'DESCENDING'}
+            return httpx.Response(200,json={})
+        writes.append(body)
         assert body['valueInputOption']=='RAW'
         saved=[HEADERS,application_row(row())]
         if uncertain:
@@ -95,6 +101,9 @@ def test_sync_creates_dedicated_tab_and_does_not_touch_other_tabs(tmp_path):
         if req.method=='GET' and '/values/' not in req.url.path:return httpx.Response(200,json={'sheets':[{'properties':{'title':'Personal notes','sheetId':1}}]})
         if req.method=='GET':return httpx.Response(200,json={})
         body=json.loads(req.content)
+        if 'requests' in body and 'sortRange' in body['requests'][0]:
+            assert body['requests'][0]['sortRange']['range']=={'sheetId':9,'startRowIndex':1,'endRowIndex':2}
+            return httpx.Response(200,json={})
         if 'requests' in body:
             assert body['requests'][0]['addSheet']['properties']['title']==TAB
             return httpx.Response(200,json={'replies':[{'addSheet':{'properties':{'title':TAB,'sheetId':9}}}]})
@@ -102,7 +111,7 @@ def test_sync_creates_dedicated_tab_and_does_not_touch_other_tabs(tmp_path):
         return httpx.Response(200,json={})
     s=configured(tmp_path,handler)
     assert s.sync()['last_sync']['added']==1
-    assert len(calls)==4
+    assert len(calls)==5
 
 
 def test_refresh_and_safe_errors(tmp_path):

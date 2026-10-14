@@ -24,3 +24,5 @@ Each sync reads the destination's Application IDs and updates matching rows, add
 Tests use simulated Google responses, covering OAuth state/PKCE, token refresh, destination validation, schema conflicts, retries, repeated sync, and tab isolation. Real account sign-in and live Google writes require the user's setup and are not exercised by automated tests.
 
 Sources: https://developers.google.com/identity/protocols/oauth2/native-app and https://developers.google.com/workspace/sheets/api/reference/rest/v4/spreadsheets.values/batchUpdate
+
+After each sync, the dedicated tab is sorted by application date, newest first. The header stays fixed and whole rows move together, including any extra columns you added. Applied jobs defaults to today plus the previous six calendar days; All applications and Custom dates show older history. Export and sync always include all applications.

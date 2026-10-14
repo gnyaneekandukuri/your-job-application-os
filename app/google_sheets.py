@@ -233,6 +233,13 @@ class GoogleSheets:
                     'fields': 'gridProperties.rowCount,gridProperties.columnCount'}}]})
             if writes:
                 self.request('POST', sid + '/values:batchUpdate', json={'valueInputOption': 'RAW', 'data': writes})
+            if max_row > 1:
+                # Sort whole rows so user-added columns remain attached to the application.
+                # ISO dates written as RAW strings sort chronologically. Keep the header fixed.
+                self.request('POST', sid + ':batchUpdate', json={'requests': [{'sortRange': {
+                    'range': {'sheetId': sheet['sheetId'], 'startRowIndex': 1, 'endRowIndex': max_row},
+                    'sortSpecs': [{'dimensionIndex': 3, 'sortOrder': 'DESCENDING'},
+                                  {'dimensionIndex': 0, 'sortOrder': 'DESCENDING'}]}}]})
             from datetime import datetime, timezone
             data = self.read()  # Preserve a token refreshed during the requests.
             data['last_sync'] = {'at': datetime.now(timezone.utc).isoformat(), 'added': added, 'updated': updated, 'total': len(rows)}
