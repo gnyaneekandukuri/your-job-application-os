@@ -5,7 +5,7 @@ import hashlib
 import json
 import re
 import sqlite3
-from contextlib import contextmanager
+from contextlib import contextmanager, closing
 from datetime import datetime, timezone
 from threading import RLock, Thread, Event
 from uuid import uuid4, uuid5, NAMESPACE_URL
@@ -275,7 +275,7 @@ class Discovery:
                 item['kept'] = row['id'] in kept
                 item['passed'] = row['id'] in passed
                 # An analysis alone does not keep a listing past 4 days; Keep job does.
-                item['retention_protected'] = bool(row['id'] in kept or row['id'] in selected_rows)
+                item['retention_protected'] = bool(row['id'] in kept or selected_rows.get(row['id'], {}).get('state') in ('QUEUED', 'RUNNING'))
                 item['age_state'] = age_state({**item, 'first_seen': row['first_seen']})
                 item['company_watched'] = company_key(item.get('company','')) in watched
                 sources = sightings.get(row['id'], [])
@@ -316,6 +316,7 @@ class Discovery:
         if include_analysis:
             for item in items:
                 item["assessment"] = self.assessment_summary(item)
+        self.annotate_handled(items)
         keyword_profile = self.screening_profile(preferences) if include_analysis else None
         if include_analysis:
             self.jev.annotate(items)
@@ -640,7 +641,9 @@ class Discovery:
         from .job_identity import same_job
         items = self.view()['items']
         # One paid analysis per identical posting, even when it is listed for several locations.
-        taken, candidates = {same_job(i) for i in items if i.get('job_id')} - {None}, []
+        taken, candidates = {same_job(i) for i in items if i.get('job_id') and not self.auto_eligible(i)} - {None}, []
+        # Prefer refreshing an existing saved report over importing its duplicate.
+        items.sort(key=lambda i: not bool(i.get('job_id')))
         for item in items:
             if item['id'] not in seen_ids or not self.auto_eligible(item): continue
             key = same_job(item)
@@ -690,14 +693,16 @@ class Discovery:
         # rank matches and route automatic deep analysis, not initial screening.
         # Unclear location stays reviewable; deep analysis requires a match.
         # An explicit "no visa sponsorship" JD is ineligible: skip all paid model work.
-        return item.get('location_match', {}).get('status') != 'outside' and not item.get('sponsorship')
+        return (item.get('location_match', {}).get('status') != 'outside' and not item.get('sponsorship')
+                and not item.get('passed') and not item.get('applied'))
 
     @staticmethod
     def auto_eligible(item):
         from .needs_help import description_problem
         return (item.get('keyword_match',{}).get('priority')=='high'
                 and not description_problem(item.get('description',''))
-                and not item.get('passed')
+                and not item.get('passed') and not item.get('applied')
+                and (item.get('assessment') or {}).get('choice') != 'SKIP'
                 and (item.get('age_state') != 'older_than_four_days' or item.get('retention_protected'))
                 and (item.get('assessment') or {}).get('state') in (None, 'NOT_STARTED', 'STALE', 'JD_CHANGED')
                 and item.get('location_match',{}).get('status')=='match'
@@ -707,6 +712,51 @@ class Discovery:
                 and (not item.get('automatic_assessment') or
                      (item.get('assessment') or {}).get('state') in ('STALE', 'JD_CHANGED')))
 
+    def annotate_handled(self, items):
+        """Decisions survive changed context/JDs and cover duplicate board listings."""
+        from .job_list import JobList
+        from .job_identity import same_job
+        # Reuse the UI's application identity/alias resolution without starting a worker.
+        reader = object.__new__(JobList)
+        reader.path, reader.discovery = self.path.parent / 'job-list.sqlite3', self
+        applied_ids, applied_urls = reader.applied_keys()
+        with self.db() as db:
+            passed_ids = {r[0] for r in db.execute('SELECT opportunity_id FROM passed_jobs')}
+            passed_saved = {r[0] for r in db.execute('SELECT job_id FROM passed_saved_jobs')}
+            stored = [{**json.loads(r['payload']), 'id': r['id'], 'job_id': r['job_id']}
+                      for r in db.execute('SELECT id,job_id,payload FROM opportunities')]
+        supplied = {i['id'] for i in items}
+        items = items + [i for i in stored if i['id'] not in supplied]
+        decisions = {}
+        cache = self.path.parent / 'retrieval.sqlite3'
+        if cache.exists():
+            with closing(sqlite3.connect('file:' + cache.as_posix() + '?mode=ro', uri=True)) as db:
+                for row in db.execute("SELECT payload FROM cache WHERE key LIKE 'pursuit-decision-event:%'"):
+                    event = json.loads(row[0])
+                    jid = event.get('job_id')
+                    if event.get('created_at', '') >= decisions.get(jid, {}).get('created_at', ''):
+                        decisions[jid] = event
+        passed_urls, passed_keys = set(), set()
+        for jid in passed_saved | {jid for jid, event in decisions.items() if event.get('choice') == 'SKIP'}:
+            try:
+                job = self.saved_job(jid)
+            except Missing:
+                continue
+            if job.source_url: passed_urls.add(str(job.source_url).rstrip('/'))
+            key = same_job(job.model_dump())
+            if key: passed_keys.add(key)
+        for item in items:
+            jid = item.get('job_id')
+            item['applied'] = (jid in applied_ids or 'opportunity:' + item['id'] in applied_ids
+                               or item.get('url', '').rstrip('/') in applied_urls)
+            item['passed'] = bool(item.get('passed') or item['id'] in passed_ids or jid in passed_saved
+                                  or decisions.get(jid, {}).get('choice') == 'SKIP'
+                                  or item.get('url', '').rstrip('/') in passed_urls or same_job(item) in passed_keys)
+        handled = {same_job(i) for i in items if i.get('applied') or i.get('passed')} - {None}
+        for item in items:
+            if same_job(item) in handled and not item.get('applied'):
+                item['passed'] = True
+
     def import_role(self, oid, analyze=True, automatic=False):
         with self.lock:
             with self.db() as db:
@@ -715,6 +765,11 @@ class Discovery:
                 row = db.execute('SELECT * FROM opportunities WHERE id=?', (oid,)).fetchone()
                 if not row: raise Missing('Opportunity not found')
                 item = json.loads(row['payload'])
+                if analyze:
+                    checked = {**item, 'id': oid, 'job_id': row['job_id']}
+                    self.annotate_handled([checked])
+                    if checked.get('applied') or checked.get('passed'):
+                        raise Conflict('This role is already applied or passed; analysis was not started.')
                 if len(item.get('description', '')) < 20: raise Conflict('Full description needed before assessment. Use Get full JD.')
                 job_id = row['job_id']
                 if analyze and job_id and row['imported_hash'] != self.content_hash(item):
