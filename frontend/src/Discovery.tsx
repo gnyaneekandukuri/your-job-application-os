@@ -1,5 +1,5 @@
 import {MarkApplied} from './MarkApplied';
-import {ApplicationAnswer} from './ApplicationAnswer';
+import {WritingHelp,isYCListing} from './TeamMessage';
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { ScanReport, type ScanReportData } from "./ScanReport";
@@ -24,12 +24,12 @@ async function request<T>(path="",body?:unknown,signal?:AbortSignal):Promise<T> 
 const statusLabel=(state:string):string=>({complete:"Completed",incomplete:"Incomplete coverage",failed:"Failed",blocked:"Access denied / limited",partial:"Partial coverage",checked:"Checked",login_required:"Sign in to YC",busy:"YC browser busy"} as Record<string,string>)[state]??state;
 const when=(date:string)=>new Date(date).toLocaleString();
 const freshnessLabel=(item:Item)=>item.date_basis==="hiring_comment_timestamp"?"Vacancy date unknown (HN comment dated below)":item.linkedin_repost?"LinkedIn repost/promoted - first posted ~30+ days ago":item.freshness==="within_24h"?"Source reports <24h":item.freshness==="older"?"Older than 24h":item.freshness==="date_only"?"Date only - age uncertain":"Date unknown";
-/** Saves a listing as a role (free, no analysis) the first time an answer is requested. */
-function RowAnswer({oid,jobId,company,url,hasDescription}:{oid:string;jobId:string|null;company:string;url:string;hasDescription:boolean}){
+/** Saves a listing as a role (free, no analysis) the first time writing help is opened. */
+function RowWritingHelp({oid,jobId,company,url,yc,hasDescription}:{oid:string;jobId:string|null;company:string;url:string;yc:boolean;hasDescription:boolean}){
  const [id,setId]=useState(jobId||''),[busy,setBusy]=useState(false),[error,setError]=useState('');
- if(id)return <ApplicationAnswer jobId={id} company={company} url={url} autoOpen={!jobId}/>;
+ if(id)return <WritingHelp jobId={id} company={company} url={url} yc={yc} defaultOpen={!jobId}/>;
  async function start(){setBusy(true);setError('');try{const r=await fetch(`/api/discovery/${oid}/save`,{method:'POST',headers:{'X-Local-Review':'1'}});const v=await r.json();if(!r.ok)throw Error(typeof v.detail==='string'?v.detail:'Could not save this job.');setId(v.job_id);}catch(e){setError(e instanceof Error?e.message:'Could not save this job.');}finally{setBusy(false);}}
- return <><button disabled={busy||!hasDescription} title={hasDescription?'No deep analysis needed':'Add the full job description first'} onClick={()=>void start()}>{busy?'Opening…':'Answer an application question'}</button>{error&&<small role="alert">{error}</small>}</>;
+ return <><button disabled={busy||!hasDescription} title={hasDescription?'No deep analysis needed':'Add the full job description first'} onClick={()=>void start()}>{busy?'Opening…':'Writing help'}</button>{error&&<small role="alert">{error}</small>}</>;
 }
 
 export function Discovery({onOpen,onResults,onAdd,initialReviewId,view="opportunities"}:{onAdd:()=>void;initialReviewId?:string|null;onResults:(tab?:string)=>void;view?:"runs"|"opportunities";onOpen:(jobId:string)=>Promise<void>}) {
@@ -216,7 +216,7 @@ export function Discovery({onOpen,onResults,onAdd,initialReviewId,view="opportun
       </>}
       {item.job_id && item.assessment?.state==="NOT_STARTED" && <button disabled={busy} onClick={()=>void act(()=>onOpen(item.job_id!))}>Open role &amp; analysis</button>}
       {item.passed?<button disabled={busy} onClick={()=>void act(()=>passRow(item,false))}>Undo pass</button>:!queueActive(item)&&item.assessment?.state!=="QUEUED"&&item.assessment?.state!=="RUNNING"&&<button disabled={busy} title="Not interested: hide from New jobs and skip automatic analysis" onClick={()=>void act(()=>passRow(item,true))}>Pass</button>}
-      {item.description_length>=200&&!item.description_changed&&<RowAnswer oid={item.id} jobId={item.job_id||null} company={item.company} url={item.url} hasDescription/>}
+      {item.description_length>=200&&!item.description_changed&&<RowWritingHelp oid={item.id} jobId={item.job_id||null} company={item.company} url={item.url} yc={isYCListing(item.url)||(item.listing_urls??[]).some(isYCListing)||item.sources.some(s=>s.board==='yc')} hasDescription/>}
      </div>
      <JobDetails item={item} boards={state.boards}/><MarkApplied jobId={item.job_id||undefined} opportunityId={item.id} company={item.company}/><div><button className="text-action" disabled={busy} onClick={()=>void act(async()=>{await request(`/${item.id}/keep`,{keep:!item.kept});setState();})}>{item.kept?"Unkeep job":"Keep job"}</button> · <button className="text-action" onClick={()=>setWatchCompany(item.company)}>{item.company_watched?"Watching company":"Watch company"}</button></div></td>
      <td>{item.sponsorship&&<div className="sponsorship-blocked"><strong title={item.sponsorship.quote}>No visa sponsorship · not auto-analyzed</strong><small>“{item.sponsorship.quote}”</small></div>}{item.keyword_match && <div className="opportunity-priority"><span className={`preference-badge preference-${item.keyword_match.priority}`} title={item.keyword_match.reason}>{item.keyword_match.priority==='low'?'Low priority':item.keyword_match.label}</span>{item.keyword_match.reason&&<details><summary>Why this priority</summary><p>{item.keyword_match.reason}</p></details>}</div>}{item.keyword_match?.experience.length ? <details className="keyword-details"><summary>Matched skills ({item.keyword_match.experience.length})</summary><div className="keyword-tags">{item.keyword_match.experience.map(match=><span key={match.term}>{match.term}</span>)}</div></details> : null}</td>

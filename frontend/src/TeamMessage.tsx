@@ -39,6 +39,6 @@ export function TeamMessage({jobId,company,url,kind='introduction'}:{jobId:strin
  </dialog></>;
 }
 
-export function WritingHelp({jobId,company,url,yc}:{jobId:string;company:string;url:string;yc:boolean}){
- return <details className="writing-help"><summary>Writing help</summary><div className="writing-help-options"><ApplicationAnswer jobId={jobId} company={company} url={url}/><TeamMessage kind="cover_letter" jobId={jobId} company={company} url={url}/><TeamMessage kind="why_company" jobId={jobId} company={company} url={url}/>{yc&&<TeamMessage jobId={jobId} company={company} url={url}/>}</div></details>;
+export function WritingHelp({jobId,company,url,yc,defaultOpen=false}:{jobId:string;company:string;url:string;yc:boolean;defaultOpen?:boolean}){
+ return <details className="writing-help" open={defaultOpen||undefined}><summary>Writing help</summary><div className="writing-help-options"><ApplicationAnswer jobId={jobId} company={company} url={url}/><TeamMessage kind="cover_letter" jobId={jobId} company={company} url={url}/><TeamMessage kind="why_company" jobId={jobId} company={company} url={url}/>{yc&&<TeamMessage jobId={jobId} company={company} url={url}/>}</div></details>;
 }
