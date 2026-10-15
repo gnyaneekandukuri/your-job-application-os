@@ -114,5 +114,15 @@ def recurring_revenue_conflict(block, sources):
         if source['id']=='resume' or source['id'].startswith('master:'):continue
         for sentence in re.split(r'(?<=[.!?])\s+|\n',source['text']):
             if money(sentence)&claimed and re.search(r'product revenue|one[- ]time revenue|customer commitments',sentence,re.I) and not re.search(r'\bARR\b|recurring',sentence,re.I):
+                # A candidate clarification resolves only the named source and amount.
+                resolved = set()
+                for fact in sources:
+                    resolution = fact.get('revenue_resolution') or {}
+                    if (fact['id'].startswith('candidate_fact_rules.facts.') and fact.get('status') == 'USER_CONFIRMED'
+                            and resolution.get('type') == 'ARR'
+                            and source.get('path') in resolution.get('source_paths', [])):
+                        resolved.add(resolution.get('amount_usd'))
+                if (money(sentence) & claimed) <= resolved:
+                    continue
                 return 'Revenue type is unresolved: this amount is described as product revenue or customer commitments in '+source.get('title',source['id'])+'. It cannot be labeled ARR without explicit supporting evidence.'
     return ''

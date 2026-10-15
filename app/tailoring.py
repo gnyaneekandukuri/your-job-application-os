@@ -428,7 +428,7 @@ def citation_sources(body):
             sources.append({'id':'candidate_fact_rules.facts.'+fact['id'],
                             'title':'Saved fact · '+str(fact.get('subject', fact['id'])),
                             'text':fact['claim'], 'path':fact.get('source',''),
-                            'status':fact.get('status','')})
+                            'status':fact.get('status',''), 'revenue_resolution':fact.get('revenue_resolution')})
     return sources
 
 
