@@ -61,3 +61,25 @@ def test_only_active_selections_protect_old_listing(tmp_path,state,protected):
                              location='USA',url='https://example.com/job/one',description=JD))
         with d.db() as db:db.execute('INSERT INTO selected_assessments VALUES(?,?,?,?)',(oid,'hash',state,''))
         assert d.view(include_analysis=False)['items'][0]['retention_protected'] is protected
+
+def test_pasted_jd_is_screened_without_waiting_for_a_scan(monkeypatch):
+    d = object.__new__(Discovery)
+    pasted = dict(id='pasted', description=JD, keyword_match={'label':'Not screened'}, location_match={'status':'match'},
+                  description_provenance={'method':'user_paste'})
+    other = {**pasted, 'id':'other', 'description_provenance':{'method':'listing_extraction'}}
+    screened = []
+    monkeypatch.setattr('app.discovery_screening.screen', lambda engine, items, profile, stop: screened.extend(i['id'] for i in items))
+    monkeypatch.setattr('app.discovery.load_preferences', lambda path: {})
+    d.view = lambda: {'items':[pasted, other]}
+    d.screening_profile = lambda prefs: {}
+    d.analysis = SimpleNamespace(engine=None, library=SimpleNamespace(root=__import__('pathlib').Path('.')))
+    d.stop = Event(); d.queued_ids = set()
+    class DB:
+        def __enter__(self): return self
+        def __exit__(self, *a): pass
+        def execute(self, *a): return []
+        def executemany(self, *a): pass
+    d.db = DB
+    d.assess_high_priority = lambda ids: None
+    d.reconcile_automatic()
+    assert screened == ['pasted']

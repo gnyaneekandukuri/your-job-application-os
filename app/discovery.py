@@ -849,11 +849,18 @@ class Discovery:
                     if json.loads(row[1]).get('priority') == 'High priority': tracked.add(row[0])
                 tracked.update(i['id'] for i in items if i.get('keyword_match',{}).get('priority') == 'high')
                 db.executemany('INSERT OR IGNORE INTO automatic_candidates VALUES(?)', [(oid,) for oid in tracked])
-            changed = [i for i in items if i['id'] in tracked and
+            # A JD you pasted is screened now, not at the next scan that happens to see the listing.
+            pasted = lambda i: (i.get('description_provenance') or {}).get('method') in ('user_paste', 'user_reviewed_extraction')
+            changed = [i for i in items if (i['id'] in tracked or pasted(i)) and
                        i.get('keyword_match',{}).get('label') == 'Not screened' and self.initial_screening_eligible(i)]
             if changed:
                 preferences = load_preferences(self.analysis.library.root / 'knowledge/discovery-preferences.json')
                 screen(self.analysis.engine, changed, self.screening_profile(preferences), self.stop)
+                rescreened = {i['id'] for i in changed}
+                tracked.update(i['id'] for i in self.view()['items']
+                               if i['id'] in rescreened and i.get('keyword_match',{}).get('priority') == 'high')
+                with self.db() as db:
+                    db.executemany('INSERT OR IGNORE INTO automatic_candidates VALUES(?)', [(oid,) for oid in tracked])
             self.assess_high_priority(tracked)
         except Exception:
             import logging
