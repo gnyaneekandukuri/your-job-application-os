@@ -1,4 +1,4 @@
-export type ScanRole={id:string;company:string;title:string;newly_saved?:boolean;priority?:string;reason?:string;stage:string;assessment_requested?:boolean;automatic_skip_reason?:string;job_id?:string;error?:string;assessment?:{state:string;recommendation?:string|null}};
+export type ScanRole={id:string;source_boards?:string[];company:string;title:string;newly_saved?:boolean;priority?:string;reason?:string;stage:string;assessment_requested?:boolean;automatic_skip_reason?:string;job_id?:string;error?:string;assessment?:{state:string;recommendation?:string|null}};
 export function summarizeScan(roles:ScanRole[]){
  const count=(test:(r:ScanRole)=>boolean)=>roles.filter(test).length;
  const high=roles.filter(r=>r.priority==='High priority');
@@ -15,3 +15,8 @@ export function assessmentLabel(r:ScanRole){
  if(r.assessment_requested)return ({COMPLETE:'Completed in this scan',RUNNING:'Still analyzing',STALE:'Requested; result now outdated',NOT_STARTED:'Requested; not started'}[state]??`Requested · ${state.replaceAll('_',' ').toLowerCase()}`);
  return ({COMPLETE:'Existing completed analysis',STALE:'Older analysis marked outdated',JD_CHANGED:'Job description changed',NOT_STARTED:'Not started',RUNNING:'Analysis in progress'}[state]??state.replaceAll('_',' ').toLowerCase());
 }
+
+export function needsHelp(r:ScanRole){
+ return !!r.error||r.priority==='Needs information'||r.priority==='Not screened'||!r.priority||['ERROR','FAILED','INTERRUPTED','NEEDS_ATTENTION','NEEDS_JD','JD_CHANGED'].includes(r.assessment?.state??'');
+}
+export function boardRoles(roles:ScanRole[],board:string){return roles.filter(r=>r.source_boards?.includes(board));}

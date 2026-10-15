@@ -236,7 +236,7 @@ class Discovery:
                 reports.append({'id':row['id'],'started':row['started'],'finished':row['finished'],
                                 'state':payload.get('state'),'new_count':payload.get('new_count'),
                                 'error':payload.get('error'),'sources':payload.get('sources',{}),
-                                'tracked':payload.get('tracking_version')==1,'roles':roles})
+                                'board_tracking':payload.get('board_tracking',False),'tracked':payload.get('tracking_version')==1,'roles':roles})
             return reports
 
     def record_scan_role(self, item, **updates):
@@ -245,6 +245,11 @@ class Discovery:
         with self.db() as db:
             row=db.execute('SELECT payload FROM scan_roles WHERE scan_id=? AND opportunity_id=?',(sid,item['id'])).fetchone()
             payload=json.loads(row[0]) if row else {'id':item['id'],'company':item.get('company',''),'title':item.get('title','')}
+            board = updates.pop('source_board', None)
+            if board:
+                payload['source_boards'] = sorted(set(payload.get('source_boards', [])) | {board})
+            if 'newly_saved' in updates:
+                updates['newly_saved'] = bool(payload.get('newly_saved')) or updates['newly_saved']
             payload.update(updates, updated_at=now())
             db.execute('INSERT OR REPLACE INTO scan_roles VALUES(?,?,?)',(sid,item['id'],json.dumps(payload)))
 
@@ -561,7 +566,7 @@ class Discovery:
         boards = list(boards) if boards is not None else list(BOARDS)
         if not boards or any(board not in BOARDS for board in boards):
             raise ValueError("Unknown discovery source")
-        result = {'state': 'running', 'phase':'collecting', 'boards': boards, 'sources': {}, 'new_count': 0, 'cost_tracking_version': 1, 'tracking_version':1}
+        result = {'state': 'running', 'phase':'collecting', 'boards': boards, 'sources': {}, 'new_count': 0, 'cost_tracking_version': 1, 'tracking_version':1, 'board_tracking':True}
         with self.db() as db:
             sid = db.execute('INSERT INTO scans(started,payload) VALUES(?,?)', (now(), json.dumps(result))).lastrowid
         pending = set()
@@ -578,7 +583,7 @@ class Discovery:
                             result['previously_removed'] = result.get('previously_removed', 0) + 1
                             continue
                         pending.add(oid)
-                        self.record_scan_role({**row,'id':oid}, stage='Discovered', newly_saved=new)
+                        self.record_scan_role({**row,'id':oid}, stage='Discovered', newly_saved=new, source_board=board)
                         if new:
                             result['new_count'] += 1
                     result['sources'][board] = {'state': 'partial' if warnings or 'partial' in coverage.lower() or 'not established' in coverage.lower() else 'checked', 'count': len(rows), 'coverage': coverage, 'warnings': warnings, 'checked_at': now()}
