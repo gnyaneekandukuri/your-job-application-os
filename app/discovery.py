@@ -16,6 +16,7 @@ from .discovery_preferences import load_preferences
 from .discovery_network import diagnose
 from .yc_connection import YCConnection
 from .discovery_location import location_match
+from .discovery_sponsorship import no_sponsorship
 from .discovery_keywords import KeywordIndex
 from .discovery_jev import JevClassifier
 from .models import JobInput
@@ -205,7 +206,7 @@ class Discovery:
             if job_id in superseded and summary['state'] != 'COMPLETE': continue
             if job_id in passed_saved and not summary.get('choice'): summary['choice'] = 'SKIP'
             keys[job_id] = same_job({'company': job.company, 'title': job.title, 'description': job.description})
-            items.append({'yc_listing':bool(row and row['id'] in yc_ids),'job_id':job_id,'opportunity_id':row['id'] if row else None,'company':job.company,'title':job.title,'url':str(job.source_url or ''),'assessment':summary, **(scans.get(row['id'], {}) if row else {})})
+            items.append({'yc_listing':bool(row and row['id'] in yc_ids),'job_id':job_id,'opportunity_id':row['id'] if row else None,'company':job.company,'title':job.title,'url':str(job.source_url or ''),'sponsorship':no_sponsorship(job.description),'assessment':summary, **(scans.get(row['id'], {}) if row else {})})
         # A stuck copy of a posting already analyzed in another location needs no help.
         analyzed = {keys.get(i['job_id']) for i in items if i['assessment']['state'] == 'COMPLETE'} - {None}
         items = [i for i in items if i['assessment']['state'] == 'COMPLETE' or keys.get(i['job_id']) not in analyzed]
@@ -283,6 +284,7 @@ class Discovery:
                 if location not in locations:
                     locations[location] = location_match(location, preferences)
                 item["location_match"] = dict(locations[location])
+                item['sponsorship'] = no_sponsorship(item.get('description', ''))
                 item["company_fit"] = company_fit(item, company_policy)
                 us_state = (item.get('search_country') == 'US' and re.search(
                     r',\s*(AL|AK|AZ|AR|CA|CO|CT|DE|DC|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|MA|MI|MN|MS|MO|MT|NE|NV|NH|NJ|NM|NY|NC|ND|OH|OK|OR|PA|RI|SC|SD|TN|TX|UT|VT|VA|WA|WV|WI|WY)\s*$', item.get('location', '')))
@@ -680,7 +682,8 @@ class Discovery:
         # Country exclusions precede both Jev passes. Company/stage preferences
         # rank matches and route automatic deep analysis, not initial screening.
         # Unclear location stays reviewable; deep analysis requires a match.
-        return item.get('location_match', {}).get('status') != 'outside'
+        # An explicit "no visa sponsorship" JD is ineligible: skip all paid model work.
+        return item.get('location_match', {}).get('status') != 'outside' and not item.get('sponsorship')
 
     @staticmethod
     def auto_eligible(item):
@@ -691,6 +694,7 @@ class Discovery:
                 and (item.get('age_state') != 'older_than_four_days' or item.get('retention_protected'))
                 and (item.get('assessment') or {}).get('state') in (None, 'NOT_STARTED', 'STALE', 'JD_CHANGED')
                 and item.get('location_match',{}).get('status')=='match'
+                and not item.get('sponsorship')
                 and item.get('company_fit',{}).get('automatic_allowed',True)
                 and len(item.get('description',''))>=200
                 and (not item.get('automatic_assessment') or

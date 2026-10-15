@@ -12,7 +12,7 @@ from threading import Event, Lock, Thread
 
 from .job_identity import role_key
 
-VERSION = 'job-list-v8-consolidated'
+VERSION = 'job-list-v9-sponsorship'
 log = logging.getLogger(__name__)
 
 
