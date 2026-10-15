@@ -78,6 +78,9 @@ def create_app(data_dir: Path | None = None):
         api.state.manual_queue.start()
         api.state.tailoring = Tailoring(api.state.analysis, api.state.skills, OpenAIProvider(allow_generation=True, allow_embeddings=False, request_timeout=120))
         api.state.discovery = Discovery(private_dir / "discovery.sqlite3", api.state.service, api.state.analysis, sources=lambda: library_sources(api.state.library), skills=api.state.skills)
+        from .resume_approach import ResumeApproach
+        api.state.resume_approach = ResumeApproach(api.state.tailoring, api.state.discovery)
+        api.state.analysis.resume_approach = api.state.resume_approach
         from .job_list import JobList
         api.state.job_list = JobList(api.state.discovery)
         if data_dir is None:
@@ -88,6 +91,7 @@ def create_app(data_dir: Path | None = None):
         try:
             yield
         finally:
+            api.state.resume_approach.close()
             api.state.manual_queue.close()
             api.state.job_list.close()
             api.state.skills.close()
@@ -207,7 +211,35 @@ def create_app(data_dir: Path | None = None):
         resumes = request.app.state.tailoring.statuses([r['job_id'] for r in result.get('items', [])])
         for item in result.get('items', []):
             if item['job_id'] in resumes: item['resume'] = resumes[item['job_id']]
+            if item['assessment']['state'] == 'COMPLETE':
+                item['resume_approach'] = request.app.state.resume_approach.view(request.app.state.discovery.saved_job(item['job_id']))
+            else:
+                item['resume_approach'] = {'state': 'UNAVAILABLE', 'reason': 'Complete a current deep analysis first.'}
         return result
+
+    @api.post("/api/jobs/{job_id}/resume-approach")
+    def check_resume_approach(job_id: str, request: Request):
+        discovery = request.app.state.discovery
+        if discovery.saved_assessment(job_id).get('state') != 'COMPLETE':
+            raise RetrievalError('Complete a current deep analysis first.', 409)
+        return request.app.state.resume_approach.enqueue(discovery.saved_job(job_id), retry=True)
+
+    @api.post("/api/assessments/resume-approaches")
+    def check_saved_resume_approaches(request: Request):
+        state = request.app.state
+        queued, skipped = 0, 0
+        for item in state.job_list.assessments().get('items', []):
+            if item['assessment']['state'] != 'COMPLETE' or item['assessment'].get('choice') == 'SKIP':
+                continue
+            try:
+                job = state.discovery.saved_job(item['job_id'])
+                current = state.resume_approach.view(job)
+                if current['state'] == 'NOT_CHECKED':
+                    state.resume_approach.enqueue(job)
+                    queued += 1
+            except RetrievalError:
+                skipped += 1
+        return {'queued': queued, 'unavailable': skipped}
 
     @api.get("/api/assessments")
     def assessment_results(request: Request):

@@ -133,8 +133,13 @@ def test_complete_workflow_uses_embeddings_but_no_openai_generation(tmp_path,mon
         version=client.get(path).json()['input_version']
         result=client.post(path,headers=headers,json={'input_version':version,'consent_to_send':True})
         assert result.status_code==200,result.text
-        client.app.state.analysis.worker.join(15)
-        result=client.get(path).json()
+        # Manual requests now enter a durable queue before a worker is assigned.
+        import time
+        deadline=time.monotonic()+15
+        while time.monotonic()<deadline:
+            result=client.get(path).json()
+            if (result.get('run') or {}).get('state') in ('COMPLETE','ERROR','PAUSED'):break
+            time.sleep(.05)
         assert result['run']['state']=='COMPLETE', result['run']['error']
         assert result['run']['model']==MODEL
         assert result['score']['percent']==100
@@ -329,7 +334,7 @@ def test_selected_queue_stops_remaining_work_on_provider_limit_and_marks_interru
         d=c.app.state.discovery
         ids=[]
         for n in range(2):
-            item={'source_id':str(n),'title':'PM','company':'Example','url':f'https://example.com/{n}',
+            item={'source_id':str(n),'title':f'PM {n}','company':'Example','url':f'https://example.com/{n}',
                   'description':'Responsibilities '*30,'location':'USA','posted_at':None}
             oid=d.save('yc',item)[0];ids.append(oid)
             with d.db() as db:db.execute('INSERT INTO selected_assessments VALUES(?,?,?,?)',(oid,d.content_hash(item),'QUEUED',''))

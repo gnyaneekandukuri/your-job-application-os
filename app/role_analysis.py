@@ -343,6 +343,12 @@ class RoleAnalysis:
                 PursuitService(self).automatic(job)
             except RetrievalError:
                 pass  # Missing preferences/pending updates must not discard evidence.
+            advisor = getattr(self, 'resume_approach', None)
+            if advisor:
+                try:
+                    advisor.enqueue(job)
+                except Exception:
+                    logging.getLogger(__name__).exception('Resume approach could not be queued; completed analysis retained.')
 
     def assess_run(self, job, key, run):
         try:
