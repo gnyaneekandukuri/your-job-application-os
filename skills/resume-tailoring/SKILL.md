@@ -5,7 +5,7 @@ description: Tailor or review an industry resume against a job description using
 
 # Resume tailoring
 
-Policy version: 2.1. Default audience: US industry applications across roles and candidates. Ask about regional conventions when a different market requires them. Do not embed a particular candidate's history, target company, or preferred occupation in these rules.
+Policy version: 2.2. Default audience: US industry applications across roles and candidates. Ask about regional conventions when a different market requires them. Do not embed a particular candidate's history, target company, or preferred occupation in these rules.
 
 ## Load before drafting
 
@@ -74,6 +74,14 @@ Prefer a measured outcome: time saved, adoption, quality, revenue, cost, convers
 For a bullet without a supported metric, first look in the supplied candidate evidence. If none exists, include a focused question in the existing questions/review output identifying the bullet and the missing measurement, such as before/after time or number of users. Keep a truthful qualitative version in the draft and report it as a metric gap; do not silently treat it as fully meeting this standard. An uncertain recollection such as "I think we doubled it" is not an established result: ask for clarification. If the candidate cannot supply a reliable number, preserve the truthful exception rather than inventing a metric, dropping the accomplishment, or blocking editing/download. Do not put placeholders such as [X%] in the application resume. Exclude headings, contact information, summaries, education and skills lists from this bullet-level requirement.
 
 Check metric gaps as part of the existing drafting/review calls, not through an extra paid call. These are writing and review instructions, not a claim that a separate automated 100% metric gate has been implemented.
+
+## Respect the resume approach and compare revisions
+
+When the application supplies a current resume approach for the selected master, follow it: **Use master** means no cosmetic or framework rewrites; **Small edits** means at most three distinct items, including structural proposals; **Tailor** permits broader changes supported by the JD and evidence. Specific evidenced factual corrections remain separate. Prefer integrating governance, architecture or other relevant detail into an existing accomplishment over repeating it in a new bullet.
+
+A repair must identify the exact problematic span, the concrete defect, and why the revision is better than the original. Factual corrections require specific source evidence contradicting or narrowing the claim. Lack of independent verification alone is not contradiction. “Drove adoption” does not imply the PM personally performed every customer's task. Preserve supported ownership language rather than replacing it with “helped” through hypothetical caution.
+
+Compare contribution, specificity, accuracy and concision before accepting any revision. Preserve useful methods, team sizes, named customers, deliverables and metrics. Do not drop methods such as LLM-as-judge testing to save hypothetical space. If there is no concrete improvement, retain the existing wording. Explain necessary factual scope corrections without turning the bullet into source narration.
 
 ## Correct facts without weakening the accomplishment
 

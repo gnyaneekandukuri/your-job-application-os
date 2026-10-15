@@ -81,6 +81,7 @@ def create_app(data_dir: Path | None = None):
         from .resume_approach import ResumeApproach
         api.state.resume_approach = ResumeApproach(api.state.tailoring, api.state.discovery)
         api.state.analysis.resume_approach = api.state.resume_approach
+        api.state.tailoring.resume_approach = api.state.resume_approach
         from .job_list import JobList
         api.state.job_list = JobList(api.state.discovery)
         if data_dir is None:

@@ -105,7 +105,7 @@ def test_review_repairs_are_applied_and_rechecked_once(setup):
         if payload['text']['format']['name']=='resume_claim_check':
             data=json.loads(response['output'][0]['content'][0]['text'])
             current=json.loads(payload['input'])['full_draft'][-1]
-            data['repairs']=[{'item_id':current['item_id'],'text':'During a pilot, built a reporting prototype for 12 users.','citations':[{'source_id':'e1','quote':PASSAGE}],'reason':'Clarifies pilot scope.','change_type':'job_alignment','jd_quote':'Build reporting tools'}]
+            data['repairs']=[{'item_id':current['item_id'],'text':'During a pilot, built a reporting prototype for 12 users.','citations':[{'source_id':'e1','quote':PASSAGE}],'reason':'Clarifies pilot scope.','problem_span':current['text'],'problem':'Pilot context is buried.','improvement':'Places the existing pilot scope first without losing details.','removed_details':[],'correction_evidence':[],'change_type':'job_alignment','jd_quote':'Build reporting tools'}]
             response['output'][0]['content'][0]['text']=json.dumps(data)
         return response
     p.request=repairing
@@ -494,8 +494,8 @@ def test_proposal_reject_keeps_draft_and_checks(setup):
 
 
 def test_generation_schema_requires_all_properties():
-    from app.tailoring import TailoringPlan
-    schema=TailoringPlan.model_json_schema()
+    from app.tailoring import TailoringPlan, response_schema
+    schema=response_schema(TailoringPlan)
     for obj in [schema,*schema.get('$defs',{}).values()]:
         if obj.get('type')=='object':assert set(obj['required'])==set(obj['properties'])
 
@@ -785,3 +785,53 @@ def test_rewrite_comparisons_preserve_methods_and_follow_reordered_ids():
     pairs = rewrite_comparisons(master, draft, {'blocks':[{'item_id':'a','kind':'bullet','text':weak}]})
     assert pairs == [{'item_id':'a','master_text':original,'current_text':corrected,'pre_repair_text':weak}]
     assert rewrite_comparisons(master, master) == []
+
+
+def test_approach_passed_to_existing_calls_for_current_master(setup):
+    s,j,p,*_=setup
+    s.resume_approach=SimpleNamespace(view=lambda job: {'state':'COMPLETE','approach':'SMALL_EDITS','changes':[]})
+    r=generate(s,j)
+    assert r['context']['resume_approach']['approach']=='SMALL_EDITS'
+    assert all(json.loads(c['input'])['resume_approach']['approach']=='SMALL_EDITS' for c in p.calls)
+    assert len(p.calls)==2
+
+
+def test_approach_not_used_for_different_selected_resume(setup):
+    s,j,p,*_=setup
+    s.resume_approach=SimpleNamespace(view=lambda job: {'state':'COMPLETE','approach':'USE_MASTER'})
+    generate(s,j,base_resume=BASE+'\nAdditional detail.')
+    assert 'resume_approach' not in json.loads(p.calls[0]['input'])
+
+
+def test_small_edit_budget_counts_structural_changes_and_keeps_fact_corrections():
+    from app.tailoring import bounded_changes, TailoringPlan
+    edits=[dict(item_id='m'+str(i),text='Improved point.',citations=[{'source_id':'resume','quote':'Point'}],reason='Relevant',change_type='job_alignment',jd_quote='Need') for i in range(5)]
+    edits.append({**edits[0],'item_id':'m9','change_type':'fact_correction'})
+    plan=TailoringPlan(edits=edits,questions=[],proposals=[],professional_summary=None)
+    limited,warnings=bounded_changes(plan,{'approach':'SMALL_EDITS'})
+    assert [e.item_id for e in limited.edits]==['m0','m1','m2','m9']
+    assert len(warnings)==2
+    limited,_=bounded_changes(plan,{'approach':'USE_MASTER'})
+    assert [e.item_id for e in limited.edits]==['m9']
+
+
+@pytest.mark.parametrize('new', ['Helped increase adoption by 45% using LLM-as-judge testing.', 'Drove adoption using LLM-as-judge testing.', 'Drove adoption by 45% using evaluations.'])
+def test_repair_rejects_ownership_metric_or_method_loss(new):
+    from app.tailoring import ReviewRepair, validate_repair
+    old='Drove adoption by 45% using LLM-as-judge testing.'
+    repair=ReviewRepair(item_id='m1',text=new,citations=[{'source_id':'resume','quote':old}],reason='Clearer',change_type='framework',jd_quote='',problem_span=old,problem='Needs clarity',improvement='Shorter')
+    with pytest.raises(RetrievalError): validate_repair(repair,[{'item_id':'m1','text':old}],[])
+
+
+def test_factual_repair_requires_localized_source_evidence():
+    from app.tailoring import ReviewRepair, validate_repair
+    old='Delivered $1M savings.'
+    repair=ReviewRepair(item_id='m1',text='Backtests identified $1M potential savings.',citations=[{'source_id':'e1','quote':PASSAGE}],reason='Preserve backtest scope',change_type='fact_correction',jd_quote='',problem_span='$1M savings',problem='Not realized',improvement='Preserves projection')
+    with pytest.raises(RetrievalError,match='correction evidence'): validate_repair(repair,[{'item_id':'m1','text':old}],[])
+
+
+def test_correction_evidence_can_spell_out_number():
+    from app.tailoring import ReviewRepair, validate_repair
+    quote='Sixty-nine percent of research participants reported difficulty.'
+    repair=ReviewRepair(item_id='m1',text='Identified difficulty among 69% of research participants.',citations=[{'source_id':'e1','quote':quote}],reason='Narrow population',change_type='fact_correction',jd_quote='',problem_span='69% of customers',problem='Research population only',improvement='Preserves population scope',correction_evidence=[{'source_id':'e1','quote':quote}])
+    validate_repair(repair,[{'item_id':'m1','text':'Identified difficulty among 69% of customers.'}],[{'id':'e1','text':quote}])
