@@ -15,7 +15,7 @@ from .user_workspace import control_documents
 from .resume_quality import QualityChecks, experience_indices, metric_coverage, framework_summary, recurring_revenue_conflict, reconcile_audit
 
 SKILL = Path(__file__).resolve().parents[1] / 'skills/resume-tailoring/SKILL.md'
-VERSION = 'tailoring-locked-summary-v12'
+VERSION = 'tailoring-preserving-corrections-v13'
 REQUEST_BYTE_LIMIT = 512000
 
 
@@ -168,6 +168,44 @@ class JobReview(Strict):
 class TailoringReview(QualityChecks):
     job_review: JobReview
     repairs: list[ExplainedEdit] = Field(default_factory=list, max_length=20)
+
+
+# Shared by generation and review; corrections must improve truth without losing substance.
+REWRITE_STANDARD = (
+    '\nUse stories for factual context, not as resume prose templates. Translate the evidence into concise professional accomplishments; keep source narration in citations and explanations. '
+    'For every rewrite, compare the original and proposed wording before returning it. '
+    'A fact correction should change the inaccurate span, not discard supported research methods, '
+    'decisions, deliverables or outcomes elsewhere in the bullet. Use the smallest sufficient correction. '
+    'Keep research population, projected-versus-realized status and ownership accurate. '
+    'Do not replace concrete contribution with vague verbs or a chronology of what others did. '
+    'When the candidate owned discovery and definition but not implementation, lead with their '
+    'supported methods and decision; approval is a valid outcome. Later team delivery can remain '
+    'briefly and accurately attributed if useful, but do not add departure/internship disclaimers '
+    'unless omission would actually misrepresent ownership. Never remove a necessary factual qualifier. '
+    'Read neighboring bullets before adding details, so PRFAQs, stakeholder counts or outcomes '
+    'already demonstrated nearby are not copied into every bullet. '
+    'In the repair review compare master, current draft, and pre-repair wording using item_id. '
+    'Restore useful supported detail lost in an earlier rewrite without restoring its factual error. '
+    'Explain the specific correction and any meaningful detail removed in the edit reason. '
+    'Factual support and strong writing are separate checks; a supported sentence can still be a weak rewrite.'
+)
+
+
+def rewrite_comparisons(master, blocks, pre_repair=None):
+    """Pair changed experience bullets by stable ID, not by their reordered positions."""
+    originals = {b.get('item_id'): b for b in master}
+    previous = {b.get('item_id'): b for b in (pre_repair or {}).get('blocks', [])}
+    pairs = []
+    for block in blocks:
+        old = originals.get(block.get('item_id'))
+        prior = previous.get(block.get('item_id'))
+        if block.get('kind') not in ('bullet', 'text') or not old:
+            continue
+        if old['text'] == block['text'] and (not prior or prior['text'] == block['text']):
+            continue
+        pairs.append({'item_id': block['item_id'], 'master_text': old['text'],
+                      'current_text': block['text'], 'pre_repair_text': prior['text'] if prior else None})
+    return pairs
 
 
 class ProposalDecision(Strict):
@@ -631,7 +669,7 @@ class Tailoring:
                 length_rule = ('The master resume fits on '+('one exported page' if master_pages == 1 else 'two exported pages')+' and the tailored resume must too. Keep each rewritten item no longer than its original, '
                     'unless the same response shortens other items by at least as many words. Tighten wording instead of adding length; never drop supported facts, metrics or items to do this.'
                     ) if master_pages in (1, 2) else 'Do not assume a one-page constraint or silently drop details to shorten bullets.'
-                prompt = policy + '\nTailor this resume for the actual responsibilities in job.description. Use the retrieved deep-analysis passages to identify stronger, relevant accomplishments beyond the master. ' \
+                prompt = policy + REWRITE_STANDARD + '\nTailor this resume for the actual responsibilities in job.description. Use the retrieved deep-analysis passages to identify stronger, relevant accomplishments beyond the master. ' \
                     'Assessment judgments are navigation aids, not candidate facts; cite original sources only. ' \
                     'Each edit must identify change_type: job_alignment, fact_correction or framework. Job alignment requires an exact jd_quote. Factual corrections and framework-only improvements may use an empty jd_quote; do not invent a job motivation. The reason must connect old wording, new wording and the actual requirement or correction. ' \
                     'Keep each original point unless the edit improves JD relevance, clarity, or factual accuracy without losing useful supported details. If no concrete improvement is possible, omit the edit. Do not rewrite merely to satisfy a stylistic preference. '\
@@ -707,7 +745,7 @@ class Tailoring:
                         valid_indices.add(i)
                 except RetrievalError as exc:
                     local_findings.append(Finding(block_index=i, supported=False, reason=str(exc)))
-            prompt = policy + '\nAudit each non-heading resume block against ONLY its cited candidate evidence and the supplied fact rules. ' \
+            prompt = policy + REWRITE_STANDARD + '\nAudit each non-heading resume block against ONLY its cited candidate evidence and the supplied fact rules. ' \
                 'For every numeric claim in bullet/text blocks (including unchanged resume claims) return a metrics entry with the exact draft phrase, supported boolean and reason. Check metric type, units, baseline, timeframe, attribution and projected/pilot/realized status. Equal numbers do not establish equal meaning. ' \
                 'Cross-check supplied candidate sources for conflicts even when the master resume contains the claim. Revenue is not ARR; funding is not revenue; an opportunity is not realized profit. Unresolved conflicts fail. ' \
                 'For EACH experience index return a framework finding with exact substrings for context, action, result and measurement (empty if missing). PAR needs project/problem, personal action and supported result; STAR also needs concise situation/task. XYZ needs accomplishment, documented measurement and method. EXISTING keeps style but still needs action and a supported result. Results may be qualitative for PAR/STAR/EXISTING. Duties alone do not count. Do not count unsupported bullets as meeting the framework. ' \
@@ -720,6 +758,7 @@ class Tailoring:
             checks = self.call(record['job_id'],'claim_check',prompt,{'blocks':audit,
                 'experience_bullets':[{'block_index':i,**draft.blocks[i].model_dump()} for i in experience],
                 'job':body['job'],'full_draft':record['draft']['blocks'],'master':body['master'],
+                'rewrite_comparisons':rewrite_comparisons(body['master'],record['draft']['blocks'],record.get('pre_repair_draft')),
                 'pending_proposals':record.get('proposals',[]),
                 'framework':record['framework'],'candidate_sources':body['sources'][1:],
                 'source_metadata':[{k:v for k,v in source.items() if k!='text'} for source in sources],

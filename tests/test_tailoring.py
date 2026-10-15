@@ -750,3 +750,38 @@ def test_remember_cached_draft_also_saves_summary_preference(setup):
     assert s.preferences()['include_summary'] is True
     assert s.preferences()['remember'] is True
     assert len(p.calls)==calls
+
+
+def test_review_receives_original_and_repaired_wording_with_preservation_rules(setup):
+    from app.tailoring import REWRITE_STANDARD
+    service, job, provider, *_ = setup
+    request = provider.request
+    def changed_draft(endpoint, payload):
+        response = request(endpoint, payload)
+        if payload['text']['format']['name'] == 'resume_draft':
+            content = response['output'][0]['content'][0]
+            result = json.loads(content['text'])
+            result['edits'][0]['text'] = 'During a pilot, built a reporting prototype for 12 users.'
+            content['text'] = json.dumps(result)
+        return response
+    provider.request = changed_draft
+    generate(service, job)
+    assert len(provider.calls) == 2  # No extra editorial model call.
+    assert all(REWRITE_STANDARD in call['instructions'] for call in provider.calls)
+    review = json.loads(provider.calls[1]['input'])
+    comparisons = review['rewrite_comparisons']
+    assert comparisons
+    assert comparisons[-1]['master_text'] != comparisons[-1]['current_text']
+    assert comparisons[-1]['pre_repair_text'] is None
+
+
+def test_rewrite_comparisons_preserve_methods_and_follow_reordered_ids():
+    from app.tailoring import rewrite_comparisons
+    original = 'Used JTBD interviews and market research to identify discovery friction affecting 62% of customers; defined Daily Picks, securing approval.'
+    weak = 'Found discovery friction for 62% of research participants; defined Daily Picks, launched by the team after departure.'
+    corrected = 'Used JTBD interviews and market research to identify discovery friction affecting 62% of research participants; defined Daily Picks, securing approval.'
+    master = [{'item_id':'a','kind':'bullet','text':original}, {'item_id':'b','kind':'bullet','text':'Prioritized 9 ideas with RICE.'}]
+    draft = [master[1], {'item_id':'a','kind':'bullet','text':corrected}]
+    pairs = rewrite_comparisons(master, draft, {'blocks':[{'item_id':'a','kind':'bullet','text':weak}]})
+    assert pairs == [{'item_id':'a','master_text':original,'current_text':corrected,'pre_repair_text':weak}]
+    assert rewrite_comparisons(master, master) == []
