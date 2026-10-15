@@ -178,6 +178,7 @@ class Discovery:
             discovered = {r['job_id']: dict(r) for r in db.execute('SELECT * FROM opportunities WHERE job_id IS NOT NULL')}
             superseded = {r[0] for r in db.execute('SELECT job_id FROM superseded_jobs')}
             passed_saved = {r[0] for r in db.execute('SELECT job_id FROM passed_saved_jobs')}
+            kept = {r[0] for r in db.execute('SELECT opportunity_id FROM kept_jobs')}
             for alias in db.execute('SELECT canonical_id,job_id FROM opportunity_aliases WHERE job_id IS NOT NULL'):
                 primary = db.execute('SELECT * FROM opportunities WHERE id=?',(alias['canonical_id'],)).fetchone()
                 if primary and alias['job_id'] not in discovered:
@@ -190,6 +191,7 @@ class Discovery:
                                   WHERE recent.opportunity_id=sr.opportunity_id)''')}
         items = []
         from .job_identity import same_job
+        from .job_retention import age_state
         keys = {}
         for job_id in self.service.store.ids():
             job = self.saved_job(job_id)
@@ -204,6 +206,10 @@ class Discovery:
                     summary.update(state='JD_CHANGED', stage='Review the updated listing before assessment.')
             if summary['state'] == 'NOT_STARTED': continue
             if job_id in superseded and summary['state'] != 'COMPLETE': continue
+            # Same 4-day window as New jobs: older analyses leave the list unless kept or in progress.
+            if (row and row['id'] not in kept and summary['state'] not in ('RUNNING', 'QUEUED')
+                    and age_state({**json.loads(row['payload']), 'first_seen': row['first_seen']}) == 'older_than_four_days'):
+                continue
             if job_id in passed_saved and not summary.get('choice'): summary['choice'] = 'SKIP'
             keys[job_id] = same_job({'company': job.company, 'title': job.title, 'description': job.description})
             items.append({'yc_listing':bool(row and row['id'] in yc_ids),'job_id':job_id,'opportunity_id':row['id'] if row else None,'company':job.company,'title':job.title,'url':str(job.source_url or ''),'sponsorship':no_sponsorship(job.description),'assessment':summary, **(scans.get(row['id'], {}) if row else {})})
@@ -268,7 +274,8 @@ class Discovery:
                 from .job_retention import age_state, company_key
                 item['kept'] = row['id'] in kept
                 item['passed'] = row['id'] in passed
-                item['retention_protected'] = bool(row['job_id'] or row['id'] in kept or row['id'] in selected_rows)
+                # An analysis alone does not keep a listing past 4 days; Keep job does.
+                item['retention_protected'] = bool(row['id'] in kept or row['id'] in selected_rows)
                 item['age_state'] = age_state({**item, 'first_seen': row['first_seen']})
                 item['company_watched'] = company_key(item.get('company','')) in watched
                 sources = sightings.get(row['id'], [])
