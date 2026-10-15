@@ -614,7 +614,8 @@ class Discovery:
                     match=item.get('keyword_match',{})
                     self.record_scan_role(item,stage='Screening finished',priority=match.get('label','Not screened'),
                                           reason=match.get('reason',''),job_id=item.get('job_id'),
-                                          assessment=item.get('assessment'),automatic_eligible=self.auto_eligible(item))
+                                          assessment=item.get('assessment'),automatic_eligible=self.auto_eligible(item),
+                                          automatic_skip_reason=self.automatic_skip_reason(item) or ('' if self.settings()['auto_assess'] else 'Automatic deep analysis was paused.'))
             if not self.stop.is_set() and self.settings()['auto_assess']:
                 result['phase'] = 'assessing'
                 with self.db() as db: db.execute('UPDATE scans SET payload=? WHERE id=?',(json.dumps(result),sid))
@@ -647,7 +648,9 @@ class Discovery:
         for item in items:
             if item['id'] not in seen_ids or not self.auto_eligible(item): continue
             key = same_job(item)
-            if key in taken: continue
+            if key in taken:
+                self.record_scan_role(item, automatic_skip_reason='Same opening already analyzed, handled, or selected through another listing.')
+                continue
             if key: taken.add(key)
             candidates.append(item)
         candidates.sort(key=lambda item: -item.get('keyword_match',{}).get('ranking',{}).get('points',0))
@@ -671,7 +674,7 @@ class Discovery:
                 last_job = imported.get('job_id') if imported else None
                 started = bool(imported and imported.get('assessment_started'))
                 self.record_scan_role(current,stage='Assessment started' if started else 'Assessment not started',
-                                      assessment_requested=started,job_id=last_job)
+                                      assessment_requested=started,job_id=last_job,automatic_skip_reason='' if started else 'The analysis request did not start a new assessment.')
             except Exception as exc:
                 from .retrieval import RetrievalError
                 error = str(exc) if isinstance(exc,(RetrievalError,Conflict,Missing)) else 'Automatic assessment stopped. Retry explicitly from the role.'
@@ -711,6 +714,25 @@ class Discovery:
                 and len(item.get('description',''))>=200
                 and (not item.get('automatic_assessment') or
                      (item.get('assessment') or {}).get('state') in ('STALE', 'JD_CHANGED')))
+
+    @staticmethod
+    def automatic_skip_reason(item):
+        """Snapshot the actual eligibility gates, never reconstruct historical decisions."""
+        from .needs_help import description_problem
+        assessment = item.get('assessment') or {}
+        if item.get('applied'): return 'Already applied; no repeat analysis.'
+        if item.get('passed') or assessment.get('choice') == 'SKIP': return 'Passed by you; no repeat analysis.'
+        if item.get('keyword_match', {}).get('priority') != 'high': return 'Not High priority.'
+        if item.get('age_state') == 'older_than_four_days' and not item.get('retention_protected'): return 'Outside the four-day active window and not kept.'
+        if assessment.get('state') == 'COMPLETE': return 'Completed analysis already exists.'
+        if assessment.get('state') == 'RUNNING': return 'Analysis already running.'
+        if assessment.get('state') not in (None, 'NOT_STARTED', 'STALE', 'JD_CHANGED'): return 'Previous analysis needs attention before retrying.'
+        if item.get('location_match', {}).get('status') != 'match': return 'Preferred location is not confirmed.'
+        if item.get('sponsorship'): return 'Listing explicitly excludes required sponsorship.'
+        if not item.get('company_fit', {}).get('automatic_allowed', True): return 'Outside the company preference for automatic analysis.'
+        if len(item.get('description', '')) < 200 or description_problem(item.get('description', '')): return 'A usable full job description is needed.'
+        if item.get('automatic_assessment') and assessment.get('state') not in ('STALE', 'JD_CHANGED'): return 'A previous automatic attempt exists; explicit retry needed.'
+        return ''
 
     def annotate_handled(self, items):
         """Decisions survive changed context/JDs and cover duplicate board listings."""
