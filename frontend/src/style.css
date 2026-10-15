@@ -1175,3 +1175,6 @@ button.text-button { border: 0; background: transparent; padding: .2rem .25rem; 
 .sheets-settings label {display:block;margin:14px 0;}
 .sheets-settings input {display:block;width:100%;margin-top:8px;}
 .sheets-settings ol {padding-left:24px;line-height:1.6;}
+.sponsorship-blocked { display:block; margin:2px 0 6px; color:#991b1b; }
+.sponsorship-blocked strong { display:inline-block; padding:2px 8px; border-radius:999px; font-size:12px; background:#fee2e2; }
+.sponsorship-blocked small { display:block; font-size:12px; color:#7f1d1d; }
