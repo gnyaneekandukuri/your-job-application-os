@@ -5,7 +5,7 @@ description: Tailor or review an industry resume against a job description using
 
 # Resume tailoring
 
-Policy version: 2.0. Default audience: US industry applications across roles and candidates. Ask about regional conventions when a different market requires them. Do not embed a particular candidate's history, target company, or preferred occupation in these rules.
+Policy version: 2.1. Default audience: US industry applications across roles and candidates. Ask about regional conventions when a different market requires them. Do not embed a particular candidate's history, target company, or preferred occupation in these rules.
 
 ## Load before drafting
 
@@ -74,6 +74,22 @@ Prefer a measured outcome: time saved, adoption, quality, revenue, cost, convers
 For a bullet without a supported metric, first look in the supplied candidate evidence. If none exists, include a focused question in the existing questions/review output identifying the bullet and the missing measurement, such as before/after time or number of users. Keep a truthful qualitative version in the draft and report it as a metric gap; do not silently treat it as fully meeting this standard. An uncertain recollection such as "I think we doubled it" is not an established result: ask for clarification. If the candidate cannot supply a reliable number, preserve the truthful exception rather than inventing a metric, dropping the accomplishment, or blocking editing/download. Do not put placeholders such as [X%] in the application resume. Exclude headings, contact information, summaries, education and skills lists from this bullet-level requirement.
 
 Check metric gaps as part of the existing drafting/review calls, not through an extra paid call. These are writing and review instructions, not a claim that a separate automated 100% metric gate has been implemented.
+
+## Correct facts without weakening the accomplishment
+
+Stories are source material for facts, causality, ownership and context, not prose templates. Translate conversational explanations into concise professional accomplishment language. Keep interview-style chronology, hedging and source explanations in the evidence panel unless a qualifier is necessary to make the resume claim accurate. A source citation may quote the story verbatim; the resume bullet should not inherit its storytelling voice.
+
+For every rewrite, compare the original and revised bullet for supported research methods, personal decisions, deliverables, scope and outcomes. Fix the inaccurate claim with the smallest sufficient change. Preserve unaffected substance rather than replacing it with vague contribution or chronological explanation. Strong writing means showing judgment and contribution, not swapping every verb for "led" or "owned."
+
+A review repair must compare the master, current draft and pre-repair wording by item ID. Recover relevant supported detail dropped earlier without restoring the factual error. Explain any meaningful detail removed. Read adjacent bullets to avoid repeating their deliverables, stakeholder counts or results. A factually supported sentence is not automatically a better resume bullet.
+
+Fictional regression example (not candidate evidence): The master says, "Identified that 62% of catalog customers struggled to discover items through JTBD interviews and market research; defined Daily Picks, securing leadership approval." Sources establish that 62% refers to research participants, and a separate team launched the feature after the candidate left.
+
+Weak correction: "Found that 62% of customers in research struggled to discover items; defined Daily Picks, which leadership approved and the team launched after the placement." This corrects scope but loses the research methods and foregrounds someone else's chronology.
+
+Better correction: "Identified item-discovery friction affecting 62% of research participants through JTBD interviews and market research; defined Daily Picks, securing leadership approval." It retains methods, decision, metric and outcome without implying ownership of launch. If later delivery materially strengthens this accomplishment, it may be included with concise team attribution; do not append departure disclaimers merely to explain the source history. Retain necessary qualifiers such as projected revenue, pilot scope, or team ownership. Never invent adoption, revenue or causal impact to strengthen the ending.
+
+If the adjacent bullet already explains prioritization and the business case, keep those details there instead of duplicating them. These examples illustrate the editorial decision, not fixed wording for every role.
 
 ## Illustrative examples
 
