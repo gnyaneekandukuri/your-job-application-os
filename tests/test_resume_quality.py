@@ -47,3 +47,14 @@ def test_strict_provider_schema_has_no_optional_properties():
     s=QualityChecks.model_json_schema()
     for obj in [s,*s.get('$defs',{}).values()]:
         if obj.get('type')=='object':assert set(obj['required'])==set(obj['properties'])
+
+
+def test_confirmed_arr_resolution_is_scoped_to_source_and_amount():
+    b=Block(kind='bullet',text='Drove $450K ARR.',citations=[],reason='')
+    story={'id':'e1','path':'stories/product.md','text':'Customer commitments converted to $450,000 in product revenue.'}
+    fact={'id':'candidate_fact_rules.facts.REVENUE','status':'USER_CONFIRMED','text':'Candidate confirmed $450K ARR.', 'revenue_resolution':{'type':'ARR','amount_usd':450000,'source_paths':['stories/product.md']}}
+    assert not recurring_revenue_conflict(b,[story,fact])
+    assert recurring_revenue_conflict(b,[{**story,'path':'stories/other.md'},fact])
+    assert recurring_revenue_conflict(b,[story,{**fact,'status':'PENDING'}])
+    assert recurring_revenue_conflict(b,[story,{**fact,'id':'untrusted-story'}])
+    assert recurring_revenue_conflict(b,[story,{**fact,'revenue_resolution':{**fact['revenue_resolution'],'amount_usd':500000}}])
