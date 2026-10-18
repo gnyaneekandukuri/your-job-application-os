@@ -193,21 +193,9 @@ def collect(board, stop=None, countries=None):
             if len(jobs) > 60: warnings.append('Reached 60-detail limit')
             coverage = 'Public PM category page only; full YC coverage is not established. Individual detail dates checked.'
         elif board == 'builtin':
-            base, paths = 'https://builtin.com', []
-            for number in range(1, 11):
-                url = base + '/jobs/product' + (f'?page={number}' if number > 1 else '')
-                parser = PageParser(); parser.feed(fetch(client, url))
-                for path in parser.links:
-                    if re.fullmatch(r'/job/[^/?#]+/\d+', path) and relevant(path.replace('-', ' ')) and path not in paths:
-                        paths.append(path)
-                if f'/jobs/product?page={number + 1}' not in parser.links: break
-            coverage = 'Up to ten public product-category pages and 100 details; partial coverage. Calendar dates and repost labels are preserved.'
-            for path in paths[:100]:
-                try:
-                    row = detail(client, base + path)
-                    rows.append({**row, 'source_id': path.rsplit('/', 1)[-1], 'url': base + path,
-                                 'date_basis': 'source_datePosted', 'funding': 'Unknown'})
-                except Exception as exc: warnings.append({'listing': path, **getattr(exc, 'discovery_diagnostic', diagnose(exc))})
+            from .builtin_source import collect_builtin
+            rows, coverage, warnings = collect_builtin(
+                client, fetch, detail, PageParser, relevant, countries, stop)
         else: raise ValueError('Unsupported board')
         if client.recovered_requests:
             warnings.append(f'Recovered {client.recovered_requests} requests after temporary connection failures.')
