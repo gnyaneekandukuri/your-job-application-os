@@ -365,7 +365,7 @@ class Discovery:
     def collect_board(self, board):
         if board == 'yc':
             return self.yc.collect()
-        if board == 'linkedin':
+        if board in ('linkedin', 'builtin'):
             prefs = load_preferences(self.analysis.library.root / 'knowledge/discovery-preferences.json')
             return collect(board, stop=self.stop, countries=prefs.get('location_filter', {}).get('countries', []))
         return collect(board, stop=self.stop)
