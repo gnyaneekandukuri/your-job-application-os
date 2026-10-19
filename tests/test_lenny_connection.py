@@ -39,11 +39,16 @@ class Control:
     def is_enabled(self): return self.enabled
     def is_checked(self): return self.checked
     def click(self): pass
+    def filter(self, **kwargs): return self
+    def wait_for(self, **kwargs): pass
 
 
 class Page:
     url = 'https://www.lennysjobs.com/'
     def __init__(self): self.radio = Control()
+    def locator(self, selector):
+        assert selector == 'button[data-size="lg"]'
+        return Control()
     def get_by_role(self, role, **kwargs): return self.radio if role == 'radio' else Control()
 
 
