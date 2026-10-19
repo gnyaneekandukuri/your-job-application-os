@@ -104,7 +104,7 @@ def run(command, root):
         if not manual_login(root):
             return {'error': 'Close the sign-in window, then check the connection.', 'source_state': 'login_required'}
         command = 'check'
-    from playwright.sync_api import sync_playwright
+    from playwright.sync_api import sync_playwright, expect
     from .discovery_location import COUNTRIES
     with sync_playwright() as pw:
         context = pw.chromium.launch_persistent_context(str(root / PROFILE),
@@ -114,6 +114,12 @@ def run(command, root):
             page = context.pages[0] if context.pages else context.new_page()
             page.goto(HOME, wait_until='domcontentloaded', timeout=45000)
             past_day(page).wait_for(timeout=30000)
+            # The radio renders disabled before the saved account finishes loading.
+            # Wait for entitlement hydration instead of treating initial HTML as logout.
+            try:
+                expect(past_day(page)).to_be_enabled(timeout=30000)
+            except AssertionError:
+                pass
             if not ready(page):
                 save_status(root, 'LOGIN_REQUIRED', 'Past day is locked or the session expired. Connect Lenny’s and verify account access.')
                 return {'error': 'Lenny Past day access requires sign-in or an eligible account.', 'source_state': 'login_required'}
