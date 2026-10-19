@@ -67,9 +67,9 @@ def save(engine,job,data):
         unchanged=old and all(old.get(k)==getattr(data,k) for k in ('text','question','note'))
         source=reused(engine,data)
         if source:
-            return persist(engine,job,data,{'text':data.text,'questions':[],'evidence':source.get('evidence',[]),'evidence_dropped':0,'reused_from':data.reused_from})
+            return persist(engine,job,data,{'text':data.text,'questions':[],'evidence':source.get('evidence',[]),'evidence_dropped':0,'reused_from':data.reused_from,'reviewed':True})
         return persist(engine,job,data,{'text':data.text,'questions':old.get('questions',[]) if unchanged else [],'evidence':old.get('evidence',[]) if unchanged else [],
-            'evidence_dropped':old.get('evidence_dropped',0) if unchanged else 0})
+            'evidence_dropped':old.get('evidence_dropped',0) if unchanged else 0,'reviewed':True})
 
 def reused(engine,data):
     """The library answer this text was copied from, when unchanged; its evidence still applies."""
@@ -144,4 +144,5 @@ def generate(tailoring,job,data):
             result['evidence_dropped']=len(result['evidence'])-len(evidence)
             result['evidence']=evidence
             engine.put(cache,result)
-        return persist(engine,job,data,result)
+        # A fresh draft enters the answer library only after you save or copy it.
+        return persist(engine,job,data,{**result,'reviewed':False})

@@ -73,3 +73,28 @@ def test_matches_saved_general_answers_from_other_jobs_only(tmp_path, monkeypatc
         assert match['text'] == 'Claude, Cursor and v0, daily.'
         copied = answer(client, current, 'Which AI tools do you use?', match['text'], reused_from=f"{first}:{edited['id']}")
         assert copied['reused_from'] == f"{first}:{edited['id']}"
+
+
+def test_product_introduction_and_nonlinear_are_general_questions():
+    assert not specific('Describe a product introduction you led.', 'Acme')
+    assert not specific('How do you approach nonlinear analysis or linear growth models?', 'Linear')
+    assert specific('Why do you use Linear?', 'Linear') and specific('Introduce yourself to the founders.', 'Acme')
+
+
+def test_answers_naming_their_employer_and_unreviewed_drafts_are_not_offered(tmp_path, monkeypatch):
+    from app import application_answer
+    with TestClient(create_app(tmp_path)) as client:
+        engine = client.app.state.retrieval
+        monkeypatch.setattr(engine, 'embed', fake_embed)
+        acme, other, current = job(client, 'Acme'), job(client, 'Beta'), job(client, 'Earnix')
+        answer(client, acme, 'Tell us about yourself and your AI tools.', 'I use AI tools daily and I want to join Acme.')
+        route = f'/api/jobs/{current}/application-answers/matches'
+        assert client.post(route, headers=H, json={'question': 'Which AI tools do you use?'}).json()['matches'] == []
+        # A generated draft is stored unreviewed: not offered until you save or copy it.
+        job_obj = client.app.state.service.review(other).job
+        draft = application_answer.AnswerInput(id=uuid4(), question='What AI tools do you use?')
+        application_answer.persist(engine, job_obj, draft, {'text': 'Claude daily.', 'questions': [], 'evidence': [], 'reviewed': False})
+        assert client.post(route, headers=H, json={'question': 'Which AI tools do you use?'}).json()['matches'] == []
+        row = client.get(f'/api/jobs/{other}/application-answers').json()['items'][0]
+        answer(client, other, row['question'], row['text'], id=row['id'], revision=row['revision'])
+        assert [m['company'] for m in client.post(route, headers=H, json={'question': 'Which AI tools do you use?'}).json()['matches']] == ['Beta']
