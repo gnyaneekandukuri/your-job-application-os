@@ -1209,3 +1209,11 @@ button.text-button { border: 0; background: transparent; padding: .2rem .25rem; 
 .external-application { margin:12px 0; }
 .external-application form { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:8px 12px; align-items:end; margin-top:8px; }
 .external-application label { display:flex; flex-direction:column; gap:4px; }
+.answer-reuse { margin:10px 0; padding:10px 12px; border:1px solid #bfdbfe; border-radius:8px; background:#eff6ff; }
+.answer-reuse h3 { margin:0 0 6px; font-size:15px; }
+.answer-reuse-item + .answer-reuse-item { margin-top:10px; padding-top:10px; border-top:1px solid #bfdbfe; }
+.answer-reuse-item p { margin:2px 0; }
+.answer-reuse-question { color:#475569; font-style:italic; }
+.answer-reuse blockquote { margin:6px 0; white-space:pre-wrap; max-height:180px; overflow:auto; }
+.answer-reuse-note { color:#475569; font-size:13px; }
+.answer-reuse-toggle { display:flex; gap:6px; align-items:center; margin:6px 0; }
