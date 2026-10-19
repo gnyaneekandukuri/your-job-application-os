@@ -12,7 +12,7 @@ from .yc_connection import save_status
 from .community_sources import lenny_rows
 
 HOME = 'https://www.lennysjobs.com/'
-SEARCH = 'https://arc.trueup.io/jobs/search'
+SEARCH = 'https://arc.trueup.io/jobs/search/member'
 PROFILE = 'normal-profile'
 
 
@@ -83,7 +83,13 @@ def collect_pages(page, first):
         if len(jobs) == before:
             warnings.append('Repeated search results; remaining results could not be collected.')
             break
-        more = page.get_by_role('button', name='Show more', exact=True)
+        # Sidebar also has Show more buttons; only the large button pages jobs.
+        more = page.locator('button[data-size="lg"]').filter(has_text=re.compile(r'^Show more$'))
+        try:
+            more.wait_for(timeout=15000)
+        except Exception:
+            warnings.append('Results pagination did not become available.')
+            break
         if more.count() != 1 or not more.is_enabled():
             warnings.append('More results reported, but pagination was unavailable.')
             break
@@ -139,9 +145,13 @@ def run(command, root):
                 name = names[country]
                 page.get_by_role('searchbox', name='Search locations', exact=True).fill(name)
                 choice = page.get_by_role('checkbox', name=re.compile(re.escape(name) + r'\s+[\d,.Kk+]+$'))
-                response_for(page, choice.check)
+                if not choice.is_checked():
+                    response_for(page, choice.click)
+                    expect(choice).to_be_checked(timeout=15000)
             location.click()
             save_status(root, 'SCANNING', 'Collecting Product Management jobs with Past day and preferred-country filters...')
+            if past_day(page).is_checked():
+                page.get_by_role('radio', name='All', exact=True).check()
             first = response_for(page, lambda: past_day(page).check())
             rows, total, loaded, warnings = collect_pages(page, first)
             coverage = (f'Signed-in Product Management, Past day, countries {", ".join(countries)}: '
