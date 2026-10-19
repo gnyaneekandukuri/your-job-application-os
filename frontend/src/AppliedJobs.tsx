@@ -1,4 +1,5 @@
 import {GoogleSheetsSync} from './GoogleSheetsSync';
+import {AddExternalApplication} from './AddExternalApplication';
 import {useEffect, useRef, useState} from 'react';
 type Application={recorded_without_resume?:boolean;has_pdf?:boolean;id:string;job_id:string;revision:string;company:string;title:string;url:string;location:string;boards:string[];applied_date:string;status:string;follow_up_date:string|null;notes:string;resume_revision:string};
 const statuses=['Applied','Interviewing','Offer','Rejected','Withdrawn'];
@@ -22,6 +23,7 @@ export function AppliedJobs(){
  return <section className="applications-panel"><div className="applications-heading"><div><h2>Applied jobs</h2><p>Your confirmed applications and the resume used for each.</p></div><button disabled={busy||!rows.length} onClick={()=>void download()}>Export all to Excel</button></div>
  {error&&!edit&&<p role="alert">{error} <button onClick={()=>{setError('');void load();}}>Reload</button></p>}
  <GoogleSheetsSync/>
+ <AddExternalApplication onAdded={()=>void load()}/>
  <div className="applications-filters"><label>Search<input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Company or role"/></label><label>Status<select value={status} onChange={e=>setStatus(e.target.value)}><option>All statuses</option>{statuses.map(s=><option key={s}>{s}</option>)}</select></label><label>Applied date<select value={order} onChange={e=>setOrder(e.target.value as typeof order)}><option value="newest">Newest first</option><option value="oldest">Oldest first</option></select></label><label>Show applications<select value={period} onChange={e=>setPeriod(e.target.value as typeof period)}><option value="recent">Last 7 days</option><option value="all">All applications</option><option value="custom">Custom dates</option></select></label>{period==='custom'&&<><label>Applied from<input type="date" value={dateFrom} max={dateTo||undefined} onChange={e=>setDateFrom(e.target.value)}/></label><label>Applied through<input type="date" value={dateTo} min={dateFrom||undefined} onChange={e=>setDateTo(e.target.value)}/></label>{(dateFrom||dateTo)&&<button onClick={()=>{setDateFrom('');setDateTo('');setPeriod('all');}}>Clear dates</button>}</>}<span>{visible.length} applications</span></div>
  {period==='recent'&&<p>Showing today and the previous 6 days. Older applications remain saved under All applications.</p>}
  {invalidDateRange&&<p role="alert">The start date must be on or before the end date.</p>}
