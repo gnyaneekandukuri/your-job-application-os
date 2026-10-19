@@ -1,6 +1,8 @@
 """Collect via the site's own signed-in UI; never replay gated API requests."""
 import json
+import os
 import re
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -11,6 +13,30 @@ from .community_sources import lenny_rows
 
 HOME = 'https://www.lennysjobs.com/'
 SEARCH = 'https://arc.trueup.io/jobs/search'
+PROFILE = 'normal-profile'
+
+
+def manual_login(root):
+    """User-controlled supported browser, with no Playwright/debugging connection."""
+    candidates = [Path(os.environ.get(key, '')) / 'Microsoft/Edge/Application/msedge.exe'
+                  for key in ('PROGRAMFILES(X86)', 'PROGRAMFILES', 'LOCALAPPDATA')]
+    executable = next((path for path in candidates if path.is_file()), None)
+    if executable is None:
+        raise ValueError('Microsoft Edge is not installed.')
+    profile = (root / PROFILE).resolve()
+    profile.mkdir(parents=True, exist_ok=True)
+    save_status(root, 'WAITING_FOR_LOGIN',
+                'Sign in to Lenny’s in the normal Edge window, then close that window. The app will check Past day access afterward.')
+    browser = subprocess.Popen([str(executable), f'--user-data-dir={profile}',
+                                '--no-first-run', '--disable-background-mode', HOME],
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        browser.wait(timeout=900)
+    except subprocess.TimeoutExpired:
+        # Do not terminate a window where the user may still be entering credentials.
+        save_status(root, 'LOGIN_REQUIRED', 'Close the Lenny sign-in window, then click Check connection.')
+        return False
+    return True
 
 
 def past_day(page):
@@ -74,25 +100,20 @@ def collect_pages(page, first):
 
 
 def run(command, root):
+    if command == 'login':
+        if not manual_login(root):
+            return {'error': 'Close the sign-in window, then check the connection.', 'source_state': 'login_required'}
+        command = 'check'
     from playwright.sync_api import sync_playwright
     from .discovery_location import COUNTRIES
     with sync_playwright() as pw:
-        context = pw.chromium.launch_persistent_context(str(root / 'profile'),
-                    channel='msedge', headless=command != 'login', accept_downloads=False)
+        context = pw.chromium.launch_persistent_context(str(root / PROFILE),
+                    channel='msedge', headless=True, accept_downloads=False)
         try:
             context.set_default_timeout(20000)
             page = context.pages[0] if context.pages else context.new_page()
             page.goto(HOME, wait_until='domcontentloaded', timeout=45000)
             past_day(page).wait_for(timeout=30000)
-            if command == 'login':
-                save_status(root, 'WAITING_FOR_LOGIN', 'Sign in in the separate Edge window. It closes when Past day access is verified.')
-                if not ready(page):
-                    page.get_by_role('button', name='Log in', exact=True).click()
-                deadline = time.monotonic() + 900
-                while time.monotonic() < deadline and not ready(page):
-                    if page.is_closed():
-                        raise ValueError('Sign-in window closed before Past day access was verified. Connect again.')
-                    page.wait_for_timeout(1000)
             if not ready(page):
                 save_status(root, 'LOGIN_REQUIRED', 'Past day is locked or the session expired. Connect Lenny’s and verify account access.')
                 return {'error': 'Lenny Past day access requires sign-in or an eligible account.', 'source_state': 'login_required'}
