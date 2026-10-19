@@ -11,7 +11,7 @@ def test_missing_session_and_exclusive_profile(tmp_path):
     c = LennyConnection(tmp_path)
     assert c.status()['state'] == 'NOT_CONNECTED'
     with pytest.raises(LennyConnectionError): c.collect(['US'])
-    (c.root / 'profile').mkdir(parents=True)
+    (c.root / 'normal-profile').mkdir(parents=True)
     save_status(c.root, 'SCANNING', 'Collecting')
     assert c.status()['state'] == 'NEEDS_CHECK'
     c.lock.acquire()
@@ -23,7 +23,7 @@ def test_missing_session_and_exclusive_profile(tmp_path):
 
 def test_country_options_passed_to_worker(tmp_path, monkeypatch):
     c = LennyConnection(tmp_path)
-    (c.root / 'profile').mkdir(parents=True)
+    (c.root / 'normal-profile').mkdir(parents=True)
     def run(command):
         assert command == 'scan'
         assert json.loads((c.root / 'scan-options.json').read_text()) == {'countries': ['US']}
@@ -92,3 +92,27 @@ def test_endpoints_and_collector_dispatch(tmp_path, monkeypatch):
         monkeypatch.setattr('app.discovery.load_preferences', lambda *a: {'location_filter':{'countries':['US']}})
         monkeypatch.setattr(d.lenny, 'collect', lambda countries: (countries,'coverage',[]))
         assert d.collect_board('lenny')[0] == ['US']
+
+@pytest.mark.parametrize('timed_out', [False, True])
+def test_normal_login_without_automation(tmp_path, monkeypatch, timed_out):
+    import subprocess
+    from app.lenny_browser_worker import manual_login
+    edge = tmp_path / 'Microsoft/Edge/Application/msedge.exe'
+    edge.parent.mkdir(parents=True)
+    edge.touch()
+    monkeypatch.setenv('PROGRAMFILES(X86)', str(tmp_path))
+    calls = []
+    class Browser:
+        def wait(self, timeout):
+            assert timeout == 900
+            if timed_out:
+                raise subprocess.TimeoutExpired('edge', timeout)
+    def launch(args, **kwargs):
+        calls.extend(args)
+        return Browser()
+    monkeypatch.setattr('app.lenny_browser_worker.subprocess.Popen', launch)
+    root = tmp_path / 'connection'
+    assert manual_login(root) is (not timed_out)
+    assert any('normal-profile' in arg for arg in calls)
+    assert not any('debug' in arg or 'automation' in arg for arg in calls)
+    assert calls[-1] == 'https://www.lennysjobs.com/'

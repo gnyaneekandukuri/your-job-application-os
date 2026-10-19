@@ -104,7 +104,7 @@ class LennyConnection:
         return self.status()
 
     def collect(self, countries):
-        if not (self.root / 'profile').exists():
+        if not (self.root / 'normal-profile').exists():
             raise LennyConnectionError('login_required','Connect Lenny in Discovery runs before scanning this source.')
         if not self.lock.acquire(blocking=False):
             raise LennyConnectionError('busy','Lenny sign-in or connection check is in progress. Try the scan after it finishes.')
