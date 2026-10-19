@@ -1,5 +1,5 @@
 import {useEffect,useRef,useState} from 'react';
-type Entry={id:string;revision:string;question:string;note:string;limit:number|null;unit:'words'|'characters';text:string;questions:string[];evidence:{source_id:string;title:string;quote:string}[];evidence_dropped?:number;limit_exceeded?:boolean;reusable?:boolean|null;reused_from?:string};
+type Entry={id:string;revision:string;question:string;note:string;limit:number|null;unit:'words'|'characters';text:string;questions:string[];evidence:{source_id:string;title:string;quote:string}[];evidence_dropped?:number;limit_exceeded?:boolean;reusable?:boolean|null;reused_from?:string;reviewed?:boolean};
 type Match={job_id:string;answer_id:string;company:string;question:string;text:string;score:number;updated_at:string;length:number;unit:string;over_limit:boolean;stories_changed:boolean};
 const blank=():Entry=>({id:crypto.randomUUID(),revision:'',question:'',note:'',limit:null,unit:'words',text:'',questions:[],evidence:[]});
 export function ApplicationAnswer({jobId,company,url,autoOpen=false}:{jobId:string;company:string;url:string;autoOpen?:boolean}){
@@ -49,7 +49,7 @@ export function ApplicationAnswer({jobId,company,url,autoOpen=false}:{jobId:stri
  <p role={over?'alert':undefined}>{count}{entry.limit?` / ${entry.limit}`:''} {entry.unit}{over?' — over the limit; shorten before submitting.':''}</p>
  {entry.evidence.length>0&&<details><summary>Source evidence</summary>{entry.evidence.map((r,i)=><div key={i}><strong>{r.title}</strong><blockquote>{r.quote}</blockquote></div>)}</details>}
  <label className="answer-reuse-toggle"><input type="checkbox" disabled={busy} checked={entry.reusable!==false} onChange={e=>setEntry({...entry,reusable:e.target.checked?null:false})}/> Reuse for other jobs <small>(company-specific questions are never reused)</small></label>
- <div className="selection-actions"><button disabled={busy||!dirty||!entry.question.trim()} onClick={()=>void act(async()=>{await save();setNotice('Answer saved.');})}>Save edits</button><button disabled={busy||!entry.text.trim()} onClick={()=>void act(async()=>{if(dirty)await save();await navigator.clipboard.writeText(entry.text);setNotice('Copied. Paste it into the application.');})}>Copy answer</button>{/^https?:\/\//.test(url)&&<a href={url} target="_blank" rel="noreferrer">Open application ↗</a>}</div>
+ <div className="selection-actions"><button disabled={busy||!dirty||!entry.question.trim()} onClick={()=>void act(async()=>{await save();setNotice('Answer saved.');})}>Save edits</button><button disabled={busy||!entry.text.trim()} onClick={()=>void act(async()=>{if(dirty||entry.reviewed===false)await save();await navigator.clipboard.writeText(entry.text);setNotice('Copied. Paste it into the application.');})}>Copy answer</button>{/^https?:\/\//.test(url)&&<a href={url} target="_blank" rel="noreferrer">Open application ↗</a>}</div>
  {where==='actions'&&status}
  </>}
  </dialog></>;

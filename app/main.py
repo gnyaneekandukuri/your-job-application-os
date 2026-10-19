@@ -619,7 +619,8 @@ def create_app(data_dir: Path | None = None):
         def company_of(other):
             try: return service.review(other).job.company
             except Exception: return ''
-        return answer_library.matches(request.app.state.retrieval, service.review(job_id).job, data, company_of)
+        applied = {a['job_id'] for a in request.app.state.applications.list()}
+        return answer_library.matches(request.app.state.retrieval, service.review(job_id).job, data, company_of, applied)
 
     @api.post("/api/jobs/{job_id}/application-answers/save")
     def application_answer_save(job_id: str, data: application_answer.SaveInput, request: Request):
