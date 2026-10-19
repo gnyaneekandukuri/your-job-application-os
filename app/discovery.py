@@ -15,6 +15,7 @@ from .discovery_sources import BOARDS, UNAVAILABLE, canonical, collect, freshnes
 from .discovery_preferences import load_preferences
 from .discovery_network import diagnose
 from .yc_connection import YCConnection
+from .lenny_connection import LennyConnection
 from .discovery_location import location_match
 from .discovery_sponsorship import no_sponsorship
 from .discovery_keywords import KeywordIndex
@@ -63,6 +64,7 @@ class Discovery:
         self.path, self.service, self.analysis, self.collector = path, service, analysis, collector
         self.lock, self.stop = RLock(), Event()
         self.yc = YCConnection(path.parent)
+        self.lenny = LennyConnection(path.parent)
         if collector is collect:
             self.collector = self.collect_board
         self.worker = self.scheduler = None
@@ -330,7 +332,7 @@ class Discovery:
             apply_company_priority(items)
             from .needs_help import needs_help
             for item in items: item['needs_help'] = needs_help(item)
-        return {'company_preference':company_policy, 'jev': self.jev.status(), 'yc_connection': self.yc.status(), 'keyword_profile': keyword_profile, 'items': items, 'location_preference': preferences.get('location_filter', {}), 'settings': self.settings(), 'running': bool(self.worker and self.worker.is_alive()),
+        return {'company_preference':company_policy, 'jev': self.jev.status(), 'yc_connection': self.yc.status(), 'lenny_connection': self.lenny.status(), 'keyword_profile': keyword_profile, 'items': items, 'location_preference': preferences.get('location_filter', {}), 'settings': self.settings(), 'running': bool(self.worker and self.worker.is_alive()),
                 'scan': {**dict(scan), 'payload': scan_summary(json.loads(scan['payload']))} if scan else None,
                 'boards': BOARDS, 'unavailable': UNAVAILABLE, 'timezone': str(datetime.now().astimezone().tzinfo),
                 'schedule': ['08:00', '13:00', '20:00']}
@@ -365,6 +367,9 @@ class Discovery:
     def collect_board(self, board):
         if board == 'yc':
             return self.yc.collect()
+        if board == 'lenny':
+            prefs = load_preferences(self.analysis.library.root / 'knowledge/discovery-preferences.json')
+            return self.lenny.collect(prefs.get('location_filter', {}).get('countries', []))
         if board in ('linkedin', 'builtin'):
             prefs = load_preferences(self.analysis.library.root / 'knowledge/discovery-preferences.json')
             return collect(board, stop=self.stop, countries=prefs.get('location_filter', {}).get('countries', []))
@@ -937,6 +942,7 @@ class Discovery:
     def close(self):
         self.stop.set()
         self.yc.close()
+        self.lenny.close()
         if self.scheduler: self.scheduler.join(timeout=2)
         if self.worker: self.worker.join(timeout=25)
         if self.selected.worker: self.selected.worker.join(timeout=2)

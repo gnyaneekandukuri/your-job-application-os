@@ -202,6 +202,18 @@ def create_app(data_dir: Path | None = None):
     def yc_check(request: Request):
         return request.app.state.discovery.yc.start('check')
 
+    @api.post("/api/discovery/lenny/connect")
+    def lenny_connect(request: Request):
+        return request.app.state.discovery.lenny.start('login')
+
+    @api.post("/api/discovery/lenny/check")
+    def lenny_check(request: Request):
+        return request.app.state.discovery.lenny.start('check')
+
+    @api.post("/api/discovery/lenny/scan")
+    def lenny_scan(request: Request):
+        return request.app.state.discovery.start(['lenny'])
+
     @api.post("/api/discovery/linkedin/scan")
     def linkedin_scan(request: Request):
         return request.app.state.discovery.start(['linkedin'])

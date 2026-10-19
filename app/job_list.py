@@ -53,6 +53,7 @@ class JobList:
                      'pursuit-workflow.sqlite3', 'evidence-workflow.sqlite3', 'applications.sqlite3'):
             files.extend([parent / name, parent / (name + '-wal')])
         files.append(parent / 'yc-browser/status.json')
+        files.append(parent / 'lenny-browser/status.json')
         root = self.discovery.analysis.library.root
         files.extend(p for p in root.rglob('*') if p.is_file())
         values = []
