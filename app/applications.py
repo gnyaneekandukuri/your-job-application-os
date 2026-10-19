@@ -6,11 +6,11 @@ import json
 import sqlite3
 from datetime import date, datetime, timezone
 from typing import Literal
-from uuid import uuid4
+from uuid import uuid4, uuid5, NAMESPACE_URL
 from zipfile import ZipFile, ZIP_DEFLATED
 from xml.etree.ElementTree import Element, SubElement, tostring
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl
 from .retrieval import RetrievalError
 
 Status = Literal['Applied', 'Interviewing', 'Offer', 'Rejected', 'Withdrawn']
@@ -25,6 +25,16 @@ class ConfirmApplication(BaseModel):
 class ManualApplication(BaseModel):
     model_config = ConfigDict(extra='forbid')
     confirmed: Literal[True]
+    applied_date: date
+    notes: str = Field(default='', max_length=5000)
+
+class ExternalApplication(BaseModel):
+    """A job applied to outside the app; no saved JD or resume is required."""
+    model_config = ConfigDict(extra='forbid', str_strip_whitespace=True)
+    company: str = Field(min_length=1, max_length=200)
+    title: str = Field(min_length=1, max_length=200)
+    url: HttpUrl | None = None
+    location: str = Field(default='', max_length=200)
     applied_date: date
     notes: str = Field(default='', max_length=5000)
 
@@ -123,6 +133,14 @@ class Applications:
             db.execute('INSERT OR IGNORE INTO applications VALUES (?,?,?)', (record['id'],job_id,json.dumps(record)))
             saved=json.loads(db.execute('SELECT payload FROM applications WHERE job_id=?',(job_id,)).fetchone()[0])
         return self.summary(saved)
+
+    def add_external(self, data):
+        # Same link (or company + title without one) is one application, not a duplicate row.
+        url = str(data.url or '').rstrip('/')
+        key = url or ' '.join((data.company + ' | ' + data.title).casefold().split())
+        snapshot = {'company': data.company, 'title': data.title, 'url': url, 'location': data.location}
+        return self.confirm_without_resume('external:' + str(uuid5(NAMESPACE_URL, key)), snapshot, data,
+                                           {'location': data.location, 'boards': ['elsewhere']})
 
     def resume(self, application_id):
         record = self.get(application_id)

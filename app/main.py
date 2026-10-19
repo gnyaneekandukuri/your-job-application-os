@@ -8,7 +8,7 @@ from fastapi import FastAPI, Request, Query
 from fastapi.responses import JSONResponse, Response
 from . import team_message
 from .google_sheets import GoogleSheets, ClientConfig, SheetTarget
-from .applications import Applications, ConfirmApplication, UpdateApplication, ManualApplication
+from .applications import Applications, ConfirmApplication, UpdateApplication, ManualApplication, ExternalApplication
 from .job_retention import KeepJob, PassJob, Rescreen, WatchCompany, keep, pass_job, pass_saved_job, watch, watchlist, status as retention_status
 from fastapi.staticfiles import StaticFiles
 from langgraph.checkpoint.sqlite import SqliteSaver
@@ -553,6 +553,10 @@ def create_app(data_dir: Path | None = None):
             if not row: raise Missing('Job listing not found.')
             boards = [r[0] for r in db.execute('SELECT DISTINCT board FROM sightings WHERE opportunity_id=?',(opportunity_id,))]
         return request.app.state.applications.confirm_without_resume(row['job_id'] or 'opportunity:'+opportunity_id,json.loads(row['payload']),data,{'boards':boards})
+
+    @api.post("/api/applications/external")
+    def application_external(data: ExternalApplication, request: Request):
+        return request.app.state.applications.add_external(data)
 
     @api.post("/api/applications/{application_id}")
     def application_update(application_id: str, data: UpdateApplication, request: Request):
