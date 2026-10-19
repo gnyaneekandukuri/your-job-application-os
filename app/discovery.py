@@ -63,6 +63,7 @@ class Discovery:
     def __init__(self, path, service, analysis, collector=collect, sources=lambda: [], skills=None):
         self.path, self.service, self.analysis, self.collector = path, service, analysis, collector
         self.lock, self.stop = RLock(), Event()
+        self.import_lock = RLock()
         self.yc = YCConnection(path.parent)
         self.lenny = LennyConnection(path.parent)
         if collector is collect:
@@ -790,7 +791,7 @@ class Discovery:
                 item['passed'] = True
 
     def import_role(self, oid, analyze=True, automatic=False):
-        with self.lock:
+        with self.import_lock:
             with self.db() as db:
                 from .job_dedup import resolve
                 oid = resolve(db, oid)
@@ -820,8 +821,10 @@ class Discovery:
                     job = self.service.store.read(existing)[0]
                     if job.source_url and canonical(str(job.source_url)) == item['url'] and self.content_hash(job.model_dump()) == self.content_hash(data.model_dump()):
                         job_id = job.id; break
-                if not job_id: job_id = self.service.create(data).job.id
+                if not job_id: job_id = self.service.store.create(data)
                 with self.db() as db: db.execute('UPDATE opportunities SET job_id=?,imported_hash=? WHERE id=?', (job_id, self.content_hash(data.model_dump()), oid))
+            if not analyze:
+                return {'job_id': job_id, 'assessment_started': False}
             job = self.service.review(job_id).job
             started = False
             if analyze:

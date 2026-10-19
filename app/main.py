@@ -587,44 +587,44 @@ def create_app(data_dir: Path | None = None):
 
     @api.get("/api/jobs/{job_id}/cover-letter/pdf")
     def cover_letter_pdf(job_id: str, request: Request):
-        job = request.app.state.service.review(job_id).job
+        job = request.app.state.service.store.read(job_id)[0]
         return Response(team_message.cover_pdf(request.app.state.retrieval, job), media_type='application/pdf',
                         headers={'Content-Disposition':'attachment; filename="Cover_letter.pdf"'})
 
     @api.get("/api/jobs/{job_id}/team-message")
     def team_message_view(job_id: str, request: Request, kind: str = 'introduction'):
-        return team_message.view(request.app.state.retrieval, request.app.state.service.review(job_id).job, kind)
+        return team_message.view(request.app.state.retrieval, request.app.state.service.store.read(job_id)[0], kind)
 
     @api.post("/api/jobs/{job_id}/team-message/draft")
     def team_message_draft(job_id: str, data: team_message.DraftInput, request: Request):
-        return team_message.generate(request.app.state.tailoring, request.app.state.service.review(job_id).job, data)
+        return team_message.generate(request.app.state.tailoring, request.app.state.service.store.read(job_id)[0], data)
 
     @api.post("/api/jobs/{job_id}/team-message/save")
     def team_message_save(job_id: str, data: team_message.SaveInput, request: Request):
-        return team_message.save(request.app.state.retrieval, request.app.state.service.review(job_id).job, data)
+        return team_message.save(request.app.state.retrieval, request.app.state.service.store.read(job_id)[0], data)
 
     from . import application_answer, answer_library
 
     @api.get("/api/jobs/{job_id}/application-answers")
     def application_answers(job_id: str, request: Request):
-        return application_answer.view(request.app.state.retrieval, request.app.state.service.review(job_id).job)
+        return application_answer.view(request.app.state.retrieval, request.app.state.service.store.read(job_id)[0])
 
     @api.post("/api/jobs/{job_id}/application-answers/draft")
     def application_answer_draft(job_id: str, data: application_answer.AnswerInput, request: Request):
-        return application_answer.generate(request.app.state.tailoring, request.app.state.service.review(job_id).job, data)
+        return application_answer.generate(request.app.state.tailoring, request.app.state.service.store.read(job_id)[0], data)
 
     @api.post("/api/jobs/{job_id}/application-answers/matches")
     def application_answer_matches(job_id: str, data: answer_library.MatchInput, request: Request):
         service = request.app.state.service
         def company_of(other):
-            try: return service.review(other).job.company
+            try: return service.store.read(other)[0].company
             except Exception: return ''
         applied = {a['job_id'] for a in request.app.state.applications.list()}
-        return answer_library.matches(request.app.state.retrieval, service.review(job_id).job, data, company_of, applied)
+        return answer_library.matches(request.app.state.retrieval, service.store.read(job_id)[0], data, company_of, applied)
 
     @api.post("/api/jobs/{job_id}/application-answers/save")
     def application_answer_save(job_id: str, data: application_answer.SaveInput, request: Request):
-        return application_answer.save(request.app.state.retrieval, request.app.state.service.review(job_id).job, data)
+        return application_answer.save(request.app.state.retrieval, request.app.state.service.store.read(job_id)[0], data)
 
     @api.post("/api/tailoring/preferences")
     def tailoring_preferences(data: TailoringPreferences, request: Request):

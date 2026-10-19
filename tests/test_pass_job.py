@@ -75,3 +75,25 @@ def test_pass_does_not_wait_for_scan_lock(tmp_path):
                 assert pool.submit(pass_job, discovery, oid, False).result(timeout=3) == {'passed': False}
             finally:
                 discovery.lock.release()
+
+def test_writing_forms_do_not_reconcile_or_wait_for_scan(tmp_path, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    with TestClient(create_app(tmp_path)) as client:
+        discovery = client.app.state.discovery
+        oid, _ = discovery.save('yc', {'source_id': 'writing-fast', 'title': 'Product Manager',
+            'company': 'Example', 'url': 'https://example.com/jobs/writing-fast',
+            'location': 'USA', 'description': JD, 'posted_at': None})
+        def unexpected(*args, **kwargs):
+            raise AssertionError('Opening writing help must not reconcile analysis')
+        monkeypatch.setattr(discovery.service, 'review', unexpected)
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            discovery.lock.acquire()
+            try:
+                result = pool.submit(discovery.import_role, oid, analyze=False).result(timeout=3)
+            finally:
+                discovery.lock.release()
+        job_id = result['job_id']
+        assert not result['assessment_started']
+        assert discovery.import_role(oid, analyze=False)['job_id'] == job_id
+        assert client.get(f'/api/jobs/{job_id}/team-message').status_code == 200
+        assert client.get(f'/api/jobs/{job_id}/application-answers').status_code == 200
