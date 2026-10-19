@@ -90,7 +90,7 @@ def keep(discovery, oid, value):
 
 def pass_job(discovery, oid, value):
     """The candidate is not pursuing this listing: hide it from New jobs and automatic analysis."""
-    with discovery.lock, discovery.db() as db:
+    with discovery.db() as db:
         if not db.execute('SELECT 1 FROM opportunities WHERE id=?', (oid,)).fetchone():
             raise Missing('Opportunity not found')
         if value:
@@ -102,7 +102,7 @@ def pass_job(discovery, oid, value):
 
 def pass_saved_job(discovery, job_id, value):
     """Pass on a saved role whose analysis is unfinished; also hides its listing from New jobs."""
-    with discovery.lock, discovery.db() as db:
+    with discovery.db() as db:
         listings = [r[0] for r in db.execute('SELECT id FROM opportunities WHERE job_id=?', (job_id,))]
         if value:
             db.execute('INSERT OR IGNORE INTO passed_saved_jobs VALUES(?,?)', (job_id, datetime.now(timezone.utc).isoformat()))

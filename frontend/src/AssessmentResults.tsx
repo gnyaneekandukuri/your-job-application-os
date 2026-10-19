@@ -11,6 +11,7 @@ const filters=[["all","All"],["worth","Worth applying"],["review","Needs review"
 const recommendation=(r:Result)=>r.assessment.listing_changed?'Review updated JD':r.assessment.state==='STALE'?'Outdated: re-run for a current recommendation':r.assessment.state!=='COMPLETE'?'Not finished':!r.assessment.recommendation?'Recommendation unavailable':r.assessment.recommendation==='REVIEW'?'Needs review before deciding':r.assessment.recommendation==='SKIP'?'Consider passing':r.assessment.recommendation==='ATTACK_HARD'?'Worth applying · prioritize':'Worth applying';
 export function AssessmentResults({onOpen,onDiscover,onUpdatedJD,initialTab="all"}:{initialTab?:string;onUpdatedJD:(id:string)=>void;onDiscover:()=>void;onOpen:(id:string)=>Promise<void>}) {
  const [data,setData]=useState<State|null>(null),[filter,setFilter]=useState(filters.some(([id])=>id===initialTab)?initialTab:'all'),[error,setError]=useState(''),[saving,setSaving]=useState<string|null>(null),[notice,setNotice]=useState('');
+ const [rowSaving,setRowSaving]=useState<Record<string,boolean>>({});
  const [choices,setChoices]=useState<Record<string,'SKIP'|'CASUAL'>>({});
  const status=useQuery({queryKey:['job-list-status'],queryFn:async({signal})=>{const r=await fetch('/api/discovery/status',{signal});if(!r.ok)throw new Error('Could not check saved results.');return r.json() as Promise<{ready:boolean;revision:string;refreshing:boolean;error:string|null}>;},refetchInterval:4000,refetchIntervalInBackground:true});
  const saved=useQuery({queryKey:['saved-assessments'],queryFn:async({signal})=>{const r=await fetch('/api/assessments/saved',{signal});if(!r.ok)throw new Error('Could not load analyzed jobs.');return r.json() as Promise<State>;},refetchInterval:4000,refetchIntervalInBackground:true});
@@ -29,14 +30,15 @@ export function AssessmentResults({onOpen,onDiscover,onUpdatedJD,initialTab="all
  const pending=(data?.queued_count??0)+active.length+queued.length;
  const open=async(id:string)=>{try{await onOpen(id);}catch(e){setError(String(e));}};
  async function passSaved(r:Result,passed:boolean){
-  setSaving(r.job_id);setError('');setNotice('');
+  if(rowSaving[r.job_id])return;
+  setRowSaving(b=>({...b,[r.job_id]:true}));setError('');setNotice('');
   try{
    const response=await fetch(`/api/assessments/${r.job_id}/pass`,{method:'POST',headers:{'Content-Type':'application/json','X-Local-Review':'1'},body:JSON.stringify({passed})});
    const result=await response.json();if(!response.ok)throw new Error(typeof result.detail==='string'?result.detail:'Could not save your choice.');
    setChoices(c=>{const next={...c};if(passed)next[r.job_id]='SKIP';else delete next[r.job_id];return next;});
    setData(d=>d?{...d,items:d.items.map(i=>i.job_id===r.job_id?{...i,assessment:{...i.assessment,choice:passed?'SKIP':null}}:i)}:d);
    setNotice(`${r.company}: ${passed?'passed. Find it under Results → Passed by me.':'restored.'}`);
-  }catch(e){setError(String(e));}finally{setSaving(null);}
+  }catch(e){setError(String(e));}finally{setRowSaving(b=>({...b,[r.job_id]:false}));}
  }
  const post=(url:string,body:unknown)=>fetch(url,{method:'POST',headers:{'Content-Type':'application/json','X-Local-Review':'1'},body:JSON.stringify(body)}).then(async response=>{const v=await response.json();if(!response.ok)throw new Error(typeof v.detail==='string'?v.detail:'Could not complete this action.');return v;});
  async function openPaste(r:Result){
@@ -70,16 +72,19 @@ export function AssessmentResults({onOpen,onDiscover,onUpdatedJD,initialTab="all
   }catch(e){setError(String(e));}finally{setSaving(null);}
  }
  async function choose(r:Result,choice:'SKIP'|'CASUAL') {
-  setSaving(r.job_id);setError('');setNotice('');
+  if(choice==='SKIP')return passSaved(r,true);
+  if(rowSaving[r.job_id])return;
+  setRowSaving(b=>({...b,[r.job_id]:true}));setError('');setNotice('');
   try {
    const current=await fetch(`/api/jobs/${r.job_id}/pursuit`);if(!current.ok)throw new Error('Could not load the current recommendation.');const view=await current.json();
    if(!view.version||!view.result)throw new Error('Review the current assessment before deciding.');
    const response=await fetch(`/api/jobs/${r.job_id}/pursuit/decision`,{method:'POST',headers:{'Content-Type':'application/json','X-Local-Review':'1'},body:JSON.stringify({version:view.version,choice,reason:''})});
    const saved=await response.json();if(!response.ok)throw new Error(saved.detail||'Could not save your choice.');
+   await post(`/api/assessments/${r.job_id}/pass`,{passed:false});
    setChoices(previous=>({...previous,[r.job_id]:saved.choice.choice}));
    setData(d=>d?{...d,items:d.items.map(i=>i.job_id===r.job_id?{...i,assessment:{...i.assessment,choice:saved.choice.choice}}:i)}:d);
-   setNotice(`${r.company}: ${choice==='SKIP'?'moved to Passed by me.':'saved as a role you want to pursue.'}`);
-  }catch(e){setError(String(e));}finally{setSaving(null);}
+   setNotice(`${r.company}: saved as a role you want to pursue.`);
+  }catch(e){setError(String(e));}finally{setRowSaving(b=>({...b,[r.job_id]:false}));}
  }
  return <section className="panel discovery analyzed-jobs">
  {data&&pending>0&&<section className="discovery-preferences" aria-label="Analysis progress" role="status">
@@ -105,7 +110,7 @@ export function AssessmentResults({onOpen,onDiscover,onUpdatedJD,initialTab="all
      {h.action==="rerun"&&<button className="primary" disabled={!!saving} onClick={()=>void rerun(r)}>{saving===r.job_id?"Queuing…":"Re-run analysis · API usage"}</button>}
      {h.action==="fix_description"&&<button className="primary" onClick={()=>void openPaste(r)}>{r.assessment.listing_changed?"Review description":"Paste description"}</button>}
      <button onClick={()=>void open(r.job_id)}>{h.action==="open"?"Open assessment":"Open details"}</button>
-     <button disabled={!!saving} title="Not interested: remove from this list" onClick={()=>void passSaved(r,true)}>Pass</button>
+     <button disabled={!!rowSaving[r.job_id]} title="Not interested: remove from this list" onClick={()=>void passSaved(r,true)}>Pass</button>
     </div></td></tr>)}
   </tbody></table></div>}
  </>}
@@ -121,8 +126,8 @@ export function AssessmentResults({onOpen,onDiscover,onUpdatedJD,initialTab="all
  {!data?<p>Loading analyzed jobs…</p>:!items.length?<div className="decision-empty"><h2>{pending>0?"No completed jobs match this filter yet":"No jobs in this view"}</h2><p>{pending>0?"Analysis is underway above. Choose All recommendations to see every completed result.":"No completed analyses have this recommendation. Choose All to see every completed result."}</p><button onClick={()=>setFilter("all")}>Show all recommendations</button><button onClick={onDiscover}>Go to New jobs</button></div>:<div className="discovery-table-scroll" tabIndex={0} role="region" aria-label="Analyzed jobs"><table className="discovery-table"><thead><tr><th>Company / role</th><th>Evidence score</th><th>Listing</th><th>Recommendation & why</th><th>Next action</th></tr></thead><tbody>
  {items.map(r=><tr key={r.job_id}><td><strong>{r.company}</strong><div>{r.title}</div>{r.sponsorship&&<small className="sponsorship-blocked" title={r.sponsorship.quote}>No visa sponsorship: “{r.sponsorship.quote}”</small>}{r.resume&&<small className={`resume-status resume-status-${r.resume.state.toLowerCase()}`}>{r.resume.label}</small>}{r.last_scanned_at&&<small>Seen in scan #{r.last_scan_id} · {new Date(r.last_scanned_at).toLocaleString()}</small>}{r.assessment.assessed_at&&<small>Analyzed · {new Date(r.assessment.assessed_at).toLocaleString()}</small>}</td><td>{r.assessment.score===null?'—':`${r.assessment.score}/100`}{r.assessment.provisional&&<small>Provisional</small>}{r.assessment.state==='STALE'&&<small>Outdated</small>}</td><td>{r.url&&<a href={r.url} target="_blank" rel="noreferrer">View listing ↗</a>}</td><td><strong>{recommendation(r)}</strong>{r.assessment.explanation&&<RecommendationWhy value={r.assessment.explanation}/>}{!r.assessment.recommendation&&(r.assessment.recommendation_error||r.assessment.error)&&<p>{r.assessment.recommendation_error||r.assessment.error}</p>}<ResumeApproach jobId={r.job_id} value={r.resume_approach}/>{r.assessment.choice&&<small>Your choice: {r.assessment.choice==='SKIP'?'Passed':'Want to pursue'}</small>}</td><td className="role-action-cell"><div className="role-actions">
  {r.assessment.listing_changed&&r.opportunity_id?<button onClick={()=>onUpdatedJD(r.opportunity_id!)}>Review updated JD</button>:<>{r.assessment.state==='STALE'&&<button className="primary" disabled={!!saving} onClick={()=>void rerun(r)}>{saving===r.job_id?'Queuing…':'Re-run analysis · API usage'}</button>}<button onClick={()=>void open(r.job_id)}>{r.assessment.state==='COMPLETE'?'Review evidence':r.assessment.state==='STALE'?'View previous analysis':'Open unfinished analysis'}</button></>}
- {r.assessment.state!=='COMPLETE'&&<button disabled={!!saving} onClick={()=>void passSaved(r,r.assessment.choice!=='SKIP')}>{r.assessment.choice==='SKIP'?'Undo pass':'Pass'}</button>}
- {r.assessment.state==='COMPLETE'&&!r.assessment.listing_changed&&<><TailorResume jobId={r.job_id} label={`${r.company} · ${r.title}`}/><button disabled={!!saving} onClick={()=>void choose(r,r.assessment.choice==='SKIP'?'CASUAL':'SKIP')}>{saving===r.job_id?'Saving…':r.assessment.choice==='SKIP'?'Reconsider':'Pass'}</button></>}
+ {r.assessment.state!=='COMPLETE'&&<button disabled={!!rowSaving[r.job_id]} onClick={()=>void passSaved(r,r.assessment.choice!=='SKIP')}>{r.assessment.choice==='SKIP'?'Undo pass':'Pass'}</button>}
+ {r.assessment.state==='COMPLETE'&&!r.assessment.listing_changed&&<><TailorResume jobId={r.job_id} label={`${r.company} · ${r.title}`}/><button disabled={!!rowSaving[r.job_id]} onClick={()=>void choose(r,r.assessment.choice==='SKIP'?'CASUAL':'SKIP')}>{rowSaving[r.job_id]?'Saving…':r.assessment.choice==='SKIP'?'Reconsider':'Pass'}</button></>}
  <WritingHelp jobId={r.job_id} company={r.company} url={r.url} yc={!!r.yc_listing||isYCListing(r.url)}/><MarkApplied jobId={r.job_id} company={r.company}/></div></td></tr>)}
  </tbody></table></div>}
  </>}

@@ -59,3 +59,19 @@ def test_passing_an_unfinished_saved_role_hides_it_and_its_listing_and_can_be_un
             assert not db.execute('SELECT 1 FROM passed_saved_jobs WHERE job_id=?', (job_id,)).fetchone()
             assert not db.execute('SELECT 1 FROM passed_jobs WHERE opportunity_id=?', (oid,)).fetchone()
         assert client.post('/api/assessments/missing/pass', headers=H, json={'passed': True}).status_code == 404
+
+def test_pass_does_not_wait_for_scan_lock(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+    from app.job_retention import pass_job, pass_saved_job
+    with TestClient(create_app(tmp_path)) as client:
+        discovery = client.app.state.discovery
+        oid, _ = discovery.save('yc', {'source_id': 'independent', 'title': 'Product Manager',
+            'company': 'Example', 'url': 'https://example.com/jobs/independent',
+            'location': 'USA', 'description': JD, 'posted_at': None})
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            discovery.lock.acquire()
+            try:
+                assert pool.submit(pass_job, discovery, oid, True).result(timeout=3) == {'passed': True}
+                assert pool.submit(pass_job, discovery, oid, False).result(timeout=3) == {'passed': False}
+            finally:
+                discovery.lock.release()

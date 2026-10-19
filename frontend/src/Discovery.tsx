@@ -83,10 +83,15 @@ export function Discovery({onOpen,onResults,onAdd,initialReviewId,view="opportun
  // Passed in this session; hidden at once instead of waiting for the list to refresh.
  const [hidden,setHidden]=useState<Record<string,boolean>>({});
  async function passRow(item:Item,passed:boolean){
-  for(const id of item.duplicate_ids?.length?item.duplicate_ids:[item.id])await request(`/${id}/pass`,{passed});
-  setHidden(h=>({...h,[item.id]:passed}));
-  setRowNotice(n=>({...n,[item.id]:passed?'Passed. Find it under Show → Passed by me.':'Restored to New jobs.'}));
-  setState();
+  if(rowBusy[item.id])return;
+  setRowBusy(b=>({...b,[item.id]:true}));setError('');
+  try{
+   for(const id of item.duplicate_ids?.length?item.duplicate_ids:[item.id])await request(`/${id}/pass`,{passed});
+   setHidden(h=>({...h,[item.id]:passed}));
+   setRowNotice(n=>({...n,[item.id]:passed?'Passed. Find it under Show → Passed by me.':'Restored to New jobs.'}));
+   setState();
+  }catch(e){setError(e instanceof Error?e.message:'Could not save your choice.');}
+  finally{setRowBusy(b=>({...b,[item.id]:false}));}
  }
  // Queue in the background: only this row waits, the rest of the page stays usable.
  async function analyzeRow(item:Item){
@@ -223,7 +228,7 @@ export function Discovery({onOpen,onResults,onAdd,initialReviewId,view="opportun
        {!queueActive(item) && !item.queued_for_assessment && ["NOT_STARTED", ""].includes(item.assessment?.state ?? "") && <button className="primary" disabled={!!rowBusy[item.id]} onClick={()=>void analyzeRow(item)}>{item.job_id ? "Analyze deeply again" : "Analyze deeply"} · API usage</button>}
       </>}
       {item.job_id && item.assessment?.state==="NOT_STARTED" && <button disabled={busy} onClick={()=>void act(()=>onOpen(item.job_id!))}>Open role &amp; analysis</button>}
-      {item.passed?<button disabled={busy} onClick={()=>void act(()=>passRow(item,false))}>Undo pass</button>:!queueActive(item)&&item.assessment?.state!=="QUEUED"&&item.assessment?.state!=="RUNNING"&&<button disabled={busy} title="Not interested: hide from New jobs and skip automatic analysis" onClick={()=>void act(()=>passRow(item,true))}>Pass</button>}
+      {item.passed?<button disabled={!!rowBusy[item.id]} onClick={()=>void passRow(item,false)}>Undo pass</button>:!queueActive(item)&&item.assessment?.state!=="QUEUED"&&item.assessment?.state!=="RUNNING"&&<button disabled={!!rowBusy[item.id]} title="Not interested: hide from New jobs and skip automatic analysis" onClick={()=>void passRow(item,true)}>Pass</button>}
       {item.description_length>=200&&!item.description_changed&&<RowWritingHelp oid={item.id} jobId={item.job_id||null} company={item.company} url={item.url} yc={isYCListing(item.url)||(item.listing_urls??[]).some(isYCListing)||item.sources.some(s=>s.board==='yc')} hasDescription/>}
      </div>
      <JobDetails item={item} boards={state.boards}/><MarkApplied jobId={item.job_id||undefined} opportunityId={item.id} company={item.company}/><div><button className="text-action" disabled={busy} onClick={()=>void act(async()=>{await request(`/${item.id}/keep`,{keep:!item.kept});setState();})}>{item.kept?"Unkeep job":"Keep job"}</button> · <button className="text-action" onClick={()=>setWatchCompany(item.company)}>{item.company_watched?"Watching company":"Watch company"}</button></div></td>
@@ -244,7 +249,7 @@ export function Discovery({onOpen,onResults,onAdd,initialReviewId,view="opportun
        {["paste_jd","replace_jd","review_jd"].includes(h.kind)&&<button className="primary" disabled={busy} onClick={()=>void act(()=>openJD(item))}>{h.kind==="review_jd"?"Review description":"Paste description"}</button>}
        {h.kind==="retry"&&<button className="primary" disabled={!!rowBusy[item.id]} onClick={()=>void analyzeRow(item)}>Retry analysis · API usage</button>}
        {h.kind==="review_analysis"&&item.job_id&&<button className="primary" disabled={busy} onClick={()=>void act(()=>onOpen(item.job_id!))}>Open role</button>}
-       <button disabled={busy} title="Not interested: hide this job" onClick={()=>void act(()=>passRow(item,true))}>Pass</button>
+       <button disabled={!!rowBusy[item.id]} title="Not interested: hide this job" onClick={()=>void passRow(item,true)}>Pass</button>
       </div></td></tr>;})}
     </tbody></table></div>}
     {pages>1&&<div className="opportunity-pagination"><small>Page {currentPage} of {pages}</small><div><button disabled={currentPage===1} onClick={()=>setPage(currentPage-1)}>Previous</button><button disabled={currentPage===pages} onClick={()=>setPage(currentPage+1)}>Next</button></div></div>}
