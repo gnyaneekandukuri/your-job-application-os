@@ -2,6 +2,7 @@ import {useState} from 'react';
 const localDate=(d:Date)=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 // Jobs found and applied to outside this app: no saved JD or resume needed.
 export function AddExternalApplication({onAdded}:{onAdded:()=>void}){
+ const [open,setOpen]=useState(false);
  const blank={company:'',title:'',url:'',location:'',applied_date:localDate(new Date()),notes:''};
  const [form,setForm]=useState(blank),[busy,setBusy]=useState(false),[error,setError]=useState(''),[notice,setNotice]=useState('');
  const set=(k:keyof typeof blank)=>(e:{target:{value:string}})=>setForm(f=>({...f,[k]:e.target.value}));
@@ -14,7 +15,8 @@ export function AddExternalApplication({onAdded}:{onAdded:()=>void}){
    setNotice(`${form.company} · ${form.title} added for ${form.applied_date}.`);setForm(blank);onAdded();
   }catch(e){setError(String(e));}finally{setBusy(false);}
  }
- return <details className="external-application"><summary>Add a job you applied to elsewhere</summary>
+ return <section className="external-application"><button className="primary" aria-expanded={open} onClick={()=>setOpen(v=>!v)}>Add external application</button>
+ {open&&<><p>Record a job you already applied to outside this app.</p>
   <form onSubmit={e=>{e.preventDefault();void submit();}}>
    <label>Company<input required maxLength={200} value={form.company} onChange={set('company')}/></label>
    <label>Role title<input required maxLength={200} value={form.title} onChange={set('title')}/></label>
@@ -25,5 +27,6 @@ export function AddExternalApplication({onAdded}:{onAdded:()=>void}){
    <button className="primary" disabled={busy}>Add to applied jobs</button>
   </form>
   {error&&<p role="alert">{error}</p>}{notice&&<p role="status">{notice}</p>}
- </details>;
+ </>}
+ </section>;
 }
