@@ -21,9 +21,13 @@ class AnswerInput(Strict):
     note: str = Field(default='', max_length=6000)
     limit: int | None = Field(default=None, ge=1, le=10000)
     unit: Literal['words','characters'] = 'words'
+    # None: reuse general questions across jobs; company-specific ones stay with this job.
+    reusable: bool | None = None
 
 class SaveInput(AnswerInput):
     text: str = Field(max_length=16000)
+    # '<job_id>:<answer_id>' when the text was copied from the answer library.
+    reused_from: str = Field(default='', max_length=200)
 
 class Evidence(Strict):
     source_id: str
@@ -50,7 +54,7 @@ def current(engine,job,data):
     return old
 
 def persist(engine,job,data,answer):
-    row={**data.model_dump(mode='json'),**answer,'revision':str(uuid4()),'updated_at':now()}
+    row={**data.model_dump(mode='json',exclude={'reused_from'}),**answer,'company':job.company,'revision':str(uuid4()),'updated_at':now()}
     length=len(row['text']) if data.unit=='characters' else len(row['text'].split())
     row['limit_exceeded']=bool(data.limit and length>data.limit)
     rows=[r for r in view(engine,job)['items'] if r['id']!=row['id']]
@@ -61,8 +65,18 @@ def save(engine,job,data):
     with LOCK:
         old=current(engine,job,data)
         unchanged=old and all(old.get(k)==getattr(data,k) for k in ('text','question','note'))
+        source=reused(engine,data)
+        if source:
+            return persist(engine,job,data,{'text':data.text,'questions':[],'evidence':source.get('evidence',[]),'evidence_dropped':0,'reused_from':data.reused_from})
         return persist(engine,job,data,{'text':data.text,'questions':old.get('questions',[]) if unchanged else [],'evidence':old.get('evidence',[]) if unchanged else [],
             'evidence_dropped':old.get('evidence_dropped',0) if unchanged else 0})
+
+def reused(engine,data):
+    """The library answer this text was copied from, when unchanged; its evidence still applies."""
+    job_id,_,answer_id=data.reused_from.partition(':')
+    if not answer_id:return None
+    row=next((r for r in (engine.get('application-answers:'+job_id) or {'items':[]})['items'] if r['id']==answer_id),None)
+    return row if row and row.get('text')==data.text else None
 
 def findings(tailoring,job):
     """Supported requirement matches from a completed deep analysis; guidance only, never citable evidence."""

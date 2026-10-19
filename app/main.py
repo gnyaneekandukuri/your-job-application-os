@@ -603,7 +603,7 @@ def create_app(data_dir: Path | None = None):
     def team_message_save(job_id: str, data: team_message.SaveInput, request: Request):
         return team_message.save(request.app.state.retrieval, request.app.state.service.review(job_id).job, data)
 
-    from . import application_answer
+    from . import application_answer, answer_library
 
     @api.get("/api/jobs/{job_id}/application-answers")
     def application_answers(job_id: str, request: Request):
@@ -612,6 +612,14 @@ def create_app(data_dir: Path | None = None):
     @api.post("/api/jobs/{job_id}/application-answers/draft")
     def application_answer_draft(job_id: str, data: application_answer.AnswerInput, request: Request):
         return application_answer.generate(request.app.state.tailoring, request.app.state.service.review(job_id).job, data)
+
+    @api.post("/api/jobs/{job_id}/application-answers/matches")
+    def application_answer_matches(job_id: str, data: answer_library.MatchInput, request: Request):
+        service = request.app.state.service
+        def company_of(other):
+            try: return service.review(other).job.company
+            except Exception: return ''
+        return answer_library.matches(request.app.state.retrieval, service.review(job_id).job, data, company_of)
 
     @api.post("/api/jobs/{job_id}/application-answers/save")
     def application_answer_save(job_id: str, data: application_answer.SaveInput, request: Request):
