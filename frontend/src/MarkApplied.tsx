@@ -1,6 +1,6 @@
 import {useEffect,useRef,useState} from 'react';
 import {useQueryClient} from '@tanstack/react-query';
-export function MarkApplied({jobId,opportunityId,company}:{jobId?:string;opportunityId?:string;company:string}){
+export function MarkApplied({jobId,opportunityId,company,onRecorded}:{jobId?:string;opportunityId?:string;company:string;onRecorded?:()=>void}){
  const query=useQueryClient(),dialog=useRef<HTMLDialogElement>(null);
  const [open,setOpen]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState(''),[notes,setNotes]=useState('');
  const [date,setDate]=useState(()=>{const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;});
@@ -11,7 +11,7 @@ export function MarkApplied({jobId,opportunityId,company}:{jobId?:string;opportu
   const v=await r.json();if(!r.ok)throw Error(r.status===404?'This action needs the updated server.':typeof v.detail==='string'?v.detail:'Could not record application.');
   query.setQueryData<{job_id:string;url:string}[]>(['applications'],rows=>[...(rows||[]).filter(a=>a.job_id!==v.job_id),v]);
   void query.invalidateQueries({queryKey:['job-list']});void query.invalidateQueries({queryKey:['job-list-status']});
-  setOpen(false);
+  setOpen(false);onRecorded?.();
  }catch(e){setError(e instanceof Error?e.message:'Could not save application.');}finally{setBusy(false);}}
  return <><button className="applied-action" onClick={()=>{setError('');setOpen(true);}}>I applied</button><dialog ref={dialog} className="skills-dialog" aria-label={`Record application to ${company}`} onCancel={e=>{if(busy)e.preventDefault();else setOpen(false);}}>
  <h2>Applied to {company}</h2><p>Record an application you already submitted. No tailored resume is required.</p>

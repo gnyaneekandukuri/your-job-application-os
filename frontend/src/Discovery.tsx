@@ -82,6 +82,7 @@ export function Discovery({onOpen,onResults,onAdd,initialReviewId,view="opportun
  const [saved,setSaved]=useState<Record<string,string>>({});
  // Passed in this session; hidden at once instead of waiting for the list to refresh.
  const [hidden,setHidden]=useState<Record<string,boolean>>({});
+ const [recordedApplications,setRecordedApplications]=useState<Record<string,boolean>>({});
  async function passRow(item:Item,passed:boolean){
   if(rowBusy[item.id])return;
   setRowBusy(b=>({...b,[item.id]:true}));setError('');
@@ -113,7 +114,7 @@ export function Discovery({onOpen,onResults,onAdd,initialReviewId,view="opportun
  const total=state?.total??0;
  const pages=state?.pages??1;
  const currentPage=state?.page??page;
- const pageRows=(state?.items??[]).filter(item=>!(tab==="help"&&saved[item.id]&&saved[item.id]===item.content_hash)&&(filter==="passed"&&tab==="jobs"?hidden[item.id]!==false:!hidden[item.id]));
+ const pageRows=(state?.items??[]).filter(item=>!recordedApplications[item.id]&&!(tab==="help"&&saved[item.id]&&saved[item.id]===item.content_hash)&&(filter==="passed"&&tab==="jobs"?hidden[item.id]!==false:!hidden[item.id]));
  return <section className="panel discovery">
   {view==='opportunities'&&<div className="section-heading"><div><h2>New jobs</h2><p>Found a role elsewhere? Add its link for deep analysis.</p></div><button className="primary" onClick={onAdd}>+ Add a job</button></div>}
   {view==="runs"&&<div className="section-heading"><div><div className="eyebrow">LOCAL JOB DISCOVERY</div><h1>{view==="runs"?"Discovery runs":"New opportunities"}</h1><p>{view==="runs"?"Check job boards and review the latest run.":"Find roles that overlap with your experience and what you want to do next."}</p></div>
@@ -231,7 +232,7 @@ export function Discovery({onOpen,onResults,onAdd,initialReviewId,view="opportun
       {item.passed?<button disabled={!!rowBusy[item.id]} onClick={()=>void passRow(item,false)}>Undo pass</button>:!queueActive(item)&&item.assessment?.state!=="QUEUED"&&item.assessment?.state!=="RUNNING"&&<button disabled={!!rowBusy[item.id]} title="Not interested: hide from New jobs and skip automatic analysis" onClick={()=>void passRow(item,true)}>Pass</button>}
       {item.description_length>=200&&!item.description_changed&&<RowWritingHelp oid={item.id} jobId={item.job_id||null} company={item.company} url={item.url} yc={isYCListing(item.url)||(item.listing_urls??[]).some(isYCListing)||item.sources.some(s=>s.board==='yc')} hasDescription/>}
      </div>
-     <JobDetails item={item} boards={state.boards}/><MarkApplied jobId={item.job_id||undefined} opportunityId={item.id} company={item.company}/><div><button className="text-action" disabled={busy} onClick={()=>void act(async()=>{await request(`/${item.id}/keep`,{keep:!item.kept});setState();})}>{item.kept?"Unkeep job":"Keep job"}</button> · <button className="text-action" onClick={()=>setWatchCompany(item.company)}>{item.company_watched?"Watching company":"Watch company"}</button></div></td>
+     <JobDetails item={item} boards={state.boards}/><MarkApplied jobId={item.job_id||undefined} opportunityId={item.id} company={item.company} onRecorded={()=>setRecordedApplications(h=>({...h,[item.id]:true}))}/><div><button className="text-action" disabled={busy} onClick={()=>void act(async()=>{await request(`/${item.id}/keep`,{keep:!item.kept});setState();})}>{item.kept?"Unkeep job":"Keep job"}</button> · <button className="text-action" onClick={()=>setWatchCompany(item.company)}>{item.company_watched?"Watching company":"Watch company"}</button></div></td>
      <td>{item.sponsorship&&<div className="sponsorship-blocked"><strong title={item.sponsorship.quote}>No visa sponsorship · not auto-analyzed</strong><small>“{item.sponsorship.quote}”</small></div>}{item.keyword_match && <div className="opportunity-priority"><span className={`preference-badge preference-${item.keyword_match.priority}`} title={item.keyword_match.reason}>{item.keyword_match.priority==='low'?'Low priority':item.keyword_match.label}</span>{item.keyword_match.reason&&<details><summary>Why this priority</summary><p>{item.keyword_match.reason}</p></details>}</div>}{item.keyword_match?.experience.length ? <details className="keyword-details"><summary>Matched skills ({item.keyword_match.experience.length})</summary><div className="keyword-tags">{item.keyword_match.experience.map(match=><span key={match.term}>{match.term}</span>)}</div></details> : null}</td>
      <td><a href={item.url} target="_blank" rel="noreferrer">View listing ↗</a></td>
      <td>{[...new Set(item.sources.map(s=>state.boards[s.board]||s.board))].join(", ")}</td><td>{item.location||"Unknown"}</td>
