@@ -52,6 +52,16 @@ def test_saved_decisions_and_application_block_dispatch(tmp_path):
             db.execute('INSERT INTO applications VALUES(?,?,?)',('application',jid,json.dumps({'job_id':jid,'url':'https://example.com/job/one','company':'Example','title':'Product Manager'})))
         with pytest.raises(Conflict,match='already applied or passed'):
             d.import_role(oid,automatic=True)
+        other_id, _ = d.save('yc', dict(source_id='separate-opening', company='Example',
+            title='Product Manager', location='USA', url='https://example.com/job/two',
+            description=JD + ' This is a separate opening on the payments team.'))
+        items = d.view(include_analysis=False)['items']
+        applied = next(i for i in items if i['id'] == oid)
+        separate = next(i for i in items if i['id'] == other_id)
+        assert applied['applied'] and not d.initial_screening_eligible(applied)
+        assert not d.auto_eligible(applied)
+        assert not separate['applied'] and not separate['passed']
+        assert d.initial_screening_eligible(separate)
 
 @pytest.mark.parametrize('state,protected',[('COMPLETE',False),('NEEDS_ATTENTION',False),('QUEUED',True),('RUNNING',True)])
 def test_only_active_selections_protect_old_listing(tmp_path,state,protected):

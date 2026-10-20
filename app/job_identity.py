@@ -44,8 +44,23 @@ def group_listings(items):
     return result
 
 
-def role_key(item):
-    """Company and exact title; used only to recognize a role the candidate already applied to."""
-    norm = lambda value: re.sub(r"\s+", " ", unicodedata.normalize("NFKC", str(value or ""))).strip().casefold()
-    company, title = norm(item.get('company')), norm(item.get('title'))
-    return (company, title) if company and title else None
+def listing_url(value):
+    """Ignore known tracking only; preserve requisition-bearing query parameters."""
+    from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
+    try:
+        parts = urlsplit(str(value or ''))
+        if parts.scheme not in ('http', 'https') or not parts.netloc:
+            return ''
+        query = [(k, v) for k, v in parse_qsl(parts.query, keep_blank_values=True)
+                 if not k.lower().startswith('utm_') and k.lower() not in
+                 {'trk', 'trackingid', 'refid', 'gclid', 'fbclid'}]
+        return urlunsplit((parts.scheme.lower(), parts.netloc.lower(),
+                           parts.path.rstrip('/'), urlencode(sorted(query)), ''))
+    except ValueError:
+        return ''
+
+
+def listing_urls(item):
+    return {listing_url(value) for value in
+            [item.get('url'), item.get('source_url'), *item.get('listing_urls', []),
+             *(source.get('url') for source in item.get('sources', []))]} - {''}
