@@ -4,10 +4,10 @@ from pathlib import Path
 from threading import RLock
 from typing import Literal
 from uuid import UUID, uuid4
-from pydantic import Field
+from pydantic import Field, ValidationError
 from .job_requirements import Strict
 from .retrieval import MODEL, RetrievalError, digest, now
-from .tailoring import parse_response, response_schema, REQUEST_BYTE_LIMIT
+from .tailoring import response_schema, REQUEST_BYTE_LIMIT
 from .cost_tracking import usage_scope
 from .user_workspace import control_documents
 
@@ -116,7 +116,49 @@ def context(tailoring,job,data):
         'candidate_sources':sources,'positioning_guidance':guidance,
         'candidate_fact_rules':{k:json.loads(docs[k]) for k in ('facts','forbidden','conflicts')}}
 
+def parse_answer(response):
+    parts = [p for item in response.get('output', []) if item.get('type') == 'message'
+             for p in item.get('content', [])]
+    refusals = [p.get('refusal', '') for p in parts if p.get('type') == 'refusal']
+    if refusals:
+        reason = ' '.join(str(r) for r in refusals).strip()[:2000]
+        raise RetrievalError('The model declined to draft this answer. ' +
+                             (reason or 'The provider did not supply a reason.') +
+                             ' No automatic retry was made. You can write and save your own answer.', 502)
+    if response.get('status') != 'completed':
+        reason = (response.get('incomplete_details') or {}).get('reason', 'not provided')
+        raise RetrievalError(f'The model did not finish the answer (reason: {reason}). No automatic retry was made.', 502)
+    text = ''.join(p.get('text', '') for p in parts if p.get('type') == 'output_text')
+    if not text.strip():
+        raise RetrievalError('The model returned no answer text. No automatic retry was made.', 502)
+    try:
+        return Answer.model_validate_json(text)
+    except ValidationError as exc:
+        details = '; '.join('.'.join(map(str, e['loc'])) + ': ' + e['type']
+                            for e in exc.errors(include_input=False, include_url=False)[:4])
+        raise RetrievalError('The model returned an answer in an invalid format (' + details +
+                             '). The response was saved locally for diagnosis. No automatic retry was made.', 502) from None
+
+
 def generate(tailoring,job,data):
+    with LOCK:
+        old = current(tailoring.engine, job, data)
+        try:
+            return _generate(tailoring, job, data)
+        except Exception as exc:
+            message = str(exc) if isinstance(exc, RetrievalError) else 'An internal error stopped the draft. No automatic retry was made.'
+            # Keep the question and any existing answer even if generation fails.
+            persist(tailoring.engine, job, data, {
+                'text': (old or {}).get('text', ''), 'questions': (old or {}).get('questions', []),
+                'evidence': (old or {}).get('evidence', []), 'reviewed': (old or {}).get('reviewed', False),
+                'draft_error': message, 'failed_at': now()})
+            if isinstance(exc, RetrievalError): raise
+            import logging
+            logging.getLogger(__name__).exception('Application answer failed for job %s', job.id)
+            raise RetrievalError(message, 500) from None
+
+
+def _generate(tailoring,job,data):
     engine=tailoring.engine
     with LOCK:
         current(engine,job,data)
@@ -133,7 +175,10 @@ def generate(tailoring,job,data):
         result=engine.get(cache)
         if result is None:
             with usage_scope(job.id,'application_question'):
-                result=parse_response(engine.paid('tailoring',payload),Answer).model_dump()
+                response = engine.paid('tailoring',payload)
+                engine.put('application-answer-attempt:'+job.id+':'+str(data.id),
+                           {'created_at': now(), 'response': response})
+                result=parse_answer(response).model_dump()
             by_id={s['id']:s for s in body['candidate_sources']}
             if not result['text'].strip() and not result['questions']:raise RetrievalError('No answer or clarification was returned. No automatic retry was made.',502)
             # Excerpts are shown for review only; hide unmatched ones instead of discarding a paid answer.

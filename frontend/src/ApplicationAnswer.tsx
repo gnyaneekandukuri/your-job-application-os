@@ -1,5 +1,5 @@
 import {useEffect,useRef,useState} from 'react';
-type Entry={id:string;revision:string;question:string;note:string;limit:number|null;unit:'words'|'characters';text:string;questions:string[];evidence:{source_id:string;title:string;quote:string}[];evidence_dropped?:number;limit_exceeded?:boolean;reusable?:boolean|null;reused_from?:string;reviewed?:boolean};
+type Entry={draft_error?:string;failed_at?:string;id:string;revision:string;question:string;note:string;limit:number|null;unit:'words'|'characters';text:string;questions:string[];evidence:{source_id:string;title:string;quote:string}[];evidence_dropped?:number;limit_exceeded?:boolean;reusable?:boolean|null;reused_from?:string;reviewed?:boolean};
 type Match={job_id:string;answer_id:string;company:string;question:string;text:string;score:number;updated_at:string;length:number;unit:string;over_limit:boolean;stories_changed:boolean};
 const blank=():Entry=>({id:crypto.randomUUID(),revision:'',question:'',note:'',limit:null,unit:'words',text:'',questions:[],evidence:[]});
 export function ApplicationAnswer({jobId,company,url,autoOpen=false}:{jobId:string;company:string;url:string;autoOpen?:boolean}){
@@ -24,12 +24,12 @@ export function ApplicationAnswer({jobId,company,url,autoOpen=false}:{jobId:stri
  async function save(){const v=await request('/save',{...body(),text:entry.text});accept(v);return v;}
  const count=entry.unit==='characters'?entry.text.length:entry.text.trim()?entry.text.trim().split(/\s+/).length:0;
  const over=!!entry.limit&&count>entry.limit;
- const status=<>{loaded&&error&&<p role="alert">{error}</p>}{notice&&<p role="status">{notice}</p>}</>;
+ const status=<>{notice&&<p role="status">{notice}</p>}</>;
  return <><button onClick={()=>void show()}>Answer an application question</button>
  <dialog ref={dialog} className="skills-dialog application-answer-dialog" aria-label={`Application questions for ${company}`} onCancel={e=>{e.preventDefault();close();}}>
  <div className="skills-dialog-heading"><h2>Application questions for {company}</h2><button disabled={busy} onClick={close}>Close</button></div>
  <p>Paste the employer’s question. Draft an answer from your experience, this role and your positioning notes. No tailored resume is required.</p>
- {!loaded&&error&&<p role="alert">{error}</p>}{!loaded&&!error&&<p>Loading saved answers…</p>}
+ {(error||entry.draft_error)&&<section role="alert" className="answer-draft-error"><h3>Draft could not be completed</h3><p>{error||entry.draft_error}</p><p>Your question and any saved answer are kept. You can edit your answer below or explicitly retry.</p></section>}{!loaded&&!error&&<p>Loading saved answers…</p>}
  {loaded&&<>
  <div className="answer-saved-row"><label>Saved questions<select disabled={busy} value={items.some(x=>x.id===entry.id)?entry.id:''} onChange={e=>switchEntry(e.target.value)}><option value="">New question</option>{items.map(x=><option key={x.id} value={x.id}>{x.question.slice(0,100)}</option>)}</select></label><button disabled={busy} onClick={()=>switchEntry('')}>New question</button></div>
  <label>Application question<textarea rows={4} maxLength={6000} value={entry.question} disabled={busy} onChange={e=>setEntry({...entry,question:e.target.value})}/></label>
@@ -42,7 +42,7 @@ export function ApplicationAnswer({jobId,company,url,autoOpen=false}:{jobId:stri
    <button className="primary" disabled={busy} onClick={()=>void act(async()=>{const v=await request('/save',{...body(),text:m.text,reused_from:`${m.job_id}:${m.answer_id}`});accept(v);setNotice(`Used your ${m.company} answer (no API usage). Edit it below if needed, then save.`);},'draft')}>Use this answer · free</button></div>)}
  </section>}
  <label>Additional details<textarea rows={3} maxLength={6000} value={entry.note} disabled={busy} placeholder="Add relevant details or answer the clarification questions below." onChange={e=>setEntry({...entry,note:e.target.value})}/></label>
- <button disabled={busy||!entry.question.trim()||!!entry.limit&&(entry.limit<1||entry.limit>10000)} onClick={()=>{if(entry.text.trim()&&!window.confirm('Replace this answer with a new draft?'))return;void act(async()=>{const v=await request('/draft',body());accept(v);setNotice(v.evidence_dropped?`New draft ready below. ${v.evidence_dropped} source excerpt(s) could not be matched to your documents and were hidden — double-check those facts.`:'New draft ready below. Review the answer and any questions.');},'draft');}}>{busy?'Working…':entry.text?'Redraft answer · API usage':'Draft answer · API usage'}</button>
+ <button disabled={busy||!entry.question.trim()||!!entry.limit&&(entry.limit<1||entry.limit>10000)} onClick={()=>{if(entry.text.trim()&&!window.confirm('Replace this answer with a new draft?'))return;void act(async()=>{let v:Entry;try{v=await request('/draft',body());}catch(e){try{const latest=await request();setItems(latest.items);const failed=latest.items.find((x:Entry)=>x.id===entry.id);if(failed)select(failed);}catch{}throw e;}accept(v);setNotice(v.evidence_dropped?`New draft ready below. ${v.evidence_dropped} source excerpt(s) could not be matched to your documents and were hidden — double-check those facts.`:'New draft ready below. Review the answer and any questions.');},'draft');}}>{busy?'Working…':entry.text?'Redraft answer · API usage':'Draft answer · API usage'}</button>
  {where==='draft'&&status}
  {entry.questions.length>0&&<section aria-label="Details needed"><h3>{entry.text.trim()?'Confirm these details':'Details needed to draft an answer'}</h3><ul>{entry.questions.map((q,i)=><li key={i}>{q}</li>)}</ul><p>{entry.text.trim()?'Your draft is below. Confirm these details in Additional details if needed, then redraft.':'Add these details above, then draft again.'}</p></section>}
  <label>Your answer<textarea rows={9} maxLength={16000} value={entry.text} disabled={busy} onChange={e=>setEntry({...entry,text:e.target.value,evidence:[]})}/></label>
