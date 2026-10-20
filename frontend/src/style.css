@@ -1128,8 +1128,8 @@ button.text-button { border: 0; background: transparent; padding: .2rem .25rem; 
 .application-answer-dialog .skills-dialog-heading h2 {margin:0; font-size:24px; line-height:1.25;}
 .application-answer-dialog > p {margin:0 0 20px;}
 .application-answer-dialog label {margin:0 0 18px; font-size:14px; font-weight:600; gap:8px; min-width:0;}
-.application-answer-dialog input,.application-answer-dialog select,.application-answer-dialog textarea {width:100%;box-sizing:border-box;margin:0; font:inherit; font-weight:400; padding:10px 12px; border:1px solid #c4d2c8; border-radius:8px;}
-.application-answer-dialog input,.application-answer-dialog select {height:44px; min-height:44px;}
+.application-answer-dialog input:not([type=checkbox]):not([type=radio]),.application-answer-dialog select,.application-answer-dialog textarea {width:100%;box-sizing:border-box;margin:0; font:inherit; font-weight:400; padding:10px 12px; border:1px solid #c4d2c8; border-radius:8px;}
+.application-answer-dialog input:not([type=checkbox]):not([type=radio]),.application-answer-dialog select {height:44px; min-height:44px;}
 .application-answer-dialog textarea {line-height:1.5;resize:vertical;}
 .application-answer-dialog button {font-size:14px;padding:10px 14px;min-height:44px;}
 .application-answer-dialog .answer-saved-row {display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:end;margin:0 0 18px;}
@@ -1217,3 +1217,9 @@ button.text-button { border: 0; background: transparent; padding: .2rem .25rem; 
 .answer-reuse blockquote { margin:6px 0; white-space:pre-wrap; max-height:180px; overflow:auto; }
 .answer-reuse-note { color:#475569; font-size:13px; }
 .answer-reuse-toggle { display:flex; gap:6px; align-items:center; margin:6px 0; }
+
+/* Keep answer reuse a compact checkbox row, not a full-width form field. */
+.application-answer-dialog .answer-reuse-toggle {display:flex;flex-direction:row;align-items:flex-start;gap:10px;margin:12px 0 0;text-align:left;font-weight:400;cursor:pointer;}
+.application-answer-dialog .answer-reuse-toggle input[type=checkbox] {width:18px;height:18px;min-width:18px;min-height:18px;flex:0 0 18px;margin:2px 0 0;padding:0;accent-color:#245943;}
+.application-answer-dialog .answer-reuse-toggle span {display:block;line-height:1.5;}
+.application-answer-dialog .answer-reuse-toggle small {display:block;margin-top:2px;color:#64746b;font-size:12px;font-weight:400;}

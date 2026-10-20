@@ -48,7 +48,7 @@ export function ApplicationAnswer({jobId,company,url,autoOpen=false}:{jobId:stri
  <label>Your answer<textarea rows={9} maxLength={16000} value={entry.text} disabled={busy} onChange={e=>setEntry({...entry,text:e.target.value,evidence:[]})}/></label>
  <p role={over?'alert':undefined}>{count}{entry.limit?` / ${entry.limit}`:''} {entry.unit}{over?' — over the limit; shorten before submitting.':''}</p>
  {entry.evidence.length>0&&<details><summary>Source evidence</summary>{entry.evidence.map((r,i)=><div key={i}><strong>{r.title}</strong><blockquote>{r.quote}</blockquote></div>)}</details>}
- <label className="answer-reuse-toggle"><input type="checkbox" disabled={busy} checked={entry.reusable!==false} onChange={e=>setEntry({...entry,reusable:e.target.checked?null:false})}/> Reuse for other jobs <small>(company-specific questions are never reused)</small></label>
+ <label className="answer-reuse-toggle"><input type="checkbox" disabled={busy} checked={entry.reusable!==false} onChange={e=>setEntry({...entry,reusable:e.target.checked?null:false})}/><span>Reuse for other jobs<small>Company-specific questions are never reused.</small></span></label>
  <div className="selection-actions"><button disabled={busy||!dirty||!entry.question.trim()} onClick={()=>void act(async()=>{await save();setNotice('Answer saved.');})}>Save edits</button><button disabled={busy||!entry.text.trim()} onClick={()=>void act(async()=>{if(dirty||entry.reviewed===false)await save();await navigator.clipboard.writeText(entry.text);setNotice('Copied. Paste it into the application.');})}>Copy answer</button>{/^https?:\/\//.test(url)&&<a href={url} target="_blank" rel="noreferrer">Open application ↗</a>}</div>
  {where==='actions'&&status}
  </>}
