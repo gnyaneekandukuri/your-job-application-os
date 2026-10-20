@@ -217,7 +217,7 @@ def test_exact_duplicate_grouping_and_applied_alias_without_rebuild(model):
         db.executemany('INSERT INTO opportunities VALUES(?,NULL,?)',[(r['id'],json.dumps(r)) for r in source['items']])
     with sqlite3.connect(d.path.parent/'applications.sqlite3') as db:
         db.execute('CREATE TABLE applications(job_id TEXT,payload TEXT)')
-        db.execute('INSERT INTO applications VALUES(?,?)',('opportunity:1',json.dumps({'url':one['url'],'job_snapshot':one,'location':one['location']})))
+        db.execute('INSERT INTO applications VALUES(?,?)',('opportunity:1',json.dumps({'company':one['company'],'title':one['title'],'url':one['url'],'job_snapshot':one,'location':one['location']})))
     assert [r['id'] for r in m.page()['items']]==['3']
     assert identity({**one,'location':'Other city'})!=identity(one)
     assert identity({**one,'description':''}) is None
@@ -231,3 +231,33 @@ def test_manual_queue_visible_before_snapshot_exists(model):
     source['assessment_results']['items']=[{**item,'assessment':{'state':'NOT_STARTED'}}]
     m.refresh()
     assert m.assessments()['items']==[item]
+
+
+def test_applied_matches_opening_links_not_company_title(model):
+    import sqlite3
+    m, source, d = model
+    applied = listing(1, title='Product Manager', url='https://jobs.example/role?id=123&utm_source=email')
+    repost = listing(2, title='Product Manager', url='https://board.example/987',
+                     description='Updated wording ' * 30,
+                     sources=[{'board': 'ats', 'url': 'https://jobs.example/role?utm_source=board&id=123'}])
+    separate = listing(3, title='Product Manager', url='https://jobs.example/role?id=456',
+                       description='A different team and responsibilities ' * 30)
+    source['items'] = [applied, repost, separate]
+    m.refresh()
+    with sqlite3.connect(d.path) as db:
+        db.execute('CREATE TABLE opportunities(id TEXT,job_id TEXT,payload TEXT)')
+        db.executemany('INSERT INTO opportunities VALUES(?,?,?)',
+                       [(r['id'], 'saved-'+r['id'], json.dumps(r)) for r in source['items']])
+    with sqlite3.connect(d.path.parent/'applications.sqlite3') as db:
+        db.execute('CREATE TABLE applications(job_id TEXT,payload TEXT)')
+        db.execute('INSERT INTO applications VALUES(?,?)', ('saved-1', json.dumps(applied)))
+    ids, _ = m.applied_keys()
+    assert {'saved-1', 'saved-2', 'opportunity:2'} <= ids
+    assert 'saved-3' not in ids and 'opportunity:3' not in ids
+    assert [r['id'] for r in m.page()['items']] == ['3']
+
+
+def test_listing_url_preserves_job_ids():
+    from app.job_identity import listing_url
+    assert listing_url('https://jobs.example/role?id=1&utm_source=test#details') == 'https://jobs.example/role?id=1'
+    assert listing_url('https://jobs.example/role?id=1') != listing_url('https://jobs.example/role?id=2')

@@ -10,9 +10,9 @@ from contextlib import closing
 from datetime import datetime, timezone, timedelta
 from threading import Event, Lock, Thread
 
-from .job_identity import role_key
+from .job_identity import listing_urls
 
-VERSION = 'job-list-v11-handled-analysis'
+VERSION = 'job-list-v12-opening-identity'
 log = logging.getLogger(__name__)
 
 
@@ -155,19 +155,20 @@ class JobList:
             if 'opportunity:'+oid in ids:
                 if jid: ids.add(jid)
                 if p.get('url'): urls.add(p['url'].rstrip('/'))
+        links = set().union(*(listing_urls(r) | listing_urls(r.get('job_snapshot', {})) for r in records))
+        for oid, jid, p in opportunities:
+            if jid in ids or 'opportunity:'+oid in ids:
+                links.update(listing_urls(p))
+        for oid, jid, p in opportunities:
+            if listing_urls(p) & links:
+                ids.add('opportunity:'+oid)
+                if jid: ids.add(jid)
+                if p.get('url'): urls.add(p['url'].rstrip('/'))
         # Recover identity from the saved listing when older application snapshots lack location.
         keys.update(identity(p) for oid,jid,p in opportunities if jid in ids or 'opportunity:'+oid in ids or p.get('url','').rstrip('/') in urls)
         keys.discard(None)
         for oid,jid,p in opportunities:
             if identity(p) in keys:
-                ids.add('opportunity:'+oid)
-                if jid: ids.add(jid)
-                if p.get('url'): urls.add(p['url'].rstrip('/'))
-        # The same role is often posted on several boards with different wording
-        # (e.g. LinkedIn and Greenhouse); applying through one covers the others.
-        roles = {role_key(r) for r in records} - {None}
-        for oid,jid,p in opportunities:
-            if role_key(p) in roles:
                 ids.add('opportunity:'+oid)
                 if jid: ids.add(jid)
                 if p.get('url'): urls.add(p['url'].rstrip('/'))
