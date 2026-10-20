@@ -165,6 +165,9 @@ class RetrievalService:
         with closing(self.connect()) as db, db:
             db.executescript("""
                 CREATE TABLE IF NOT EXISTS cache (key TEXT PRIMARY KEY, payload TEXT NOT NULL);
+                -- SQLite LIKE uses NOCASE; the binary primary key cannot serve
+                -- prefix lookups used by background queues and saved answers.
+                CREATE INDEX IF NOT EXISTS cache_key_prefix ON cache(key COLLATE NOCASE);
                 CREATE TABLE IF NOT EXISTS calls (
                     id INTEGER PRIMARY KEY, kind TEXT NOT NULL, model TEXT NOT NULL,
                     created_at TEXT NOT NULL, state TEXT NOT NULL, reserved REAL NOT NULL,
