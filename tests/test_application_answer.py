@@ -56,6 +56,33 @@ def test_missing_facts_are_saved_as_questions_not_invented_answer(setup):
     result=a.generate(t,j,question())
     assert not result['text'] and result['questions']
 
+
+@pytest.mark.parametrize('response,reason', [
+    ({'status':'completed','output':[{'type':'message','content':[{'type':'refusal','refusal':'Please answer in your own words.'}]}]}, 'Please answer in your own words'),
+    ({'status':'incomplete','incomplete_details':{'reason':'max_output_tokens'}}, 'max_output_tokens'),
+    ({'status':'completed','output':[]}, 'no answer text'),
+    ({'status':'completed','output':[{'type':'message','content':[{'type':'output_text','text':'not json'}]}]}, 'invalid format'),
+])
+def test_failed_draft_preserves_question_reason_and_response(setup, response, reason):
+    e,t,j=setup;data=question()
+    e.paid=lambda *args:response
+    with pytest.raises(RetrievalError, match=reason):a.generate(t,j,data)
+    row=a.view(e,j)['items'][0]
+    assert row['question']==data.question and reason in row['draft_error']
+    assert e.get('application-answer-attempt:'+j.id+':'+str(data.id))['response']==response
+    saved=a.save(e,j,a.SaveInput(**data.model_dump(exclude={'revision'}),revision=row['revision'],text='My own answer'))
+    assert saved['text']=='My own answer' and 'draft_error' not in saved
+
+
+def test_failed_redraft_retains_edited_answer_and_reports_provider_error(setup):
+    e,t,j=setup;data=question();old=a.generate(t,j,data)
+    def fail(*args):raise RetrievalError('OpenAI request timed out. No automatic retry.',504)
+    e.paid=fail
+    retry=data.model_copy(update={'revision':old['revision'],'note':'A different emphasis'})
+    with pytest.raises(RetrievalError,match='timed out'):a.generate(t,j,retry)
+    row=a.view(e,j)['items'][0]
+    assert row['text']==old['text'] and 'timed out' in row['draft_error']
+
 def test_length_warning_preserves_full_answer_and_counts_characters(setup):
     e,t,j=setup;result=a.generate(t,j,question(limit=3,unit='characters'))
     assert result['limit_exceeded'] and result['text']==e.result['text']
