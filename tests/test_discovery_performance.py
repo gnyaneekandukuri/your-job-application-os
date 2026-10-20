@@ -73,6 +73,24 @@ def test_bulk_cache_read_keeps_missing_keys_and_large_batches_safe(tmp_path):
     assert engine.get_many([])=={}
 
 
+def test_existing_cache_prefix_lookups_use_index_without_changing_results(tmp_path):
+    import sqlite3
+    path = tmp_path / 'cache.sqlite3'
+    with sqlite3.connect(path) as db:
+        db.execute('CREATE TABLE cache (key TEXT PRIMARY KEY, payload TEXT NOT NULL)')
+        db.executemany('INSERT INTO cache VALUES (?,?)', [
+            ('manual-analysis-queue:one', '{"state":"COMPLETE"}'),
+            ('role-analysis:one', '{"state":"COMPLETE"}'),
+        ])
+    engine = RetrievalService(path, tmp_path/'story.md', SimpleNamespace(configured=False))
+    with engine.connect() as db:
+        query = 'SELECT payload FROM cache WHERE key LIKE ?'
+        args = ('manual-analysis-queue:%',)
+        assert db.execute(query, args).fetchall() == [('{"state":"COMPLETE"}',)]
+        plan = db.execute('EXPLAIN QUERY PLAN ' + query, args).fetchall()
+        assert any('SEARCH cache USING INDEX cache_key_prefix' in row[3] for row in plan)
+
+
 def test_nested_listing_reads_share_snapshot_but_next_request_is_fresh():
     from app.read_snapshot import snapshot_keyed
     class Reader:
@@ -101,7 +119,8 @@ def test_duplicate_listing_summaries_reuse_work_without_sharing_mutations():
     d = Discovery.__new__(Discovery)
     job = SimpleNamespace(id='job')
     d.service = SimpleNamespace(store=SimpleNamespace(read=Mock(return_value=(job,))))
-    d.analysis = SimpleNamespace(view=Mock(return_value={'run':None}))
+    d.analysis = SimpleNamespace(view=Mock(return_value={'run':None}),
+                                 engine=SimpleNamespace(get=Mock(return_value=None)))
     @read_snapshot
     def response():
         first = d.assessment_summary({'job_id':'job'})
