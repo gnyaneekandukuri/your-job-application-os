@@ -53,6 +53,7 @@ export function Discovery({onOpen,onResults,onAdd,initialReviewId,view="opportun
  const [targetKeywords,setTargetKeywords]=useState("");
  const [targetVersion,setTargetVersion]=useState("");
  const [jd,setJD]=useState<JDDraft|null>(null);
+ const [savedDescriptions,setSavedDescriptions]=useState<Record<string,Partial<Item>>>({});
  const jdDialog=useRef<HTMLDialogElement>(null);
  const openedReview=useRef<string|null>(null);
  const status=useQuery({queryKey:['job-list-status'],queryFn:({signal})=>request<{ready:boolean;revision:string;refreshing:boolean;error:string|null;running:boolean;automatic_running?:boolean}>('/status',undefined,signal),refetchInterval:4000,refetchIntervalInBackground:true});
@@ -114,7 +115,7 @@ export function Discovery({onOpen,onResults,onAdd,initialReviewId,view="opportun
  const total=state?.total??0;
  const pages=state?.pages??1;
  const currentPage=state?.page??page;
- const pageRows=(state?.items??[]).filter(item=>!recordedApplications[item.id]&&!(tab==="help"&&saved[item.id]&&saved[item.id]===item.content_hash)&&(filter==="passed"&&tab==="jobs"?hidden[item.id]!==false:!hidden[item.id]));
+ const pageRows=(state?.items??[]).map(item=>({...item,...savedDescriptions[item.id]})).filter(item=>!recordedApplications[item.id]&&!(tab==="help"&&saved[item.id]&&saved[item.id]===item.content_hash)&&(filter==="passed"&&tab==="jobs"?hidden[item.id]!==false:!hidden[item.id]));
  return <section className="panel discovery">
   {view==='opportunities'&&<div className="section-heading"><div><h2>New jobs</h2><p>Found a role elsewhere? Add its link for deep analysis.</p></div><button className="primary" onClick={onAdd}>+ Add a job</button></div>}
   {view==="runs"&&<div className="section-heading"><div><div className="eyebrow">LOCAL JOB DISCOVERY</div><h1>{view==="runs"?"Discovery runs":"New opportunities"}</h1><p>{view==="runs"?"Check job boards and review the latest run.":"Find roles that overlap with your experience and what you want to do next."}</p></div>
@@ -230,7 +231,7 @@ export function Discovery({onOpen,onResults,onAdd,initialReviewId,view="opportun
       </>}
       {item.job_id && item.assessment?.state==="NOT_STARTED" && <button disabled={busy} onClick={()=>void act(()=>onOpen(item.job_id!))}>Open role &amp; analysis</button>}
       {item.passed?<button disabled={!!rowBusy[item.id]} onClick={()=>void passRow(item,false)}>Undo pass</button>:!queueActive(item)&&item.assessment?.state!=="QUEUED"&&item.assessment?.state!=="RUNNING"&&<button disabled={!!rowBusy[item.id]} title="Not interested: hide from New jobs and skip automatic analysis" onClick={()=>void passRow(item,true)}>Pass</button>}
-      {item.description_length>=200&&!item.description_changed&&<RowWritingHelp oid={item.id} jobId={item.job_id||null} company={item.company} url={item.url} yc={isYCListing(item.url)||(item.listing_urls??[]).some(isYCListing)||item.sources.some(s=>s.board==='yc')} hasDescription/>}
+      {item.description_length>=200&&!item.description_changed&&<RowWritingHelp key={item.content_hash} oid={item.id} jobId={item.job_id||null} company={item.company} url={item.url} yc={isYCListing(item.url)||(item.listing_urls??[]).some(isYCListing)||item.sources.some(s=>s.board==='yc')} hasDescription/>}{(item.description_length<200||item.description_changed)&&<button title="Save the full job description to use Writing help" onClick={()=>void act(()=>openJD(item))}>Writing help · Add JD</button>}
      </div>
      <JobDetails item={item} boards={state.boards}/><MarkApplied jobId={item.job_id||undefined} opportunityId={item.id} company={item.company} onRecorded={()=>setRecordedApplications(h=>({...h,[item.id]:true}))}/><div><button className="text-action" disabled={busy} onClick={()=>void act(async()=>{await request(`/${item.id}/keep`,{keep:!item.kept});setState();})}>{item.kept?"Unkeep job":"Keep job"}</button> · <button className="text-action" onClick={()=>setWatchCompany(item.company)}>{item.company_watched?"Watching company":"Watch company"}</button></div></td>
      <td>{item.sponsorship&&<div className="sponsorship-blocked"><strong title={item.sponsorship.quote}>No visa sponsorship · not auto-analyzed</strong><small>“{item.sponsorship.quote}”</small></div>}{item.keyword_match && <div className="opportunity-priority"><span className={`preference-badge preference-${item.keyword_match.priority}`} title={item.keyword_match.reason}>{item.keyword_match.priority==='low'?'Low priority':item.keyword_match.label}</span>{item.keyword_match.reason&&<details><summary>Why this priority</summary><p>{item.keyword_match.reason}</p></details>}</div>}{item.keyword_match?.experience.length ? <details className="keyword-details"><summary>Matched skills ({item.keyword_match.experience.length})</summary><div className="keyword-tags">{item.keyword_match.experience.map(match=><span key={match.term}>{match.term}</span>)}</div></details> : null}</td>
@@ -257,7 +258,7 @@ export function Discovery({onOpen,onResults,onAdd,initialReviewId,view="opportun
    </>}
   </>}
  <dialog ref={jdDialog} className="experience-dialog" aria-label="Review full job description" onCancel={e=>{if(busy)e.preventDefault();else setJD(null);}}>
-  {jd && <form onSubmit={e=>{e.preventDefault();void act(async()=>{await request(`/${jd.id}/description`,{expected_hash:jd.expected_hash,title:jd.title,company:jd.company,description:jd.description,extraction_id:jd.extraction_id});setSaved(v=>({...v,[jd.id]:jd.expected_hash}));setRowNotice(n=>({...n,[jd.id]:'Description saved. The list updates within about 30 seconds.'}));setState();setJD(null);});}}>
+  {jd && <form onSubmit={e=>{e.preventDefault();void act(async()=>{const result=await request<{content_hash:string}>(`/${jd.id}/description`,{expected_hash:jd.expected_hash,title:jd.title,company:jd.company,description:jd.description,extraction_id:jd.extraction_id});setSavedDescriptions(v=>({...v,[jd.id]:{job_id:null,description_length:jd.description.length,description_changed:false,content_hash:result.content_hash,title:jd.title,company:jd.company}}));setSaved(v=>({...v,[jd.id]:jd.expected_hash}));setRowNotice(n=>({...n,[jd.id]:'Description saved. Writing help is ready.'}));setState();setJD(null);});}}>
    <h2>Review full job description</h2>
    {error && <p role="alert" className="error">{error}</p>}
    <fieldset disabled={busy}>
