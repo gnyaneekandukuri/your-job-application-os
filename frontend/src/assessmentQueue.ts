@@ -1,6 +1,6 @@
 export type Explanation={summary:string;strengths:{requirement_id:string;requirement:string;alignment:string;tentative:boolean;citations:{source_title:string;source_path:string;start_line:number;quote:string}[]}[];gaps:{requirement_id:string;requirement:string;detail:string;tentative:boolean}[];decision_basis:{label:string;passed:boolean;state?:string;detail:string}[]};
 export type Assessment = {assessed_at?:string|null;explanation?:Explanation;state:string;score:number|null;provisional?:boolean;listing_changed?:boolean;recommendation:string|null;rationale?:string;choice?:string|null;stage?:string;error?:string;recommendation_error?:string};
-export type ResumeApproach = {state:string;approach?:'USE_MASTER'|'SMALL_EDITS'|'TAILOR';reason?:string;changes?:{job_need:string;resume_point:string;action:string;evidence_ids:string[]}[];experience_gaps?:string[]};
+export type ResumeApproach = {state:string;stale?:boolean;stale_reason?:string;approach?:'USE_MASTER'|'SMALL_EDITS'|'TAILOR';reason?:string;changes?:{job_need:string;resume_point:string;action:string;evidence_ids:string[]}[];experience_gaps?:string[]};
 export type Result = {kept?:boolean;entered_at?:string;yc_listing?:boolean;sponsorship?:{quote:string}|null;last_scan_id?:number|null;last_scanned_at?:string|null;job_id:string;opportunity_id?:string|null;company:string;title:string;url:string;assessment:Assessment;resume?:{state:string;label:string};resume_approach?:ResumeApproach};
 export function queueGroup(r:Result):string {
  const a=r.assessment;

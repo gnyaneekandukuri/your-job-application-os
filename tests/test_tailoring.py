@@ -803,6 +803,27 @@ def test_approach_not_used_for_different_selected_resume(setup):
     assert 'resume_approach' not in json.loads(p.calls[0]['input'])
 
 
+def test_stale_approach_not_used_for_new_selected_master(setup):
+    from app.resume_approach import ResumeApproach
+    s,j,p,*_=setup
+    advisor=object.__new__(ResumeApproach)
+    advisor.tailoring=s
+    advisor.engine=s.engine
+    s.resume_approach=advisor
+    s.engine.put('resume-approach-latest:'+j.id,
+                 {'key':'old-approach','fingerprint':advisor.fingerprint(j)})
+    s.engine.put('old-approach',{'state':'COMPLETE','approach':'USE_MASTER'})
+    new_master=BASE+'\nAdditional detail.'
+    s.engine.put('skills:resume',{'title':'New master','text':new_master})
+    assert advisor.view(j)['stale'] is True
+    selected=s.resume_options(j)[0]
+    r=generate(s,j,base_source_id=selected['id'],base_resume=selected['text'])
+    assert r['context']['sources'][0]['text']==new_master
+    assert 'resume_approach' not in r['context']
+    assert all(not json.loads(c['input']).get('resume_approach') for c in p.calls)
+    assert len(p.calls)==2
+
+
 def test_small_edit_budget_counts_structural_changes_and_keeps_fact_corrections():
     from app.tailoring import bounded_changes, TailoringPlan
     edits=[dict(item_id='m'+str(i),text='Improved point.',citations=[{'source_id':'resume','quote':'Point'}],reason='Relevant',change_type='job_alignment',jd_quote='Need') for i in range(5)]

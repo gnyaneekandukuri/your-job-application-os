@@ -130,8 +130,12 @@ class ResumeApproach:
         except RetrievalError as exc:
             return {'state': 'UNAVAILABLE', 'reason': str(exc)}
         saved = self.engine.get('resume-approach-latest:' + job.id)
-        if saved and saved['fingerprint'] == stamp:
-            return self.engine.get(saved['key']) or {'state': 'NOT_CHECKED'}
+        if saved:
+            result = self.engine.get(saved['key'])
+            if saved['fingerprint'] == stamp:
+                return result or {'state': 'NOT_CHECKED'}
+            if result and result.get('approach') and result.get('state') not in ('QUEUED', 'RUNNING'):
+                return {**result, 'stale': True, 'stale_reason': 'checked against previous master'}
         return {'state': 'NOT_CHECKED', 'reason': 'Compare your current master resume with this role.'}
 
     def fingerprint(self, job):
