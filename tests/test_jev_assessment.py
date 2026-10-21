@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 import json
 from types import SimpleNamespace
 from uuid import uuid4
@@ -158,7 +159,7 @@ def test_complete_workflow_uses_embeddings_but_no_openai_generation(tmp_path,mon
         count=len(usage)
         with client.app.state.discovery.db() as db:
             db.execute('INSERT INTO opportunities VALUES(?,?,?,?,?,?,?)',
-                       ('example',json.dumps({'description':'A newer listing'}),'now','now',job_id,'old','COMPLETE'))
+                       ('example',json.dumps({'description':'A newer listing'}),datetime.now(timezone.utc).isoformat(),datetime.now(timezone.utc).isoformat(),job_id,'old','COMPLETE'))
         listed=client.get('/api/assessments').json()['items'][0]['assessment']
         assert listed['state']=='COMPLETE' and listed['listing_changed']
         assert listed['score']==100  # A newer board snapshot must not hide the saved report.
@@ -240,7 +241,12 @@ def test_scan_high_priority_handoff_completes_semantic_assessment(tmp_path,monke
         # The saved candidate-aware Jev screening, not a forced priority flag,
         # determines whether this enters the automatic worker.
         d.scan(['yc'])
-        if d.analysis.worker:d.analysis.worker.join(15)
+        assert not c.app.state.service.store.ids()
+        with d.db() as db:
+            assert db.execute('SELECT finished FROM scans WHERE id=1').fetchone()[0]
+        d.start_automatic()
+        d.assessment_worker.join(15)
+        assert not d.assessment_worker.is_alive()
         jobs=c.app.state.service.store.ids()
         assert len(jobs)==1
         report=c.get(f'/api/jobs/{jobs[0]}/analysis').json()

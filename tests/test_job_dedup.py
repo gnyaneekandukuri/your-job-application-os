@@ -82,7 +82,7 @@ def test_same_posting_in_several_cities_shows_once_with_all_locations():
     assert grouped['location'] == 'New York, NY; San Francisco, CA' and grouped['location_match']['status'] == 'match'
 
 
-def test_applying_on_one_board_hides_the_same_role_from_another(tmp_path):
+def test_same_title_without_posting_identity_does_not_hide_another_opening(tmp_path):
     from types import SimpleNamespace
     from app.job_list import JobList
     path = tmp_path/'discovery.sqlite3'
@@ -98,5 +98,5 @@ def test_applying_on_one_board_hides_the_same_role_from_another(tmp_path):
             {'company': 'AlphaSense', 'title': 'Senior Product Manager -  AI Workflows', 'url': 'https://linkedin.com/jobs/view/9'})))
     model = JobList.__new__(JobList); model.path = tmp_path/'job-list.sqlite3'; model.discovery = SimpleNamespace(path=path)
     ids, urls = model.applied_keys()
-    assert 'job-gh' in ids and 'https://boards.greenhouse.io/x/1' in urls
+    assert 'job-gh' not in ids and 'https://boards.greenhouse.io/x/1' not in urls
     assert 'job-other' not in ids

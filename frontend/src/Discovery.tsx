@@ -21,7 +21,7 @@ async function request<T>(path="",body?:unknown,signal?:AbortSignal):Promise<T> 
  const response=await fetch(`/api/discovery${path}`,body===undefined?{signal}:{method:"POST",headers:{"Content-Type":"application/json","X-Local-Review":"1"},body:JSON.stringify(body)});
  const value=await response.json();if(!response.ok)throw new Error(typeof value.detail==="string"?value.detail:"Action failed. Try again.");return value;
 }
-const statusLabel=(state:string):string=>({complete:"Completed",incomplete:"Incomplete coverage",failed:"Failed",blocked:"Access denied / limited",partial:"Partial coverage",checked:"Checked",login_required:"Sign in to YC",busy:"YC browser busy"} as Record<string,string>)[state]??state;
+const statusLabel=(state:string):string=>({complete:"Completed",incomplete:"Finished with errors",failed:"Failed",blocked:"Access denied / limited",partial:"Partial coverage",checked:"Checked",login_required:"Sign in to YC",busy:"YC browser busy"} as Record<string,string>)[state]??state;
 const when=(date:string)=>new Date(date).toLocaleString();
 const freshnessLabel=(item:Item)=>item.date_basis==="hiring_comment_timestamp"?"Vacancy date unknown (HN comment dated below)":item.linkedin_repost?"LinkedIn repost/promoted - first posted ~30+ days ago":item.freshness==="within_24h"?"Source reports <24h":item.freshness==="older"?"Older than 24h":item.freshness==="date_only"?"Date only - age uncertain":"Date unknown";
 /** Saves a listing as a role (free, no analysis) the first time writing help is opened. */
@@ -64,7 +64,7 @@ export function Discovery({onOpen,onResults,onAdd,initialReviewId,view="opportun
  const state=listing.data?.ready?{...listing.data,running:status.data?.running??listing.data.running,automatic_running:status.data?.automatic_running}:null;
  const connectionError=(status.error||listing.error)?.message;
  const updating=!!status.data?.refreshing||listing.isPlaceholderData;
- function setState(_ignored?:unknown){void queryClient.invalidateQueries({queryKey:['job-list-status']});void queryClient.invalidateQueries({queryKey:['job-list']});}
+ function setState(response?:unknown){if(response&&typeof response==='object'&&'message' in response)setSelectionNotice(String(response.message));void queryClient.invalidateQueries({queryKey:['job-list-status']});void queryClient.invalidateQueries({queryKey:['job-list']});}
  useEffect(()=>{if(initialReviewId&&openedReview.current!==initialReviewId){openedReview.current=initialReviewId;void act(()=>openJD({id:initialReviewId}));}},[initialReviewId]);
  useEffect(()=>{if(jd)jdDialog.current?.showModal();else jdDialog.current?.close();},[jd?.id]);
  useEffect(()=>setPage(1),[query,priorityFilter,locationFilter,boardFilter,filter,companyFilter]);
@@ -119,11 +119,11 @@ export function Discovery({onOpen,onResults,onAdd,initialReviewId,view="opportun
  return <section className="panel discovery">
   {view==='opportunities'&&<div className="section-heading"><div><h2>New jobs</h2><p>Found a role elsewhere? Add its link for deep analysis.</p></div><button className="primary" onClick={onAdd}>+ Add a job</button></div>}
   {view==="runs"&&<div className="section-heading"><div><div className="eyebrow">LOCAL JOB DISCOVERY</div><h1>{view==="runs"?"Discovery runs":"New opportunities"}</h1><p>{view==="runs"?"Check job boards and review the latest run.":"Find roles that overlap with your experience and what you want to do next."}</p></div>
-  {view==="runs"&&<button className="primary" disabled={busy||state?.running} onClick={()=>void act(async()=>setState(await request<State>("/check",{})))}>{state?.running?(state.automatic_running||state.scan?.payload.phase==="assessing"?"Assessing High priority jobs...":"Checking boards..."):"Check now"}</button>}</div>}
+  {view==="runs"&&<button className="primary" disabled={busy||state?.running} onClick={()=>void act(async()=>setState(await request<State>("/check",{})))}>{state?.running?"Checking boards...":"Check now"}</button>}</div>}
   {view==='opportunities'&&<CompanyWatchlist company={watchCompany} onClose={()=>setWatchCompany(null)}/>}
   {error&&<p className="error" role="alert">{error}</p>}{connectionError&&<p className="error" role="alert">Connection interrupted. Retrying... {connectionError}</p>}
   {state?.scan_overview&&view==='opportunities'&&<div className="discovery-preferences" role="status">
-   <strong>Latest scan · {when(state.scan_overview.started)} · {state.running&&!state.automatic_running?'Running':state.scan_overview.state==='incomplete'?'Finished with limited coverage':statusLabel(state.scan_overview.state)}</strong>
+   <strong>Latest scan · {when(state.scan_overview.started)} · {state.running?'Running':state.scan_overview.state==='incomplete'?'Finished with errors':statusLabel(state.scan_overview.state)}</strong>
    {state.scan_overview.tracked&&<p>{state.scan_overview.seen} jobs checked · {state.scan_overview.new??'Unknown'} new · {state.scan_overview.high} High priority · {state.scan_overview.worth_checking} Worth checking · {state.scan_overview.requested} deep analysis requests during this scan</p>}
    {(state.pipeline?.running??0)>0&&<p><strong>{state.pipeline?.running} deep analysis in progress now.</strong> <button className="text-action" onClick={()=>onResults('issues')}>View progress</button></p>}
    {(state.pipeline?.queued??0)>0&&<p><strong>{state.pipeline?.queued} High priority jobs queued for automatic analysis.</strong></p>}
@@ -141,7 +141,8 @@ export function Discovery({onOpen,onResults,onAdd,initialReviewId,view="opportun
    <div className="discovery-run" aria-label="Last discovery run">
     <div><span>Last run started</span><strong>{state.scan?when(state.scan.started):"Not run yet"}</strong></div>
     <div><span>Finished</span><strong>{state.scan?.finished?when(state.scan.finished):state.running?"In progress":"—"}</strong></div>
-    <div><span>Run status</span><strong>{state.running?(state.automatic_running||state.scan?.payload.phase==="assessing"?"Assessing jobs":"Running"):statusLabel(state.scan?.payload.state??"Not started")}</strong></div>
+    <div><span>Run status</span><strong>{state.running?"Running":statusLabel(state.scan?.payload.state??"Not started")}</strong></div>
+    <div><span>Automatic deep analysis</span><strong>{state.automatic_running?"Processing separately":state.settings.auto_assess?"Waiting for eligible jobs":"Paused"}</strong></div>
     <div><span>New this run</span><strong>{state.scan?.payload.new_count??"—"}</strong></div>
    </div>
    <p>{state.jev?.message}</p>{state.scan?.payload.classification && <p>Jev: {state.scan.payload.classification.state.replaceAll("_"," ")} · {state.scan.payload.classification.classified} classified · {state.scan.payload.classification.cached} reused{state.scan.payload.classification.error && ` — ${state.scan.payload.classification.error}`}</p>}

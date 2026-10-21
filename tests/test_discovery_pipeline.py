@@ -74,15 +74,11 @@ def test_pipeline_completes_descriptions_before_assessment(tmp_path, monkeypatch
         discovery.collector=lambda _:([row()],'Category only; partial coverage',[])
         events=[]
         discovery.complete_descriptions=lambda ids:events.append(('descriptions',ids)) or {'fetched':0,'needs_paste':1}
-        def assess(ids):
-            events.append(('assess',ids))
-            with discovery.db() as db:
-                assert db.execute('SELECT finished FROM scans').fetchone()[0] is None
-        discovery.assess_high_priority=assess
+        discovery.assess_high_priority=lambda ids:pytest.fail('Scan waited for deep analysis')
         discovery.scan()
-        assert [v[0] for v in events]==['descriptions','assess']
-        assert events[0][1]==events[1][1]
-        assert discovery.view()['scan']['payload']['state']=='incomplete'
+        assert [v[0] for v in events]==['descriptions']
+        assert discovery.view()['scan']['payload']['state']=='complete'
+        assert discovery.view()['scan']['payload']['sources']['yc']['coverage_status']=='partial'
         assert discovery.view()['scan']['finished']
 
 
@@ -129,7 +125,7 @@ def test_waiting_jobs_are_explicitly_queued(tmp_path, monkeypatch):
         discovery.configure(Settings(enabled=False,auto_assess=True))
         base={'keyword_match':{'priority':'high'},'location_match':{'status':'match'},'description':'A full saved description of product responsibilities. '*5}
         items=[{**base,'id':'one'},{**base,'id':'two'}]
-        monkeypatch.setattr(discovery,'view',lambda:{'items':items})
+        monkeypatch.setattr(discovery,'view',lambda **kw:{'items':[i for i in items if kw.get('opportunity_ids') is None or i['id'] in kw['opportunity_ids']]})
         queued=[]
         monkeypatch.setattr(discovery,'import_role',lambda *a,**k:queued.append(set(discovery.queued_ids)))
         discovery.assess_high_priority({'one','two'})
@@ -142,7 +138,7 @@ def test_provider_limit_pauses_queue_but_not_collection(tmp_path, monkeypatch):
         discovery=configure(client)
         discovery.configure(Settings(enabled=True,auto_assess=True))
         base={'keyword_match':{'priority':'high'},'location_match':{'status':'match'},'description':'A full saved description of product responsibilities. '*5}
-        monkeypatch.setattr(discovery,'view',lambda:{'items':[{**base,'id':'one'},{**base,'id':'two'}]})
+        monkeypatch.setattr(discovery,'view',lambda **kw:{'items':[{**base,'id':i} for i in ('one','two') if kw.get('opportunity_ids') is None or i in kw['opportunity_ids']]})
         attempts=[]
         def imported(oid,**kwargs):
             attempts.append(oid)
@@ -176,7 +172,7 @@ def test_empty_automatic_dispatch_does_not_recheck_every_listing(tmp_path, monke
     with TestClient(create_app(tmp_path)) as client:
         d=configure(client)
         calls=[]
-        def view():
+        def view(**kw):
             calls.append(1)
             return {'items':[{'id':str(i),'keyword_match':{'priority':'worth_checking'}} for i in range(100)]}
         monkeypatch.setattr(d,'view',view)
@@ -258,7 +254,7 @@ def test_saved_high_priority_reconciles_without_new_scan(tmp_path, monkeypatch):
         oid,_=d.save('yc',row('Responsibilities '*30))
         item={'id':oid,'keyword_match':{'priority':'high','label':'High priority'}}
         monkeypatch.setattr(d,'view',lambda:{'items':[item]})
-        calls=[];monkeypatch.setattr(d,'assess_high_priority',lambda ids:calls.append(ids))
+        calls=[];monkeypatch.setattr(d,'assess_high_priority',lambda ids,**kw:calls.append(ids))
         d.reconcile_automatic()
         assert calls==[{oid}]
         with d.db() as db:

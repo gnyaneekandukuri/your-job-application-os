@@ -41,6 +41,11 @@ Requires Python 3.12 and Node.js with npm.
 
 Discovery is initially unscheduled; enable it in Discovery runs when ready. Paid automatic assessment is initially disabled. Board collection currently focuses on product-management roles, with partial coverage and source-dependent posting dates. It is not a universal job search engine.
 
+A scan finishes after collection, screening, and saving eligible jobs to the automatic assessment queue. Deep analysis continues separately and does not delay the next scheduled scan. Limited board coverage is informational; collection or screening failures make a scan incomplete. Historical scan records are preserved.
+
+On Windows, use `./scripts/restart-review-server.ps1` to activate server changes. It verifies the repository's listener and checks `/api/maintenance/status` twice, skipping the restart while scans, analyses, tailoring, or writing requests are active. An unavailable status endpoint also prevents a restart. The supervisor's `ensure-review-server.ps1` leaves an existing listener alone. This protects normal restarts; it does not resume a scan after a crash or forced termination.
+
+
 ## Personal data and model access
 
 First startup creates an empty `.local/` directory containing SQLite databases and `.local/workspace/` containing your preferences, context controls, and personal copies of scoring criteria. Uploaded documents and stories also stay under `.local/`. Git excludes this directory. Back it up separately if needed; GitHub is a code backup, not a backup of your analysis history.

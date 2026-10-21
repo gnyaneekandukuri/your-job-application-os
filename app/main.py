@@ -140,7 +140,12 @@ def create_app(data_dir: Path | None = None):
 
     @api.get("/api/discovery")
     def discovery_status(request: Request):
-        return request.app.state.discovery.table_view()
+        return request.app.state.job_list.overview()
+
+    @api.get("/api/maintenance/status")
+    def maintenance_status(request: Request):
+        from .maintenance import activity
+        return activity(request.app.state)
 
     @api.get("/api/discovery/leads")
     def discovery_leads(request: Request):

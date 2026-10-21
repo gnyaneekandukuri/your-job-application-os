@@ -72,9 +72,9 @@ def test_all_failed_scan_is_not_complete(tmp_path):
         with discovery.db() as db:
             import json
             result = json.loads(db.execute('SELECT payload FROM scans').fetchone()[0])
-        assert result['state'] == 'failed'
+        assert result['state'] == 'incomplete'
         from app.discovery_sources import BOARDS
         assert result['coverage'] == {'responded':0,'total':len(BOARDS)}
         assert result['sources']['yc']['diagnostic']['kind'] == 'ConnectTimeout'
-    assert scan_summary({'state':'complete','sources':{'yc':{'state':'blocked'}}})['state']=='failed'
+    assert scan_summary({'state':'complete','sources':{'yc':{'state':'blocked'}}})['state']=='incomplete'
     assert scan_summary({'state':'complete','sources':{'yc':{'state':'checked'}}})['state']=='incomplete'
