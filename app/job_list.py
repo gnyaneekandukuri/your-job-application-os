@@ -148,6 +148,11 @@ class JobList:
                 'running':bool(self.discovery.worker and self.discovery.worker.is_alive()),
                 'automatic_running':bool(getattr(self.discovery, 'assessment_worker', None) and self.discovery.assessment_worker.is_alive())}
 
+    def invalidate(self):
+        """Let the normal background loop refresh after a settings mutation."""
+        with closing(self.connect()) as db, db:
+            db.execute('UPDATE snapshot SET fingerprint=NULL WHERE id=1')
+
     def applied_keys(self):
         path = self.path.parent / 'applications.sqlite3'
         if not path.exists(): return set(), set()
@@ -191,6 +196,8 @@ class JobList:
 
     def page(self, page=1, size=25, query='', priority='all', location='match',
              company='focus', board='all', show='all', runs=False):
+        if runs:
+            return self.runs(page)
         with closing(self.connect()) as db:
             db.execute('BEGIN')
             row = db.execute('SELECT * FROM snapshot WHERE id=1').fetchone()
@@ -253,6 +260,78 @@ class JobList:
             return {**metadata,'ready':True,'items':items,'total':total,'page':page,'pages':pages,
                     'freshness_counts':freshness_counts,'help_count':help_count,
                     'revision':row['revision'],'updated_at':row['updated']}
+
+    def runs(self, page=1, limit=10):
+        # Read only bounded scan payloads; never load discovery snapshot metadata.
+        with self.discovery.db() as db:
+            total = db.execute('SELECT count(*) FROM scans').fetchone()[0]
+            rows = db.execute('SELECT * FROM scans ORDER BY id DESC LIMIT ? OFFSET ?',
+                              (limit, (page-1)*limit)).fetchall()
+            reports = [self._run(db, row, False) for row in rows]
+        # Preserve the small controls/connection metadata without decoding embedded reports.
+        keys = ('boards', 'unavailable', 'timezone', 'schedule', 'jev', 'yc_connection',
+                'lenny_connection', 'board_counts', 'keyword_profile.target', 'location_preference', 'company_preference')
+        with closing(self.connect()) as db:
+            row = db.execute('SELECT '+','.join("json_extract(metadata, '$."+k+"')" for k in keys)+
+                             ' FROM snapshot WHERE id=1').fetchone()
+        metadata = {k: json.loads(v) if isinstance(v, str) and v[:1] in ('{', '[') else v
+                    for k, v in zip(keys, row) if v is not None} if row else {}
+        metadata.setdefault('schedule', ['08:00', '13:00', '20:00'])
+        metadata.setdefault('timezone', str(datetime.now().astimezone().tzinfo))
+        from .discovery_sources import BOARDS, UNAVAILABLE
+        metadata.setdefault('boards', BOARDS)
+        metadata.setdefault('unavailable', UNAVAILABLE)
+        metadata.setdefault('board_counts', {})
+        target = metadata.pop('keyword_profile.target', None)
+        if target is not None:
+            metadata['keyword_profile'] = {'target': target, 'experience': []}
+        with self.discovery.db() as db:
+            latest_row = db.execute('SELECT * FROM scans ORDER BY id DESC LIMIT 1').fetchone()
+            latest = self._run(db, latest_row, False) if latest_row else None
+        raw_payload = json.loads(latest_row['payload']) if latest_row else {}
+        metadata['scan'] = {**latest, 'payload': {k:latest.get(k) for k in
+                            ('state', 'phase', 'new_count', 'error', 'classification', 'sources')}} if latest else None
+        if latest:
+            metadata['scan']['payload'].update({k: raw_payload.get(k) for k in
+                                                ('descriptions', 'description_progress')})
+        return {**metadata, 'ready': True, 'items': [], 'run_reports': reports, 'total': total,
+                'page': page, 'pages': max(1, math.ceil(total/limit)),
+                'settings': self.discovery.settings(),
+                'running': bool(self.discovery.worker and self.discovery.worker.is_alive())}
+
+    def _run(self, db, row, full):
+        from .discovery import scan_summary
+        payload = scan_summary(json.loads(row['payload']))
+        result = {k: row[k] for k in ('id', 'started', 'finished')}
+        result.update({k: payload.get(k) for k in ('state', 'phase', 'new_count', 'coverage', 'error')})
+        result.update(tracked=payload.get('tracking_version') == 1,
+                      board_tracking=payload.get('board_tracking', False))
+        result['sources'] = {board: {k: v for k, v in source.items()
+            if full or k in ('state', 'count', 'coverage', 'checked_at', 'coverage_status', 'listing_issues', 'error')}
+            for board, source in payload.get('sources', {}).items()}
+        result['classification'] = payload.get('classification')
+        fields = {
+            'tracked': '1', 'new': "json_extract(payload,'$.newly_saved')=1",
+            'repeat': "json_extract(payload,'$.newly_saved')=0",
+            'high': "json_extract(payload,'$.priority')='High priority'",
+            'worth_checking': "json_extract(payload,'$.priority')='Worth checking'",
+            'requested': "json_extract(payload,'$.assessment_requested')=1",
+            'completed': "json_extract(payload,'$.assessment_requested')=1 AND json_extract(payload,'$.assessment.state')='COMPLETE'"}
+        counts = db.execute('SELECT '+','.join('COALESCE(SUM('+expr+'),0)' for expr in fields.values())+
+                            ' FROM scan_roles WHERE scan_id=?', (row['id'],)).fetchone()
+        result['counts'] = dict(zip(fields, counts))
+        if full:
+            result['roles'] = [json.loads(r[0]) for r in db.execute(
+                'SELECT payload FROM scan_roles WHERE scan_id=?', (row['id'],))]
+        return result
+
+    def run(self, scan_id):
+        from .store import Missing
+        with self.discovery.db() as db:
+            row = db.execute('SELECT * FROM scans WHERE id=?', (scan_id,)).fetchone()
+            if not row:
+                raise Missing('Scan not found')
+            return self._run(db, row, True)
 
     def assessments(self):
         with closing(self.connect()) as db:

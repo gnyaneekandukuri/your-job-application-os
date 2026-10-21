@@ -13,8 +13,8 @@ def activity(state):
         if alive(worker): busy.append(label)
     manual=getattr(d.analysis,'manual_queue',None)
     if manual and manual.pending() and not d.draining(): busy.append('manual_analysis_queue')
-    if state.resume_approach.queue.unfinished_tasks: busy.append('resume_approach')
-    for label, lock in [('analysis_dispatch',d.analysis.lock),('application_answer',answer_lock),('writing_help',message_lock),('tailoring_request',state.tailoring.lock)]:
+    if getattr(state.resume_approach, 'active', False): busy.append('resume_approach')
+    for label, lock in [('application_answer',answer_lock),('writing_help',message_lock),('tailoring_request',state.tailoring.lock)]:
         acquired=lock.acquire(blocking=False)
         if acquired: lock.release()
         else: busy.append(label)

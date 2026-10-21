@@ -1,11 +1,22 @@
+import {keepPreviousData,useQuery} from '@tanstack/react-query';
 import {useState} from 'react';
 import {summarizeScan,assessmentLabel,needsHelp,boardRoles,type ScanRole} from './scanReportLogic';
 const scanLabel=(state:string)=>({incomplete:'Finished with errors',complete:'Finished',interrupted:'Interrupted',running:'Running',error:'Error',failed:'Failed'}[state]??state);
 const boardNames:Record<string,string>={yc:'Y Combinator',builtin:'Built In',a16z:'a16z',sequoia:'Sequoia',lightspeed:'Lightspeed',linkedin:'LinkedIn',hn:'HN Who’s Hiring',lenny:'Lenny’s Jobs',cosign:'Cosign'};
 type Source={state:string;listing_issues?:number;count?:number;coverage?:string;coverage_status?:string;error?:string;warnings?:(string|{reason?:string})[]};
 export type ScanReportData={id:number;started:string;finished:string|null;state:string;new_count?:number|null;tracked:boolean;board_tracking?:boolean;error?:string;sources:Record<string,Source>;roles:ScanRole[]};
-export function ScanReport({scans,onOpen}:{scans:ScanReportData[];onOpen:(id:string)=>Promise<void>}){
- return <section className="scan-report scan-report-compact" aria-label="Scan reports"><h2>Scan results</h2>{!scans.length&&<p>No scans yet.</p>}{scans.map((scan,index)=><details key={scan.id} open={index===0}><summary>{new Date(scan.started).toLocaleString()} · {scanLabel(scan.state)}</summary><ScanTable scan={scan} onOpen={onOpen}/></details>)}</section>;
+export type ScanRunSummary=Omit<ScanReportData,'roles'> & {counts?:{tracked:number;new:number;high:number;requested:number;completed:number}};
+export function ScanReport({scans,onOpen}:{scans:ScanRunSummary[];onOpen:(id:string)=>Promise<void>}){
+ return <section className="scan-report scan-report-compact" aria-label="Scan reports"><h2>Scan results</h2>{!scans.length&&<p>No scans yet.</p>}{scans.map((scan,index)=><Run key={scan.id} scan={scan} initialOpen={index===0} onOpen={onOpen}/>)}</section>;
+}
+function Run({scan,initialOpen,onOpen}:{scan:ScanRunSummary;initialOpen:boolean;onOpen:(id:string)=>Promise<void>}){
+ const [open,setOpen]=useState(initialOpen);
+ const report=useQuery({queryKey:['discovery-run',scan.id,scan.finished,scan.state],enabled:open,placeholderData:keepPreviousData,queryFn:async({signal})=>{
+  const response=await fetch(`/api/discovery/runs/${scan.id}`,{signal});
+  if(!response.ok)throw new Error('Could not load scan report.');
+  return await response.json() as ScanReportData;
+ },refetchInterval:open&&scan.state==='running'?4000:false});
+ return <details open={open} onToggle={e=>setOpen(e.currentTarget.open)}><summary>{new Date(scan.started).toLocaleString()} / {scanLabel(scan.state)}</summary>{report.data?<ScanTable scan={report.data} onOpen={onOpen}/>:open&&report.isPending&&<p role="status">Loading scan report...</p>}{open&&report.error&&<p role="alert">{report.error.message} <button onClick={()=>void report.refetch()}>Retry</button></p>}</details>;
 }
 function ScanTable({scan,onOpen}:{scan:ScanReportData;onOpen:(id:string)=>Promise<void>}){
  const [selected,setSelected]=useState<string|null>(null),[helpOnly,setHelpOnly]=useState(false);

@@ -84,6 +84,7 @@ def create_app(data_dir: Path | None = None):
         api.state.tailoring.resume_approach = api.state.resume_approach
         from .job_list import JobList
         api.state.job_list = JobList(api.state.discovery)
+        api.state.discovery.job_list = api.state.job_list
         if data_dir is None:
             api.state.job_list.start()
             api.state.discovery.begin_scheduler()
@@ -192,8 +193,14 @@ def create_app(data_dir: Path | None = None):
     @api.get("/api/discovery/page")
     def job_list_page(request: Request, page: int = Query(1, ge=1), size: int = Query(25, ge=1, le=100),
                       query: str = Query('', max_length=200), priority: str = 'all', location: str = 'match',
-                      company: str = 'focus', board: str = 'all', show: str = 'all', runs: bool = False, view: str = ''):
+                      company: str = 'focus', board: str = 'all', show: str = 'all', runs: bool = False, view: str = '', runs_page: int = Query(1, ge=1), runs_limit: int = Query(10, ge=1, le=50)):
+        if runs or view == 'runs':
+            return request.app.state.job_list.runs(runs_page, runs_limit)
         return request.app.state.job_list.page(page,size,query,priority,location,company,board,show,runs or view == 'runs')
+
+    @api.get("/api/discovery/runs/{scan_id}")
+    def discovery_run(scan_id: int, request: Request):
+        return request.app.state.job_list.run(scan_id)
 
     @api.get("/api/discovery/{opportunity_id}/detail")
     def job_list_detail(opportunity_id: str, request: Request):

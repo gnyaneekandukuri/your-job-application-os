@@ -30,7 +30,14 @@ def model(tmp_path):
 
 
 def test_saved_pages_do_not_recompute_and_details_are_not_transferred(model):
+    import sqlite3
+    from contextlib import closing
     m,source,d=model
+    # Runs now come directly from the scan DB, independently of the listing snapshot.
+    with closing(sqlite3.connect(d.path)) as db, db:
+        db.execute('CREATE TABLE scans(id INTEGER,started TEXT,finished TEXT,payload TEXT)')
+    d.db = lambda: closing(sqlite3.connect(d.path))
+    d.settings = lambda: {}
     assert not m.page()['ready']
     assert m.refresh()
     first=m.page();second=m.page(page=2)
@@ -261,3 +268,35 @@ def test_listing_url_preserves_job_ids():
     from app.job_identity import listing_url
     assert listing_url('https://jobs.example/role?id=1&utm_source=test#details') == 'https://jobs.example/role?id=1'
     assert listing_url('https://jobs.example/role?id=1') != listing_url('https://jobs.example/role?id=2')
+
+
+def test_running_scan_preserves_description_progress_in_small_runs_response(model):
+    import sqlite3
+    from contextlib import closing
+    m, _, d = model
+    payload = {'state': 'running', 'phase': 'descriptions',
+               'descriptions': {'fetched': 7, 'needs_paste': 2},
+               'description_progress': {'completed': 9, 'total': 20,
+                                        'current': {'company': 'Example', 'title': 'PM'}},
+               'large_detail': 'x' * 500000,
+               'sources': {'yc': {'state': 'checked', 'count': 20,
+                                   'warnings': ['Recovered request ' + 'x' * 100] * 5000}}}
+    def connect():
+        db = sqlite3.connect(d.path)
+        db.row_factory = sqlite3.Row
+        return closing(db)
+    d.db = connect
+    d.settings = lambda: {}
+    with d.db() as db, db:
+        db.execute('CREATE TABLE scans(id INTEGER,started TEXT,finished TEXT,payload TEXT)')
+        db.execute('CREATE TABLE scan_roles(scan_id INTEGER,payload TEXT)')
+        db.execute('INSERT INTO scans VALUES(?,?,?,?)',
+                   (1, '2026-10-21', None, json.dumps(payload)))
+    response = m.runs()
+    scan = response['scan']['payload']
+    assert scan['state'] == 'running' and scan['phase'] == 'descriptions'
+    assert scan['descriptions'] == payload['descriptions']
+    assert scan['description_progress'] == payload['description_progress']
+    assert 'large_detail' not in scan
+    assert 'warnings' not in scan['sources']['yc']
+    assert len(json.dumps(response).encode()) < 20000

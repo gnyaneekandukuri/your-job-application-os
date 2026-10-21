@@ -2,7 +2,7 @@ import {MarkApplied} from './MarkApplied';
 import {WritingHelp,isYCListing} from './TeamMessage';
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
-import { ScanReport, type ScanReportData } from "./ScanReport";
+import { ScanReport, type ScanRunSummary } from "./ScanReport";
 import { CompanyWatchlist } from "./CompanyWatchlist";
 import { SourceLeads } from "./SourceLeads";
 type KeywordSource = {id:string;title:string;employer:string;project:string;path:string;line:number;excerpt:string};
@@ -16,7 +16,7 @@ type Diagnostic = {reason:string;kind:string;http_status?:number;host:string;pat
 type Source = {checked_at?:string;state:string;count?:number;error?:string;coverage?:string;warnings?:(string | (Diagnostic & {listing:string}))[];diagnostic?:Diagnostic};
 type YCConnection = {state:string;message:string;busy:boolean;checked_at?:string};
 type Overview={started:string;finished:string|null;state:string;tracked:boolean;seen:number;new:number|null;high:number;worth_checking:number;requested:number;completed:number;worth_applying:number;auto_paused:boolean;error?:string;failures:{board:string;state:string;reason:string}[]};
-type State = {help_count?:number;automatic_running?:boolean;freshness_counts?:{recent:number;older:number;uncertain:number};scan_overview?:Overview;ready:boolean;revision:string;total:number;page:number;pages:number;board_counts:Record<string,number>;run_reports?:ScanReportData[];recent_scans?:{started:string;finished:string|null;state:string;new_count?:number}[];pipeline?:{complete:number;running:number;attention:number;previous:number;queued:number};company_preference?:{focus:string;preferred_stages:string[]};jev?:{configured:boolean;message:string};yc_connection?:YCConnection;lenny_connection?:YCConnection;keyword_profile?:KeywordProfile;location_preference?:{label:string;countries:string[]};items:Item[];running:boolean;settings:{enabled:boolean;auto_assess:boolean};boards:Record<string,string>;unavailable:Record<string,string>;timezone:string;schedule:string[];scan:null|{started:string;finished:string|null;payload:{description_progress?:{total:number;completed:number;current?:{company:string;title:string}};phase?:string;classification?:{state:string;classified:number;cached:number;skipped:number;error?:string};descriptions?:{fetched:number;needs_paste:number};state:string;new_count?:number;sources?:Record<string,Source>;error?:string}}};
+type State = {help_count?:number;automatic_running?:boolean;freshness_counts?:{recent:number;older:number;uncertain:number};scan_overview?:Overview;ready:boolean;revision:string;total:number;page:number;pages:number;board_counts:Record<string,number>;run_reports?:ScanRunSummary[];recent_scans?:{started:string;finished:string|null;state:string;new_count?:number}[];pipeline?:{complete:number;running:number;attention:number;previous:number;queued:number};company_preference?:{focus:string;preferred_stages:string[]};jev?:{configured:boolean;message:string};yc_connection?:YCConnection;lenny_connection?:YCConnection;keyword_profile?:KeywordProfile;location_preference?:{label:string;countries:string[]};items:Item[];running:boolean;settings:{enabled:boolean;auto_assess:boolean};boards:Record<string,string>;unavailable:Record<string,string>;timezone:string;schedule:string[];scan:null|{started:string;finished:string|null;payload:{description_progress?:{total:number;completed:number;current?:{company:string;title:string}};phase?:string;classification?:{state:string;classified:number;cached:number;skipped:number;error?:string};descriptions?:{fetched:number;needs_paste:number};state:string;new_count?:number;sources?:Record<string,Source>;error?:string}}};
 async function request<T>(path="",body?:unknown,signal?:AbortSignal):Promise<T> {
  const response=await fetch(`/api/discovery${path}`,body===undefined?{signal}:{method:"POST",headers:{"Content-Type":"application/json","X-Local-Review":"1"},body:JSON.stringify(body)});
  const value=await response.json();if(!response.ok)throw new Error(typeof value.detail==="string"?value.detail:"Action failed. Try again.");return value;
@@ -59,8 +59,8 @@ export function Discovery({onOpen,onResults,onAdd,initialReviewId,view="opportun
  const status=useQuery({queryKey:['job-list-status'],queryFn:({signal})=>request<{ready:boolean;revision:string;refreshing:boolean;error:string|null;running:boolean;automatic_running?:boolean}>('/status',undefined,signal),refetchInterval:4000,refetchIntervalInBackground:true});
  const [search,setSearch]=useState(query);
  useEffect(()=>{const timer=setTimeout(()=>setSearch(query),250);return()=>clearTimeout(timer);},[query]);
- const params=new URLSearchParams({page:String(page),query:search,priority:priorityFilter,location:locationFilter,company:companyFilter,board:boardFilter,show:tab==="help"?"help":filter,runs:String(view==='runs')});
- const listing=useQuery({queryKey:['job-list',view,params.toString(),status.data?.revision],queryFn:({signal})=>request<State>('/page?'+params.toString(),undefined,signal),enabled:!!status.data?.ready,placeholderData:(previous,previousQuery)=>previousQuery?.queryKey[1]===view?keepPreviousData(previous):undefined});
+ const params=new URLSearchParams({page:String(page),query:search,priority:priorityFilter,location:locationFilter,company:companyFilter,board:boardFilter,show:tab==="help"?"help":filter,runs:String(view==='runs'),runs_page:String(page)});
+ const listing=useQuery({queryKey:['job-list',view,params.toString(),status.data?.revision],queryFn:({signal})=>request<State>('/page?'+params.toString(),undefined,signal),enabled:view==='runs'||!!status.data?.ready,refetchInterval:view==='runs'?4000:false,placeholderData:(previous,previousQuery)=>previousQuery?.queryKey[1]===view?keepPreviousData(previous):undefined});
  const state=listing.data?.ready?{...listing.data,running:status.data?.running??listing.data.running,automatic_running:status.data?.automatic_running}:null;
  const connectionError=(status.error||listing.error)?.message;
  const updating=!!status.data?.refreshing||listing.isPlaceholderData;
@@ -68,6 +68,11 @@ export function Discovery({onOpen,onResults,onAdd,initialReviewId,view="opportun
  useEffect(()=>{if(initialReviewId&&openedReview.current!==initialReviewId){openedReview.current=initialReviewId;void act(()=>openJD({id:initialReviewId}));}},[initialReviewId]);
  useEffect(()=>{if(jd)jdDialog.current?.showModal();else jdDialog.current?.close();},[jd?.id]);
  useEffect(()=>setPage(1),[query,priorityFilter,locationFilter,boardFilter,filter,companyFilter]);
+ async function saveSettings(settings:State['settings']){
+  await request<{settings:State['settings'];refreshing:boolean}>('/settings',settings);
+  setState();
+  void queryClient.invalidateQueries({queryKey:['saved-assessments']});
+ }
  async function act(work:()=>Promise<void>){setBusy(true);setError("");try{await work();}catch(e){setError(e instanceof Error?e.message:"Action failed");}finally{setBusy(false);}}
  async function openJD(item:{id:string}){const detail=await request<JDDraft & {content_hash:string}>(`/${item.id}/detail`);setError("");setJD({...detail,expected_hash:detail.content_hash});}
  async function analyzeSelected(roles=selected){
@@ -138,6 +143,7 @@ export function Discovery({onOpen,onResults,onAdd,initialReviewId,view="opportun
   {!state?<p role="status">Preparing your saved jobs…</p>:view==="runs"?<>
    <p><a href="/#usage">View scan costs</a></p>
    <ScanReport scans={state.run_reports??[]} onOpen={onOpen}/>
+   <nav aria-label="Run pages"><button disabled={page<=1} onClick={()=>setPage(p=>p-1)}>Newer runs</button><span>Page {page} of {state.pages}</span><button disabled={page>=state.pages} onClick={()=>setPage(p=>p+1)}>Older runs</button></nav>
    <div className="discovery-run" aria-label="Last discovery run">
     <div><span>Last run started</span><strong>{state.scan?when(state.scan.started):"Not run yet"}</strong></div>
     <div><span>Finished</span><strong>{state.scan?.finished?when(state.scan.finished):state.running?"In progress":"—"}</strong></div>
@@ -169,8 +175,8 @@ export function Discovery({onOpen,onResults,onAdd,initialReviewId,view="opportun
    <SourceLeads/>
    <details className="retrieval-advanced"><summary>Schedule and assessment settings</summary>
     <p>Checks at {state.schedule.join(", ")} using your computer's local clock ({state.timezone}). Keep the local server running and laptop awake. One catch-up check runs after a missed slot when the server is available. Temporary connection failures retry after 10, 30 and 60 seconds. Access denials are not retried during the scan.</p>
-    <label className="retrieval-simple-consent"><input type="checkbox" disabled={busy} checked={state.settings.enabled} onChange={e=>{const enabled=e.target.checked;void act(async()=>setState(await request<State>("/settings",{auto_assess:state.settings.auto_assess,enabled})));}}/>Enable local scheduled checks</label>
-    <label className="retrieval-simple-consent"><input type="checkbox" disabled={busy} checked={state.settings.auto_assess} onChange={e=>{const auto_assess=e.target.checked;void act(async()=>setState(await request<State>("/settings",{enabled:state.settings.enabled,auto_assess})));}}/>Automatically assess High priority country-matched jobs with Jev as they become eligible (full JD required; TypeSafe usage applies).</label>
+    <label className="retrieval-simple-consent"><input type="checkbox" disabled={busy} checked={state.settings.enabled} onChange={e=>{const enabled=e.target.checked;void act(async()=>saveSettings({auto_assess:state.settings.auto_assess,enabled}));}}/>Enable local scheduled checks</label>
+    <label className="retrieval-simple-consent"><input type="checkbox" disabled={busy} checked={state.settings.auto_assess} onChange={e=>{const auto_assess=e.target.checked;void act(async()=>saveSettings({enabled:state.settings.enabled,auto_assess}));}}/>Automatically assess High priority country-matched jobs with Jev as they become eligible (full JD required; TypeSafe usage applies).</label>
     <p><small>Assessment sends job text and retrieved career evidence to TypeSafe. OpenAI creates reusable search embeddings; Jev assesses selected evidence. Posting age does not exclude a High priority role seen in the scan. Failed or interrupted assessments require manual attention.</small></p>
    </details>
    <details className="discovery-notes"><summary>Coverage limits and unavailable boards</summary><p>Counts are PM candidates, not verified matches. Shared jobs can count toward more than one board.</p>
