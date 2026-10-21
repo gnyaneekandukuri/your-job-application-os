@@ -253,7 +253,8 @@ def test_saved_high_priority_reconciles_without_new_scan(tmp_path, monkeypatch):
         d=configure(client);d.configure(Settings(enabled=False,auto_assess=True))
         oid,_=d.save('yc',row('Responsibilities '*30))
         item={'id':oid,'keyword_match':{'priority':'high','label':'High priority'}}
-        monkeypatch.setattr(d,'view',lambda:{'items':[item]})
+        with d.db() as db: db.execute('INSERT INTO automatic_candidates VALUES(?)',(oid,))
+        monkeypatch.setattr(d,'view',lambda **kw:{'items':[item]})
         calls=[];monkeypatch.setattr(d,'assess_high_priority',lambda ids,**kw:calls.append(ids))
         d.reconcile_automatic()
         assert calls==[{oid}]
@@ -265,7 +266,7 @@ def test_saved_high_priority_reconciles_without_new_scan(tmp_path, monkeypatch):
 def test_unexpected_queue_failure_pauses_automatic_work_visibly(tmp_path, monkeypatch):
     with TestClient(create_app(tmp_path)) as client:
         d=configure(client);d.configure(Settings(enabled=False,auto_assess=True))
-        def fail():raise RuntimeError('test failure')
+        def fail(**kw):raise RuntimeError('test failure')
         monkeypatch.setattr(d,'view',fail)
         d.reconcile_automatic()
         assert not d.settings()['auto_assess']

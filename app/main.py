@@ -192,8 +192,8 @@ def create_app(data_dir: Path | None = None):
     @api.get("/api/discovery/page")
     def job_list_page(request: Request, page: int = Query(1, ge=1), size: int = Query(25, ge=1, le=100),
                       query: str = Query('', max_length=200), priority: str = 'all', location: str = 'match',
-                      company: str = 'focus', board: str = 'all', show: str = 'all', runs: bool = False):
-        return request.app.state.job_list.page(page,size,query,priority,location,company,board,show,runs)
+                      company: str = 'focus', board: str = 'all', show: str = 'all', runs: bool = False, view: str = ''):
+        return request.app.state.job_list.page(page,size,query,priority,location,company,board,show,runs or view == 'runs')
 
     @api.get("/api/discovery/{opportunity_id}/detail")
     def job_list_detail(opportunity_id: str, request: Request):

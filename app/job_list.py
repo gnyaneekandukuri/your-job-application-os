@@ -12,7 +12,7 @@ from threading import Event, Lock, Thread
 
 from .job_identity import listing_urls
 
-VERSION = 'job-list-v14-scan-separation'
+VERSION = 'job-list-v15-listing-issues-drain'
 log = logging.getLogger(__name__)
 
 
@@ -128,6 +128,8 @@ class JobList:
             row=db.execute('SELECT metadata FROM snapshot WHERE id=1').fetchone()
         if row:
             result=json.loads(row['metadata'])
+            result.pop('run_reports', None)
+            result.pop('assessment_results', None)
             result.update(self.status(), settings=self.discovery.settings(), items=[])
             return result
         from .discovery_preferences import load_preferences

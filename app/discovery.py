@@ -35,7 +35,23 @@ def slot_at(current):
     return current.strftime('%Y-%m-%d') + f'T{due[-1]:02d}' if due else None
 
 
+def listing_warning(warning):
+    if isinstance(warning, dict):
+        return 'listing' in warning and 'reason' in warning
+    return bool(re.match(r'^Job\s+.+?:.*(?:description unavailable|description needs review)', str(warning), re.I))
+
+
+def source_summary(source):
+    source = dict(source)
+    count = sum(listing_warning(w) for w in source.get('warnings', []))
+    if count:
+        source['listing_issues'] = count
+        source['notes'] = [{'severity':'info', 'reason':f'{count} listings need review'}]
+    return source
+
+
 def warning_is_error(warning):
+    if listing_warning(warning): return False
     if isinstance(warning, dict):
         if warning.get('severity') == 'info': return False
         return warning.get('severity') == 'error' or bool(warning.get('error') or warning.get('reason'))
@@ -47,11 +63,15 @@ def warning_is_error(warning):
 def scan_summary(payload):
     """Normalize display semantics without changing historical scan records."""
     result = dict(payload)
-    sources = {k:dict(v) for k,v in result.get('sources', {}).items()}
+    sources = {k:source_summary(v) for k,v in result.get('sources', {}).items()}
+    responded_boards = {k for k,v in sources.items() if v.get('state') in ('checked','partial') or v.get('count',0) > 0}
     for source in sources.values():
         if source.get('state') == 'partial':
             source.update(state='checked', coverage_status='partial')
         errors = [w for w in source.get('warnings', []) if warning_is_error(w)]
+        if source.get('listing_issues') and not errors and source.get('state') == 'error' and source.get('error') in (None, 'Some collection requests failed.'):
+            source.update(state='checked')
+            source.pop('error', None)
         if errors and source.get('state') == 'checked':
             source.update(state='error', error='Some collection requests failed.')
     result['sources'] = sources
@@ -59,7 +79,11 @@ def scan_summary(payload):
         expected = result.get('boards', list(BOARDS))
         failed = any(sources.get(board, {}).get('state') != 'checked' or sources.get(board, {}).get('error') for board in expected)
         pipeline_error = bool(result.get('error') or result.get('classification', {}).get('state') == 'error' or result.get('screening', {}).get('errors'))
-        result['state'] = 'incomplete' if failed or pipeline_error else 'complete'
+        responded = any(board in responded_boards or sources.get(board, {}).get('state') == 'checked' for board in expected)
+        result['state'] = 'failed' if expected and not responded else 'incomplete' if failed or pipeline_error else 'complete'
+        result['phase'] = result['state']
+    elif result.get('state') == 'interrupted':
+        result['phase'] = 'interrupted'
     return result
 
 
@@ -306,6 +330,7 @@ class Discovery:
             for n, oid in enumerate([oid for oid, r in selected_rows.items() if r['state'] == 'QUEUED']):
                 selected_rows[oid]['position'] = n + 1
             fetched_rows = {r['opportunity_id']:dict(r) for r in db.execute('SELECT * FROM description_fetches')}
+            automatic_candidates = {r[0] for r in db.execute('SELECT opportunity_id FROM automatic_candidates')}
             kept = {r[0] for r in db.execute('SELECT opportunity_id FROM kept_jobs')}
             kept_saved = {r[0] for r in db.execute('SELECT job_id FROM kept_saved_jobs')}
             passed = {r[0] for r in db.execute('SELECT opportunity_id FROM passed_jobs')}
@@ -349,6 +374,7 @@ class Discovery:
                 item["content_hash"] = self.content_hash(item)
                 attempt = automatic.get(row['id'])
                 item['automatic_assessment'] = {k:attempt[k] for k in ('state','attempted_at','error')} if attempt else None
+                item['automatic_candidate'] = row['id'] in automatic_candidates
                 item['queued_for_assessment'] = row['id'] in self.queued_ids
                 selected = selected_rows.get(row['id'])
                 item['selected_assessment'] = {k:selected.get(k) for k in ('state','error','position')} if selected else None
@@ -594,10 +620,20 @@ class Discovery:
         progress(counts['fetched'] + counts['needs_paste'])
         return counts
 
+    def draining(self):
+        return (self.path.parent / 'maintenance.flag').exists()
+
+    def assessment_blocked(self):
+        if self.draining(): return True
+        with self.db() as db:
+            row = db.execute('SELECT payload FROM scans WHERE finished IS NULL ORDER BY id DESC LIMIT 1').fetchone()
+        return bool(row and json.loads(row[0]).get('phase') in ('descriptions', 'classifying'))
+
     def start(self, boards=None):
         if boards is not None and (not boards or any(board not in BOARDS for board in boards)):
             raise ValueError('Unknown discovery source')
         with self.lock:
+            if self.draining(): raise Conflict('Server is draining for maintenance.')
             if self.worker and self.worker.is_alive():
                 raise Conflict('A discovery scan is already running. Your new scan was not started.')
             self.worker = Thread(target=self.scan, args=(boards,), daemon=True, name='discovery-scan')
@@ -644,7 +680,8 @@ class Discovery:
             with self.db() as db: db.execute('UPDATE scans SET payload=? WHERE id=?',(json.dumps(result),sid))
             result['descriptions'] = self.complete_descriptions(pending)
             from .job_dedup import consolidate, resolve
-            with self.lock, self.db() as db:
+            # Global order when nested: import lock, discovery lock, analysis lock, database.
+            with self.import_lock, self.lock, self.db() as db:
                 merged = consolidate(db)
                 pending = {resolve(db, oid) for oid in pending}
             result['duplicates_consolidated'] = len(merged)
@@ -683,8 +720,10 @@ class Discovery:
         finally:
             scan_id.reset(scan_token)
             with self.db() as db: db.execute('UPDATE scans SET finished=?,payload=? WHERE id=?', (now(), json.dumps(result), sid))
+        self.start_automatic()
 
     def assess_high_priority(self, seen_ids, items=None):
+        if self.assessment_blocked(): return
         # Current-run sightings only; publication age does not imply poor fit.
         from .job_identity import same_job
         items = items if items is not None else self.view()['items']
@@ -704,9 +743,9 @@ class Discovery:
         self.queued_ids = {item['id'] for item in candidates if self.auto_eligible(item)}
         last_job = None
         for item in candidates:
-            while not self.stop.is_set() and self.settings()['auto_assess'] and ((self.analysis.worker and self.analysis.worker.is_alive()) or (getattr(self.analysis,'manual_queue',None) and self.analysis.manual_queue.pending())):
+            while not self.stop.is_set() and not self.assessment_blocked() and self.settings()['auto_assess'] and ((self.analysis.worker and self.analysis.worker.is_alive()) or (getattr(self.analysis,'manual_queue',None) and self.analysis.manual_queue.pending())):
                 self.stop.wait(2)
-            if self.stop.is_set() or not self.settings()['auto_assess']: break
+            if self.stop.is_set() or self.assessment_blocked() or not self.settings()['auto_assess']: break
             if last_job:
                 summary = self.assessment_summary({'job_id':last_job})
                 self.record_scan_role(last_item, assessment=summary)
@@ -832,6 +871,7 @@ class Discovery:
                 item['passed'] = True
 
     def import_role(self, oid, analyze=True, automatic=False):
+        # Import alone stays independent of the scan lock (writing-help fast path).
         with self.import_lock:
             with self.db() as db:
                 from .job_dedup import resolve
@@ -873,7 +913,7 @@ class Discovery:
                 if automatic:
                     # Completed/current failed attempts are reused, never retried.
                     # A changed JD/context has a new input version and may run once.
-                    if self.stop.is_set() or not self.settings()['auto_assess'] or view.get('run') or not view.get('ready'):
+                    if self.stop.is_set() or self.assessment_blocked() or not self.settings()['auto_assess'] or view.get('run') or not view.get('ready'):
                         return {'job_id':job_id}
                     with self.db() as db:
                         claimed = db.execute('INSERT OR IGNORE INTO automatic_versions VALUES(?,?,?)',
@@ -917,10 +957,14 @@ class Discovery:
         from .discovery_screening import screen
         try:
             self.automatic_error = None
-            items = self.view()['items']
+            if self.assessment_blocked(): return
             with self.db() as db:
                 tracked = {r[0] for r in db.execute('SELECT opportunity_id FROM automatic_candidates')}
-                tracked.update(i['id'] for i in items if i.get('keyword_match',{}).get('priority') == 'high')
+                pasted_ids = {r[0] for r in db.execute("SELECT id FROM opportunities WHERE json_extract(payload,'$.description_provenance.method') IN ('user_paste','user_reviewed_extraction')")}
+            candidate_ids = tracked | pasted_ids
+            items = self.view(opportunity_ids=candidate_ids)['items']
+            tracked.update(i['id'] for i in items if i.get('keyword_match',{}).get('priority') == 'high')
+            with self.db() as db:
                 db.executemany('INSERT OR IGNORE INTO automatic_candidates VALUES(?)', [(oid,) for oid in tracked])
             # A JD you pasted is screened now, not at the next scan that happens to see the listing.
             pasted = lambda i: (i.get('description_provenance') or {}).get('method') in ('user_paste', 'user_reviewed_extraction')
@@ -930,7 +974,7 @@ class Discovery:
                 preferences = load_preferences(self.analysis.library.root / 'knowledge/discovery-preferences.json')
                 screen(self.analysis.engine, changed, self.screening_profile(preferences), self.stop)
                 rescreened = {i['id'] for i in changed}
-                items = self.view()['items']
+                items = self.view(opportunity_ids=candidate_ids)['items']
                 tracked.update(i['id'] for i in items
                                if i['id'] in rescreened and i.get('keyword_match',{}).get('priority') == 'high')
                 with self.db() as db:
@@ -949,7 +993,7 @@ class Discovery:
 
     def start_automatic(self):
         with self.lock:
-            if (self.stop.is_set() or not self.settings()['auto_assess'] or
+            if (self.stop.is_set() or self.assessment_blocked() or not self.settings()['auto_assess'] or
                     (self.assessment_worker and self.assessment_worker.is_alive()) or
                     (self.selected.worker and self.selected.worker.is_alive()) or
                     (self.analysis.worker and self.analysis.worker.is_alive())):
@@ -960,7 +1004,7 @@ class Discovery:
     def scheduled_scan(self, current=None):
         with self.lock:
             cfg=self.settings(); slot=slot_at(current or datetime.now().astimezone())
-            if not cfg['enabled'] or not slot or slot==cfg.get('last_slot') or (self.worker and self.worker.is_alive()):
+            if self.draining() or not cfg['enabled'] or not slot or slot==cfg.get('last_slot') or (self.worker and self.worker.is_alive()):
                 return False
             self.start()
             # Preserve concurrent setting changes, including provider-limit pauses.
@@ -980,7 +1024,7 @@ class Discovery:
                     with self.lock:
                         current = datetime.now(timezone.utc)
                         idle = not any(w and w.is_alive() for w in (self.worker, self.assessment_worker, self.selected.worker, self.analysis.worker))
-                        if idle and (self.retention_checked_at is None or (current-self.retention_checked_at).total_seconds() >= 3600):
+                        if idle and not self.draining() and (self.retention_checked_at is None or (current-self.retention_checked_at).total_seconds() >= 3600):
                             from .job_retention import cleanup
                             cleanup(self, current)
                             self.retention_checked_at = current

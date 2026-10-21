@@ -15,6 +15,7 @@ def eligible(**changes):
 
 def test_refresh_existing_once_without_importing_duplicate():
     d = object.__new__(Discovery); d.worker=None
+    d.assessment_blocked = lambda: False
     original = eligible()
     duplicate = {**original, 'id':'two', 'job_id':None, 'assessment':{'state':'NOT_STARTED'}}
     d.view = lambda **kw: {'items':[i for i in [duplicate,original] if kw.get('opportunity_ids') is None or i['id'] in kw['opportunity_ids']]}
@@ -77,20 +78,21 @@ def test_only_active_selections_protect_old_listing(tmp_path,state,protected):
 
 def test_pasted_jd_is_screened_without_waiting_for_a_scan(monkeypatch):
     d = object.__new__(Discovery); d.worker=None
+    d.assessment_blocked = lambda: False
     pasted = dict(id='pasted', description=JD, keyword_match={'label':'Not screened'}, location_match={'status':'match'},
                   description_provenance={'method':'user_paste'})
     other = {**pasted, 'id':'other', 'description_provenance':{'method':'listing_extraction'}}
     screened = []
     monkeypatch.setattr('app.discovery_screening.screen', lambda engine, items, profile, stop: screened.extend(i['id'] for i in items))
     monkeypatch.setattr('app.discovery.load_preferences', lambda path: {})
-    d.view = lambda: {'items':[pasted, other]}
+    d.view = lambda **kw: {'items':[i for i in [pasted, other] if i['id'] in kw['opportunity_ids']]}
     d.screening_profile = lambda prefs: {}
     d.analysis = SimpleNamespace(engine=None, library=SimpleNamespace(root=__import__('pathlib').Path('.')))
     d.stop = Event(); d.queued_ids = set()
     class DB:
         def __enter__(self): return self
         def __exit__(self, *a): pass
-        def execute(self, *a): return []
+        def execute(self, query, *a): return [('pasted',)] if 'description_provenance.method' in query else []
         def executemany(self, *a): pass
     d.db = DB
     d.assess_high_priority = lambda ids,**kw: None
