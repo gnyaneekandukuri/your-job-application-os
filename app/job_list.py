@@ -12,7 +12,7 @@ from threading import Event, Lock, Thread
 
 from .job_identity import listing_urls
 
-VERSION = 'job-list-v13-entry-retention'
+VERSION = 'job-list-v14-scan-separation'
 log = logging.getLogger(__name__)
 
 
@@ -123,6 +123,19 @@ class JobList:
         finally:
             self.lock.release()
 
+    def overview(self):
+        with closing(self.connect()) as db:
+            row=db.execute('SELECT metadata FROM snapshot WHERE id=1').fetchone()
+        if row:
+            result=json.loads(row['metadata'])
+            result.update(self.status(), settings=self.discovery.settings(), items=[])
+            return result
+        from .discovery_preferences import load_preferences
+        preferences=load_preferences(self.discovery.analysis.library.root / 'knowledge/discovery-preferences.json')
+        return {**self.status(), 'items':[], 'settings':self.discovery.settings(),
+                'location_preference':preferences.get('location_filter',{}),
+                'pipeline':{'complete':0,'running':0,'attention':0,'previous':0,'queued':0}}
+
     def status(self):
         with closing(self.connect()) as db:
             row = db.execute('SELECT fingerprint,revision,updated FROM snapshot WHERE id=1').fetchone()
@@ -131,7 +144,7 @@ class JobList:
                 'updated_at':row['updated'] if row else None, 'refreshing':stale,
                 'error':self.error or getattr(self.discovery, 'automatic_error', None),
                 'running':bool(self.discovery.worker and self.discovery.worker.is_alive()),
-                'automatic_running':bool(self.discovery.worker and self.discovery.worker.is_alive() and self.discovery.worker.name == 'automatic-assessments')}
+                'automatic_running':bool(getattr(self.discovery, 'assessment_worker', None) and self.discovery.assessment_worker.is_alive())}
 
     def applied_keys(self):
         path = self.path.parent / 'applications.sqlite3'

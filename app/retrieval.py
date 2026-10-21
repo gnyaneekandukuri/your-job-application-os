@@ -175,6 +175,7 @@ class RetrievalService:
             """)
 
         self.migrate_usage()
+        self.migrate_decisions()
 
     def migrate_usage(self):
         with closing(self.connect()) as db, db:
@@ -182,6 +183,32 @@ class RetrievalService:
             for name, kind in {"scan_id":"INTEGER", "opportunity_id":"TEXT", "job_id":"TEXT", "stage":"TEXT", "cached_tokens":"INTEGER", "cache_write_tokens":"INTEGER", "cost_basis":"TEXT", "latency_ms":"INTEGER", "error":"TEXT"}.items():
                 if name not in columns:
                     db.execute(f"ALTER TABLE calls ADD COLUMN {name} {kind}")
+
+    def migrate_decisions(self):
+        # One-time projection of history; subsequent cache writes update it atomically.
+        with closing(self.connect()) as db, db:
+            exists = db.execute("SELECT 1 FROM sqlite_master WHERE name='latest_pursuit_decisions'").fetchone()
+            db.execute('CREATE TABLE IF NOT EXISTS latest_pursuit_decisions (job_id TEXT PRIMARY KEY, created_at TEXT NOT NULL, payload TEXT NOT NULL)')
+            if not exists:
+                for (payload,) in db.execute("SELECT payload FROM cache WHERE key LIKE 'pursuit-decision-event:%'").fetchall():
+                    event=json.loads(payload)
+                    if event.get('job_id'):
+                        db.execute("INSERT INTO latest_pursuit_decisions VALUES(?,?,?) ON CONFLICT(job_id) DO UPDATE SET created_at=excluded.created_at,payload=excluded.payload WHERE excluded.created_at >= latest_pursuit_decisions.created_at",
+                                   (event['job_id'],event.get('created_at',''),payload))
+            db.executescript("""
+                CREATE TRIGGER IF NOT EXISTS project_pursuit_insert AFTER INSERT ON cache
+                WHEN NEW.key LIKE 'pursuit-decision-event:%' AND json_valid(NEW.payload) AND json_extract(NEW.payload,'$.job_id') IS NOT NULL
+                BEGIN
+                  INSERT INTO latest_pursuit_decisions VALUES(json_extract(NEW.payload,'$.job_id'),coalesce(json_extract(NEW.payload,'$.created_at'),''),NEW.payload)
+                  ON CONFLICT(job_id) DO UPDATE SET created_at=excluded.created_at,payload=excluded.payload WHERE excluded.created_at >= latest_pursuit_decisions.created_at;
+                END;
+                CREATE TRIGGER IF NOT EXISTS project_pursuit_update AFTER UPDATE OF payload ON cache
+                WHEN NEW.key LIKE 'pursuit-decision-event:%' AND json_valid(NEW.payload) AND json_extract(NEW.payload,'$.job_id') IS NOT NULL
+                BEGIN
+                  INSERT INTO latest_pursuit_decisions VALUES(json_extract(NEW.payload,'$.job_id'),coalesce(json_extract(NEW.payload,'$.created_at'),''),NEW.payload)
+                  ON CONFLICT(job_id) DO UPDATE SET created_at=excluded.created_at,payload=excluded.payload WHERE excluded.created_at >= latest_pursuit_decisions.created_at;
+                END;
+            """)
 
     def connect(self):
         return sqlite3.connect(self.path, timeout=10)

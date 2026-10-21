@@ -14,13 +14,16 @@ def eligible(**changes):
                 assessment={'state':'STALE'}, job_id='saved', **changes)
 
 def test_refresh_existing_once_without_importing_duplicate():
-    d = object.__new__(Discovery)
+    d = object.__new__(Discovery); d.worker=None
     original = eligible()
     duplicate = {**original, 'id':'two', 'job_id':None, 'assessment':{'state':'NOT_STARTED'}}
-    d.view = lambda: {'items':[duplicate,original]}
+    d.view = lambda **kw: {'items':[i for i in [duplicate,original] if kw.get('opportunity_ids') is None or i['id'] in kw['opportunity_ids']]}
     d.stop=Event(); d.analysis=SimpleNamespace(worker=None); d.queued_ids=set()
     d.settings=lambda:{'auto_assess':True}
     d.record_scan_role=lambda *a,**k:None
+    from unittest.mock import MagicMock
+    d.db=MagicMock()
+    d.db.return_value.__enter__.return_value.execute.return_value.fetchone.return_value=None
     calls=[]
     d.import_role=lambda oid,**k:calls.append(oid)
     d.assess_high_priority({'one','two'})
@@ -73,7 +76,7 @@ def test_only_active_selections_protect_old_listing(tmp_path,state,protected):
         assert d.view(include_analysis=False)['items'][0]['retention_protected'] is protected
 
 def test_pasted_jd_is_screened_without_waiting_for_a_scan(monkeypatch):
-    d = object.__new__(Discovery)
+    d = object.__new__(Discovery); d.worker=None
     pasted = dict(id='pasted', description=JD, keyword_match={'label':'Not screened'}, location_match={'status':'match'},
                   description_provenance={'method':'user_paste'})
     other = {**pasted, 'id':'other', 'description_provenance':{'method':'listing_extraction'}}
@@ -90,6 +93,6 @@ def test_pasted_jd_is_screened_without_waiting_for_a_scan(monkeypatch):
         def execute(self, *a): return []
         def executemany(self, *a): pass
     d.db = DB
-    d.assess_high_priority = lambda ids: None
+    d.assess_high_priority = lambda ids,**kw: None
     d.reconcile_automatic()
     assert screened == ['pasted']
