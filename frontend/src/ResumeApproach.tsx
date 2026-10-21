@@ -9,7 +9,8 @@ export function ResumeApproach({jobId,value}:{jobId:string;value?:Advice}) {
  }catch(e){setError((e as Error).message);}finally{setBusy(false);}}
  const labels={USE_MASTER:'Use master',SMALL_EDITS:'Small edits',TAILOR:'Tailor'};
  return <section className="resume-approach" aria-label="Resume approach">
- {value?.state==='COMPLETE'&&value.approach?<>
+ {value?.stale&&<small>Checked against previous master</small>}
+ {value?.approach&&(value.state==='COMPLETE'||value.stale)?<>
   <strong>{labels[value.approach]}</strong><p>{value.reason}</p>
   {!!value.changes?.length&&<details><summary>Suggested changes ({value.changes.length})</summary><ul>{value.changes.map((c,i)=><li key={i}><strong>{c.job_need}</strong><p>{c.action}</p><small>Resume point: {c.resume_point}</small></li>)}</ul></details>}
   {!!value.experience_gaps?.length&&<details><summary>Gaps rewriting cannot resolve</summary><ul>{value.experience_gaps.map((g,i)=><li key={i}>{g}</li>)}</ul></details>}
@@ -18,5 +19,6 @@ export function ResumeApproach({jobId,value}:{jobId:string;value?:Advice}) {
   {value?.state!=='UNAVAILABLE'&&<button disabled={busy} onClick={()=>void check()}>{busy?'Queuing…':value?.state==='ERROR'?'Retry resume approach · API usage':'Check resume approach · API usage'}</button>}
  </>}
  {error&&<p role="alert">{error}</p>}
+ {value?.stale&&<button disabled={busy} onClick={()=>void check()}>{busy?'Queuing…':'Re-check resume approach · API usage'}</button>}
  </section>;
 }

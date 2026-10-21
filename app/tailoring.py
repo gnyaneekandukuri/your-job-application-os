@@ -687,7 +687,7 @@ class Tailoring:
                 advice = advisor.view(job)
                 _, current_master = self.baseline()
                 same = ' '.join(body['sources'][0]['text'].split()) == ' '.join((current_master or {}).get('text', '').split())
-                if advice.get('state') == 'COMPLETE' and same:
+                if advice.get('state') == 'COMPLETE' and not advice.get('stale') and same:
                     body['resume_approach'] = advice
             fingerprint = digest(json.dumps([VERSION,MODEL,policy,body,version,data.framework,data.include_summary],sort_keys=True))
             key = 'tailoring:run:' + job.id + ':' + fingerprint
