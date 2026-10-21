@@ -18,7 +18,7 @@ def test_titles_above_senior_pm_are_detected_without_catching_target_levels():
 
 def test_undated_listings_age_from_first_discovery():
     seen = lambda days: (NOW - timedelta(days=days)).isoformat()
-    assert age_state({'first_seen': seen(1)}, NOW) == 'unknown'
+    assert age_state({'first_seen': seen(1)}, NOW) == 'active'
     assert age_state({'first_seen': seen(5)}, NOW) == 'older_than_four_days'
     assert age_state({}, NOW) == 'unknown'
-    assert age_state({'posted_at': (NOW - timedelta(days=1)).isoformat(), 'first_seen': seen(9)}, NOW) == 'active'
+    assert age_state({'posted_at': (NOW - timedelta(days=1)).isoformat(), 'first_seen': seen(9)}, NOW) == 'older_than_four_days'

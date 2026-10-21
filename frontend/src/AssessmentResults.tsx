@@ -41,6 +41,11 @@ export function AssessmentResults({onOpen,onDiscover,onUpdatedJD,initialTab="all
   }catch(e){setError(String(e));}finally{setRowSaving(b=>({...b,[r.job_id]:false}));}
  }
  const post=(url:string,body:unknown)=>fetch(url,{method:'POST',headers:{'Content-Type':'application/json','X-Local-Review':'1'},body:JSON.stringify(body)}).then(async response=>{const v=await response.json();if(!response.ok)throw new Error(typeof v.detail==='string'?v.detail:'Could not complete this action.');return v;});
+ async function keepResult(r:Result){
+  setError('');setRowSaving(b=>({...b,[r.job_id]:true}));
+  try{await post(`/api/assessments/${r.job_id}/keep`,{keep:!r.kept});await saved.refetch();}
+  catch(e){setError(String(e));}finally{setRowSaving(b=>({...b,[r.job_id]:false}));}
+ }
  async function openPaste(r:Result){
   setError('');setNotice('');
   try{const response=await fetch(`/api/discovery/${r.opportunity_id}/detail`);const d=await response.json();if(!response.ok)throw new Error(typeof d.detail==='string'?d.detail:'Could not open this listing.');
@@ -128,7 +133,7 @@ export function AssessmentResults({onOpen,onDiscover,onUpdatedJD,initialTab="all
  {r.assessment.listing_changed&&r.opportunity_id?<button onClick={()=>onUpdatedJD(r.opportunity_id!)}>Review updated JD</button>:<>{r.assessment.state==='STALE'&&<button className="primary" disabled={!!saving} onClick={()=>void rerun(r)}>{saving===r.job_id?'Queuing…':'Re-run analysis · API usage'}</button>}<button onClick={()=>void open(r.job_id)}>{r.assessment.state==='COMPLETE'?'Review evidence':r.assessment.state==='STALE'?'View previous analysis':'Open unfinished analysis'}</button></>}
  {r.assessment.state!=='COMPLETE'&&<button disabled={!!rowSaving[r.job_id]} onClick={()=>void passSaved(r,r.assessment.choice!=='SKIP')}>{r.assessment.choice==='SKIP'?'Undo pass':'Pass'}</button>}
  {r.assessment.state==='COMPLETE'&&!r.assessment.listing_changed&&<><TailorResume jobId={r.job_id} label={`${r.company} · ${r.title}`}/><button disabled={!!rowSaving[r.job_id]} onClick={()=>void choose(r,r.assessment.choice==='SKIP'?'CASUAL':'SKIP')}>{rowSaving[r.job_id]?'Saving…':r.assessment.choice==='SKIP'?'Reconsider':'Pass'}</button></>}
- <WritingHelp jobId={r.job_id} company={r.company} url={r.url} yc={!!r.yc_listing||isYCListing(r.url)}/><MarkApplied jobId={r.job_id} company={r.company}/></div></td></tr>)}
+ <button disabled={!!rowSaving[r.job_id]} onClick={()=>void keepResult(r)}>{r.kept?"Unkeep job":"Keep job"}</button><WritingHelp jobId={r.job_id} company={r.company} url={r.url} yc={!!r.yc_listing||isYCListing(r.url)}/><MarkApplied jobId={r.job_id} company={r.company}/></div></td></tr>)}
  </tbody></table></div>}
  </>}
  </section>;

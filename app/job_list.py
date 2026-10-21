@@ -12,7 +12,7 @@ from threading import Event, Lock, Thread
 
 from .job_identity import listing_urls
 
-VERSION = 'job-list-v12-opening-identity'
+VERSION = 'job-list-v13-entry-retention'
 log = logging.getLogger(__name__)
 
 
@@ -246,8 +246,24 @@ class JobList:
         queue=getattr(self.discovery.analysis,'manual_queue',None)
         if queue:
             live={r['job_id']:r for r in queue.display_items()}
+            existing = {r['job_id']: r for r in result.get('items', [])}
+            for jid, item in live.items():
+                previous = existing.get(jid, {})
+                item.update({k:previous[k] for k in ('entered_at', 'kept') if k in previous})
+                if 'entered_at' not in item and hasattr(self.discovery, 'saved_job'):
+                    item['entered_at'] = self.discovery.saved_job(jid).created_at.isoformat()
+                    with self.discovery.db() as db:
+                        item['kept'] = bool(db.execute('SELECT 1 FROM kept_saved_jobs WHERE job_id=?',(jid,)).fetchone())
+                        rows = db.execute('SELECT first_seen FROM opportunities WHERE job_id=?',(jid,)).fetchall()
+                        if rows:
+                            item['entered_at'] = min([datetime.fromisoformat(item['entered_at']), *[datetime.fromisoformat(r[0]) for r in rows]]).isoformat()
+
             result['items']=[r for r in result.get('items',[]) if r['job_id'] not in live]+list(live.values())
         result.pop('scans',None)
+        from .job_retention import age_state
+        result['items'] = [r for r in result.get('items', []) if r.get('kept') or
+                           age_state({'first_seen':r.get('entered_at')}) != 'older_than_four_days']
+
         ids, urls = self.applied_keys()
         result['items'] = [r for r in result.get('items',[]) if r.get('job_id') not in ids and (r.get('url') or '').rstrip('/') not in urls]
         if 'counts' in result:
