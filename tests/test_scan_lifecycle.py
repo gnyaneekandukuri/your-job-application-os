@@ -22,7 +22,7 @@ def test_partial_is_information_and_history_is_unchanged():
     assert payload==before
 
 
-@pytest.mark.parametrize('warning',[{'kind':'ReadTimeout','reason':'Response timed out'},'Job 123: HTTP 429; description unavailable.','Job 123: ValueError; description needs review.','LinkedIn limited requests after 2 pages.','One hiring comment could not be read; coverage is partial.'])
+@pytest.mark.parametrize('warning',[{'kind':'ReadTimeout','reason':'Response timed out'},'Search page: HTTP 429','LinkedIn limited requests after 2 pages.','One hiring comment could not be read; coverage is partial.'])
 def test_real_warning_failures_remain_incomplete(warning):
     assert warning_is_error(warning)
     result=scan_summary({'state':'complete','boards':['linkedin'],'sources':{'linkedin':{'state':'checked','warnings':[warning]}}})
@@ -77,7 +77,13 @@ def test_scan_persists_handoff_without_waiting_and_keeps_attribution(tmp_path,mo
         monkeypatch.setattr(d,'complete_descriptions',lambda ids:{})
         monkeypatch.setattr(d.jev,'run',lambda *a:{'state':'complete'})
         monkeypatch.setattr('app.discovery_screening.screen',lambda *a:{'errors':0})
-        monkeypatch.setattr(d,'assess_high_priority',lambda *a,**kw:pytest.fail('Scan dispatched deep analysis'))
+        def handoff_persisted():
+            assert not d.lock._is_owned()
+            with d.db() as db:
+                assert db.execute('SELECT finished FROM scans ORDER BY id DESC LIMIT 1').fetchone()[0]
+                assert db.execute('SELECT opportunity_id FROM automatic_candidates').fetchone()
+        kick=Mock(side_effect=handoff_persisted)
+        monkeypatch.setattr(d,'start_automatic',kick)
         original=d.view;calls=[]
         def view(**kw):
             calls.append(kw)
@@ -87,6 +93,7 @@ def test_scan_persists_handoff_without_waiting_and_keeps_attribution(tmp_path,mo
             return result
         monkeypatch.setattr(d,'view',view)
         d.scan(['yc'])
+        kick.assert_called_once()
         assert len(calls)==2 and all('opportunity_ids' in k for k in calls)
         with d.db() as db:
             scan=db.execute('SELECT * FROM scans').fetchone()
@@ -140,25 +147,233 @@ def test_writing_request_blocks_restart(tmp_path):
 
 
 @pytest.mark.parametrize('initial_busy',[True,False])
-def test_restart_script_skips_busy_or_newly_busy_server(initial_busy):
+def test_restart_script_skips_busy_or_newly_busy_server(initial_busy,tmp_path):
     import shutil,subprocess
     from pathlib import Path
     shell=shutil.which('powershell.exe')
     if not shell: pytest.skip('Windows restart script')
     script=Path('scripts/restart-review-server.ps1').resolve()
-    first='$false' if initial_busy else '$true'
+    acknowledged='$true' if initial_busy else '$false'
     command=rf"""
-    $script:checks=0
+    $env:JOB_REVIEW_DATA_DIR='{tmp_path}'
+    $global:checks=0
     function Get-NetTCPConnection {{ [pscustomobject]@{{OwningProcess=123}} }}
     function Invoke-RestMethod {{
-      $script:checks++
-      [pscustomobject]@{{safe_to_restart=($(if($script:checks -eq 1){{{first}}}else{{$false}}));active=@('scan')}}
+      $global:checks++
+      [pscustomobject]@{{safe_to_restart=$false;draining={acknowledged};active=@('scan')}}
     }}
     function Get-CimInstance {{ [pscustomobject]@{{ParentProcessId=456;CommandLine='{script.parent.parent}\.venv\Scripts\python.exe -m uvicorn app.main:app'}} }}
     function Stop-Process {{ throw 'TEST FAILURE: stopped active work' }}
     function Start-Process {{ throw 'TEST FAILURE: launched over active work' }}
-    & '{script}'
+    & '{script}' -DrainTimeoutSeconds 0
     """
     result=subprocess.run([shell,'-NoProfile','-Command',command],capture_output=True,text=True,timeout=20)
     assert result.returncode==0, result.stderr
     assert 'Restart skipped' in result.stdout
+    assert 'TEST FAILURE' not in result.stdout
+    assert not (tmp_path/'maintenance.flag').exists()
+
+@pytest.mark.parametrize('warning', [
+    {'listing':'one','reason':'HTTP 404'},
+    'Job 123: HTTP 404; description unavailable.',
+    'Job 123: TimeoutError; description unavailable.',
+])
+def test_listing_issues_are_aggregated_information(warning):
+    payload={'state':'incomplete','phase':'incomplete','boards':['yc'],
+             'sources':{'yc':{'state':'checked','warnings':[warning]}}}
+    result=scan_summary(payload)
+    assert result['state']==result['phase']=='complete'
+    assert result['sources']['yc']['listing_issues']==1
+    assert result['sources']['yc']['notes']==[{'severity':'info','reason':'1 listings need review'}]
+    assert not warning_is_error(warning)
+
+
+def test_failed_scan_stays_failed_without_responses():
+    result=scan_summary({'state':'failed','phase':'failed','boards':['yc'],
+                        'sources':{'yc':{'state':'error','error':'HTTP 429'}}})
+    assert result['state']==result['phase']=='failed'
+
+
+def test_snapshot_endpoints_are_compact_and_never_build_view(tmp_path,monkeypatch):
+    with TestClient(create_app(tmp_path)) as client:
+        d=client.app.state.discovery
+        jl=client.app.state.job_list
+        jl.close()
+        with jl.connect() as db:
+            db.execute('INSERT OR REPLACE INTO snapshot VALUES(1,?,?,?,?)',
+                       ('test','revision','today',json.dumps({'run_reports':[{'body':'x'*2280000}],
+                        'assessment_results':{'body':'x'*480000},'settings':{}})))
+        monkeypatch.setattr(d,'view',lambda **kw:pytest.fail('HTTP rebuilt discovery view'))
+        response=client.get('/api/discovery')
+        assert response.status_code==200
+        assert len(response.content)<50000
+        assert not {'run_reports','assessment_results'} & response.json().keys()
+        assert client.get('/api/discovery/page?runs=true').status_code==200
+
+
+@pytest.mark.parametrize('phase',['descriptions','classifying'])
+def test_assessment_skips_unstable_scan_and_drain(tmp_path,monkeypatch,phase):
+    with TestClient(create_app(tmp_path)) as client:
+        d=client.app.state.discovery
+        client.app.state.job_list.close()
+        with d.db() as db:
+            db.execute('INSERT INTO scans(started,payload) VALUES(?,?)',('today',json.dumps({'phase':phase})))
+        monkeypatch.setattr(d,'view',lambda **kw:pytest.fail('Must skip before reading listings'))
+        d.assess_high_priority({'one'})
+        with d.db() as db: db.execute("UPDATE scans SET finished='done'")
+        (tmp_path/'maintenance.flag').touch()
+        d.assess_high_priority({'one'})
+        assert not d.scheduled_scan(datetime(2030,1,1,13))
+        assert client.get('/api/maintenance/status').json()['draining']
+        with pytest.raises(Exception,match='draining'): d.start(['yc'])
+
+
+def test_reconcile_scopes_to_candidates_and_pastes(tmp_path,monkeypatch):
+    with TestClient(create_app(tmp_path)) as client:
+        d=client.app.state.discovery
+        client.app.state.job_list.close()
+        with d.db() as db:
+            db.execute("INSERT INTO automatic_candidates VALUES('tracked')")
+            for oid,method in [('pasted','user_paste'),('other','board')]:
+                db.execute('INSERT INTO opportunities(id,payload,first_seen,last_seen) VALUES(?,?,?,?)',
+                           (oid,json.dumps({'description_provenance':{'method':method}}),'now','now'))
+        view=Mock(return_value={'items':[]}); monkeypatch.setattr(d,'view',view)
+        monkeypatch.setattr(d,'assess_high_priority',Mock())
+        d.reconcile_automatic()
+        view.assert_called_once_with(opportunity_ids={'tracked','pasted'})
+
+
+def test_queued_candidate_attention_preserves_other_reasons():
+    from app.scan_overview import blocker
+    item={'automatic_candidate':True,'description':'x'*200,'location_match':{'status':'match'}}
+    assert blocker(item)[0]=='Queued for automatic deep analysis'
+    item['description_changed']=True
+    assert 'description changed' in blocker(item)[0]
+
+
+def test_scan_consolidation_serializes_import_with_consistent_lock_order(tmp_path,monkeypatch):
+    from threading import RLock, local
+    with TestClient(create_app(tmp_path)) as client:
+        d=client.app.state.discovery
+        state=local()
+        class OrderedLock:
+            def __init__(self, name): self.name,self.inner=name,RLock()
+            def __enter__(self):
+                if self.name=='import':
+                    assert not getattr(state,'discovery',0) or getattr(state,'import',0)>0
+                self.inner.acquire()
+                setattr(state,self.name,getattr(state,self.name,0)+1)
+                return self
+            def __exit__(self,*args):
+                setattr(state,self.name,getattr(state,self.name)-1)
+                self.inner.release()
+        d.lock,d.import_lock=OrderedLock('discovery'),OrderedLock('import')
+        oid,_=d.save('yc',dict(source_id='one',company='Example',title='PM',
+            description='Own product discovery and delivery. '*20,url='https://example.com/one'))
+        d.collector=lambda board:([],'complete',[])
+        monkeypatch.setattr(d,'complete_descriptions',lambda ids:{})
+        monkeypatch.setattr(d,'view',lambda **kw:{'items':[]})
+        monkeypatch.setattr(d.jev,'run',lambda *a:{'state':'complete'})
+        monkeypatch.setattr(d,'screening_profile',lambda p:{})
+        monkeypatch.setattr('app.discovery_screening.screen',lambda *a:{'errors':0})
+        entered,release,imported=Event(),Event(),Event()
+        errors=[]
+        def consolidate(db):
+            assert getattr(state,'import',0)>0 and getattr(state,'discovery',0)>0
+            entered.set(); assert release.wait(5)
+            return []
+        monkeypatch.setattr('app.job_dedup.consolidate',consolidate)
+        def importing():
+            try: d.import_role(oid,analyze=False); imported.set()
+            except Exception as exc: errors.append(exc)
+        scan=Thread(target=d.scan,args=(['yc'],)); scan.start()
+        try:
+            assert entered.wait(2)
+            importer=Thread(target=importing); importer.start()
+            assert not imported.wait(.1)
+        finally: release.set()
+        scan.join(5); importer.join(5)
+        assert not scan.is_alive() and not importer.is_alive()
+        assert imported.is_set() and not errors
+
+
+def test_drain_stops_automatic_between_jobs(tmp_path,monkeypatch):
+    with TestClient(create_app(tmp_path)) as client:
+        d=client.app.state.discovery
+        d.configure(Settings(enabled=False,auto_assess=True))
+        items=[dict(id=str(n),title='PM '+str(n),company='Example',description='Product roadmap '+str(n)*300,
+                    keyword_match={'priority':'high'},location_match={'status':'match'},assessment={'state':'NOT_STARTED'}) for n in range(2)]
+        calls=[]
+        def importing(oid,**kw):
+            calls.append(oid)
+            (tmp_path/'maintenance.flag').touch()
+            return {}
+        monkeypatch.setattr(d,'import_role',importing)
+        monkeypatch.setattr(d,'record_scan_role',lambda *a,**kw:None)
+        monkeypatch.setattr(d,'view',lambda **kw:{'items':[i for i in items if i['id'] in kw['opportunity_ids']]})
+        d.assess_high_priority({'0','1'},items=items)
+        assert calls==['0']
+        assert not d.queued_ids
+        assert client.get('/api/maintenance/status').json()['safe_to_restart']
+
+
+def test_drain_preserves_manual_queue_without_dispatch(tmp_path,monkeypatch):
+    with TestClient(create_app(tmp_path)) as client:
+        q=client.app.state.manual_queue
+        q.close()
+        q.stop.clear()
+        q.engine.put('manual-analysis-queue:one',{'job_id':'one','state':'QUEUED','created_at':'now'})
+        (tmp_path/'maintenance.flag').touch()
+        monkeypatch.setattr(q.analysis,'start',lambda *a:pytest.fail('Dispatched while draining'))
+        q.step()
+        assert q.pending()
+        assert client.get('/api/maintenance/status').json()['safe_to_restart']
+
+
+def test_restart_script_drains_then_restarts_unique_pid_and_cleans_flag(tmp_path):
+    import shutil,subprocess
+    from pathlib import Path
+    shell=shutil.which('powershell.exe')
+    if not shell: pytest.skip('Windows restart script')
+    script=Path('scripts/restart-review-server.ps1').resolve()
+    command=rf"""
+    $env:JOB_REVIEW_DATA_DIR='{tmp_path}'
+    $global:checks=0; $global:stopped=0; $global:started=0
+    function Get-NetTCPConnection {{ @([pscustomobject]@{{OwningProcess=123}},[pscustomobject]@{{OwningProcess=123}}) }}
+    function Get-CimInstance {{ [pscustomobject]@{{ParentProcessId=456;CommandLine='{script.parent.parent}\.venv\Scripts\python.exe -m uvicorn app.main:app'}} }}
+    function Invoke-RestMethod {{
+        $global:checks++
+        [pscustomobject]@{{safe_to_restart=($global:checks -gt 1);draining=(Test-Path '{tmp_path}\maintenance.flag');active=@()}}
+    }}
+    function Start-Sleep {{ }}
+    function Stop-Process {{ param($Id)
+        if ($Id -ne 123 -or $global:checks -lt 2) {{ throw 'TEST FAILURE: stopped before drain' }}
+        $global:stopped++
+    }}
+    function Wait-Process {{ }}
+    function Get-Process {{ }}
+    function Start-Process {{
+        if (-not (Test-Path '{tmp_path}\maintenance.flag')) {{ throw 'TEST FAILURE: missing drain during restart' }}
+        $global:started++
+    }}
+    & '{script}'
+    Write-Output "stopped=$global:stopped started=$global:started checks=$global:checks"
+    """
+    result=subprocess.run([shell,'-NoProfile','-Command',command],capture_output=True,text=True,timeout=20)
+    assert result.returncode==0,result.stderr
+    assert 'Restart skipped' not in result.stdout,result.stdout
+    assert 'stopped=1 started=1 checks=3' in result.stdout
+    assert not (tmp_path/'maintenance.flag').exists()
+
+
+
+def test_historical_listing_error_is_display_only_and_interrupted_phase_matches():
+    payload={'state':'incomplete','phase':'incomplete','boards':['yc'],
+             'sources':{'yc':{'state':'error','error':'Some collection requests failed.',
+                               'warnings':['Job 123: HTTP 404; description unavailable.']}}}
+    before=copy.deepcopy(payload)
+    result=scan_summary(payload)
+    assert result['state']==result['phase']=='complete'
+    assert result['sources']['yc']['state']=='checked'
+    assert payload==before
+    assert scan_summary({'state':'interrupted','phase':'descriptions'})['phase']=='interrupted'

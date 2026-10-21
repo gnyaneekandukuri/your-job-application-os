@@ -22,6 +22,8 @@ def blocker(item):
         return 'A previous automatic attempt exists. Review before retrying.', 'assessment'
     if item.get('keyword_match',{}).get('label') == 'Not screened':
         return 'Initial matching needs refreshing after an input change.', 'listing'
+    if item.get('automatic_candidate'):
+        return 'Queued for automatic deep analysis', 'listing'
     return 'Ready for assessment; no automatic assessment was started in this scan.', 'listing'
 
 

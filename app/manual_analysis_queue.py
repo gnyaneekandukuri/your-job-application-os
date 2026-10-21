@@ -12,6 +12,7 @@ class ManualAnalysisQueue:
     def __init__(self, analysis, job_loader):
         self.analysis, self.engine, self.job_loader = analysis, analysis.engine, job_loader
         self.lock, self.stop, self.worker = RLock(), Event(), None
+        self.draining = lambda: (self.engine.path.parent / 'maintenance.flag').exists()
         for row in self.entries():
             if row['state'] == 'RUNNING':
                 run=self.engine.get('role-analysis:'+row['job_id']+':'+row['input_version'])
@@ -73,7 +74,7 @@ class ManualAnalysisQueue:
 
     def step(self):
         with self.analysis.lock:
-            if self.stop.is_set():return
+            if self.stop.is_set() or self.draining():return
             if self.analysis.worker and self.analysis.worker.is_alive():return
             queued=sorted((r for r in self.entries() if r['state']=='QUEUED'),key=lambda r:r['created_at'])
             if not queued:return

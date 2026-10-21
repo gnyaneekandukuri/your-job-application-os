@@ -66,7 +66,7 @@ class SelectedQueue:
 
     def start(self):
         with self.d.lock:
-            if self.worker and self.worker.is_alive(): return
+            if self.d.draining() or (self.worker and self.worker.is_alive()): return
             with self.d.db() as db:
                 if not db.execute("SELECT 1 FROM selected_assessments WHERE state='QUEUED'").fetchone():return
             self.worker=Thread(target=self.run,daemon=True);self.worker.start()
@@ -77,11 +77,13 @@ class SelectedQueue:
 
     def run(self):
         from .retrieval import RetrievalError
-        while not self.d.stop.is_set():
+        while not self.d.stop.is_set() and not self.d.draining():
             # Let the current discovery scan and automatic handoff finish first.
             if self.d.worker and self.d.worker.is_alive():
                 self.d.stop.wait(.5); continue
-            with self.d.lock, self.d.analysis.lock:
+            # Same order as scan consolidation; import_role reenters import_lock.
+            with self.d.import_lock, self.d.lock, self.d.analysis.lock:
+                if self.d.draining(): return
                 if self.d.analysis.worker and self.d.analysis.worker.is_alive():
                     waiting=True
                 else:
