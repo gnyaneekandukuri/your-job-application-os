@@ -9,10 +9,10 @@ type Signal={kind:string;finding:string;quote:string;reason:string};
 type Result={explanation?:Explanation;recommendation:Choice|'REVIEW';rationale:string;score:number;created_at:string;
   input_versions:Record<string,string>;source_url:string|null;
   constraints:Signal[];priorities:Signal[];limitations:string[];what_would_change_it:string[];
-  checks:{label:string;passed:boolean;detail:string}[];
+  checks:{label:string;passed:boolean;state?:string;detail:string}[];
   core_evidence:{requirement_id:string;requirement:string;alignment:string;reason:string;fact_ids:string[];
     citations:{source_title:string;source_path:string;start_line:number;quote:string}[]}[];};
-type View={automatic?:{state:string;error?:string};ready:boolean;reason:string;version:string|null;result:Result|null;choice:{choice:Choice;reason:string;decided_at:string}|null};
+type View={automatic?:{state:string;error?:string};ready:boolean;reason:string;version:string|null;result:Result|null;choice:{choice:Choice;reason:string;decided_at:string;version?:string;carried_forward?:boolean}|null};
 export function PursuitAssessment({jobId,onChanged=()=>{},onReviewEvidence=()=>{},onResult,reviewRequest=0}:{jobId:string;onChanged?:()=>void;onReviewEvidence?:()=>void;onResult?:(result:Result|null)=>void;reviewRequest?:number}) {
   const [view,setView]=useState<View|null>(null);
   const [error,setError]=useState('');
@@ -56,6 +56,7 @@ export function PursuitAssessment({jobId,onChanged=()=>{},onReviewEvidence=()=>{
   return <section className="pursuit-assessment" aria-label="Pursuit recommendation">
     <div className="eyebrow">CHOOSE YOUR NEXT STEP</div>
     <h3>Do you want to apply?</h3>
+    {view?.choice?.carried_forward&&<p role="status">Decided on an earlier recommendation</p>}
     {!view&&!error&&<p role="status">Loading…</p>}
     {view&&!view.ready&&<p>{view.reason}</p>}
     {view?.ready&&!result&&<>
@@ -66,7 +67,7 @@ export function PursuitAssessment({jobId,onChanged=()=>{},onReviewEvidence=()=>{
       <h4>Recommendation: {{REVIEW:'Review evidence before applying',SKIP:'Consider passing',CASUAL:'Worth considering',ATTACK_HARD:'Prioritize this role'}[result.recommendation]}</h4>{result.explanation?<RecommendationWhy value={result.explanation}/>:<p>{result.rationale}</p>}
       <p>Documented fit: <strong>{result.score}/100</strong>. Personal preferences do not change this score.</p>
       <details><summary>Why this recommendation?</summary>
-        <h4>Application and extra-effort criteria</h4><ul>{result.checks.map(c=><li key={c.label}><strong>{c.passed?'Meets':'Not yet met'} — {c.label}:</strong> {c.detail}</li>)}</ul>
+        <h4>Application and extra-effort criteria</h4><ul>{result.checks.map(c=><li key={c.label}><strong>{c.state==='not_required'?'Not required':c.passed?'Meets':'Not yet met'} — {c.label}:</strong> {c.detail}</li>)}</ul>
         <h4>Constraints and uncertainties</h4>{result.constraints.map(s=><article key={s.kind}><strong>{s.kind.replaceAll('_',' ')} · {s.finding}</strong><p>{s.reason}</p>{s.quote&&<blockquote>{s.quote}</blockquote>}</article>)}
         <h4>Personal priorities</h4>{result.priorities.map(s=><article key={s.kind}><strong>{s.kind.replaceAll('_',' ')} · {s.finding.replaceAll('_',' ')}</strong><p>{s.reason}</p>{s.quote&&<blockquote>{s.quote}</blockquote>}</article>)}
         {result.source_url&&<a href={result.source_url} target="_blank" rel="noreferrer">Original job posting</a>}

@@ -6,7 +6,7 @@ from pathlib import Path
 
 def test_tracked_files_exclude_user_state_and_credentials():
     root = Path(__file__).resolve().parents[1]
-    result = subprocess.run(['git','ls-files','-z'], cwd=root, check=True, capture_output=True)
+    result = subprocess.run(['git','-c','safe.directory=*','ls-files','-z'], cwd=root, check=True, capture_output=True)
     files = result.stdout.decode().split('\0')
     for name in filter(None, files):
         path = Path(name)

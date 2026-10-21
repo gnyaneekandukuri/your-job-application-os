@@ -1,6 +1,6 @@
 """Quoted Jev preference signals; existing deterministic pursuit rules decide."""
 import json
-from .jev_client import choice, confident, MODEL, POLICY
+from .jev_client import choice, confident, MODEL, POLICY, FLOOR
 from .jev_requirements import spans
 from .retrieval import RetrievalError
 
@@ -59,9 +59,12 @@ def interpret(client, job, run, profile):
                             'reason':f'{kind.replace("_", " ")}: {finding}. Compare the quoted JD wording with your saved preference; uncertainty is not a blocker.'})
     for kind in sorted(PRIORITIES):
         a = answers['priority_'+kind]
-        match = confident(a) and a['choice'] != 'not_established'
+        probabilities = a['probabilities']
+        block = max((b for b in probabilities if b != 'not_established'), key=probabilities.get, default=None)
+        match = (not a.get('provider_inconsistent', False) and block is not None
+                 and 1 - probabilities['not_established'] >= FLOOR)
         priorities.append({'kind':kind, 'finding':'match' if match else 'not_established',
-                           'quote':by_id[a['choice']] if match else '',
+                           'quote':by_id[block] if match else '',
                            'reason':f'{kind.replace("_", " ")}: '+('match supported by the quoted JD block.' if match else 'not established from the saved JD.')})
     core = [r['id'] for r in eligible if confident(answers['core_'+r['id']]) and answers['core_'+r['id']]['choice']=='core']
     if not core:
