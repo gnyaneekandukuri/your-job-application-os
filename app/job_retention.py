@@ -35,6 +35,7 @@ def company_key(name):
 def initialize(db):
     db.executescript('''
         CREATE TABLE IF NOT EXISTS kept_jobs (opportunity_id TEXT PRIMARY KEY);
+        CREATE TABLE IF NOT EXISTS kept_saved_jobs (job_id TEXT PRIMARY KEY);
         CREATE TABLE IF NOT EXISTS passed_jobs (opportunity_id TEXT PRIMARY KEY, passed_at TEXT);
         CREATE TABLE IF NOT EXISTS superseded_jobs (job_id TEXT PRIMARY KEY, replaced_at TEXT);
         CREATE TABLE IF NOT EXISTS passed_saved_jobs (job_id TEXT PRIMARY KEY, passed_at TEXT);
@@ -67,13 +68,12 @@ def posting_upper_bound(item):
 
 def age_state(item, current=None):
     current = current or datetime.now(timezone.utc)
-    stamp = posting_upper_bound(item)
-    if stamp is None or stamp.tzinfo is None or stamp > current:
-        # Without a source date, age from first discovery so undated listings leave Active too.
-        try: seen = datetime.fromisoformat(str(item.get('first_seen') or '').replace('Z', '+00:00'))
-        except ValueError: return 'unknown'
-        if seen.tzinfo is None or current - seen < timedelta(days=4): return 'unknown'
-        return 'older_than_four_days'
+    try:
+        stamp = datetime.fromisoformat(str(item.get('first_seen') or item.get('created_at') or '').replace('Z', '+00:00'))
+    except (ValueError, TypeError):
+        return 'unknown'
+    if stamp.tzinfo is None or stamp > current:
+        return 'unknown'
     return 'older_than_four_days' if current - stamp >= timedelta(days=4) else 'active'
 
 
@@ -85,6 +85,22 @@ def keep(discovery, oid, value):
             db.execute('INSERT OR IGNORE INTO kept_jobs VALUES(?)', (oid,))
         else:
             db.execute('DELETE FROM kept_jobs WHERE opportunity_id=?', (oid,))
+        jid = db.execute('SELECT job_id FROM opportunities WHERE id=?', (oid,)).fetchone()[0]
+        if jid:
+            if value: db.execute('INSERT OR IGNORE INTO kept_saved_jobs VALUES(?)', (jid,))
+            else: db.execute('DELETE FROM kept_saved_jobs WHERE job_id=?', (jid,))
+    return {'kept': value}
+
+
+def keep_saved_job(discovery, job_id, value):
+    discovery.saved_job(job_id)  # Validate without invoking analysis/reconciliation.
+    with discovery.db() as db:
+        if value:
+            db.execute('INSERT OR IGNORE INTO kept_saved_jobs VALUES(?)', (job_id,))
+            db.execute('INSERT OR IGNORE INTO kept_jobs SELECT id FROM opportunities WHERE job_id=?', (job_id,))
+        else:
+            db.execute('DELETE FROM kept_saved_jobs WHERE job_id=?', (job_id,))
+            db.execute('DELETE FROM kept_jobs WHERE opportunity_id IN (SELECT id FROM opportunities WHERE job_id=?)', (job_id,))
     return {'kept': value}
 
 
@@ -152,7 +168,8 @@ def cleanup(discovery, current=None):
             if row['id'] in protected:
                 continue
             item = json.loads(row['payload'])
-            stamp = posting_upper_bound(item)
+            try: stamp = datetime.fromisoformat(row['first_seen'].replace('Z', '+00:00'))
+            except (ValueError, TypeError): stamp = None
             if stamp is None or stamp.tzinfo is None or current - stamp < timedelta(days=14):
                 continue
             oid = row['id']

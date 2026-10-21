@@ -9,7 +9,7 @@ from fastapi.responses import JSONResponse, Response
 from . import team_message
 from .google_sheets import GoogleSheets, ClientConfig, SheetTarget
 from .applications import Applications, ConfirmApplication, UpdateApplication, ManualApplication, ExternalApplication
-from .job_retention import KeepJob, PassJob, Rescreen, WatchCompany, keep, pass_job, pass_saved_job, watch, watchlist, status as retention_status
+from .job_retention import KeepJob, PassJob, Rescreen, WatchCompany, keep, keep_saved_job, pass_job, pass_saved_job, watch, watchlist, status as retention_status
 from fastapi.staticfiles import StaticFiles
 from langgraph.checkpoint.sqlite import SqliteSaver
 from starlette.middleware.trustedhost import TrustedHostMiddleware
@@ -175,6 +175,10 @@ def create_app(data_dir: Path | None = None):
     @api.post("/api/discovery/{opportunity_id}/pass")
     def pass_opportunity(opportunity_id: str, data: PassJob, request: Request):
         return pass_job(request.app.state.discovery, opportunity_id, data.passed)
+
+    @api.post("/api/assessments/{job_id}/keep")
+    def keep_assessed_job(job_id: str, data: KeepJob, request: Request):
+        return keep_saved_job(request.app.state.discovery, job_id, data.keep)
 
     @api.post("/api/discovery/{opportunity_id}/keep")
     def keep_opportunity(opportunity_id: str, data: KeepJob, request: Request):

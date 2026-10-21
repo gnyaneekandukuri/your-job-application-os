@@ -63,7 +63,7 @@ def test_saved_decisions_and_application_block_dispatch(tmp_path):
         assert not separate['applied'] and not separate['passed']
         assert d.initial_screening_eligible(separate)
 
-@pytest.mark.parametrize('state,protected',[('COMPLETE',False),('NEEDS_ATTENTION',False),('QUEUED',True),('RUNNING',True)])
+@pytest.mark.parametrize('state,protected',[('COMPLETE',False),('NEEDS_ATTENTION',False),('QUEUED',False),('RUNNING',False)])
 def test_only_active_selections_protect_old_listing(tmp_path,state,protected):
     with TestClient(create_app(tmp_path)) as client:
         d=client.app.state.discovery

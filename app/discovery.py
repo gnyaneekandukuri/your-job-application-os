@@ -182,6 +182,7 @@ class Discovery:
             superseded = {r[0] for r in db.execute('SELECT job_id FROM superseded_jobs')}
             passed_saved = {r[0] for r in db.execute('SELECT job_id FROM passed_saved_jobs')}
             kept = {r[0] for r in db.execute('SELECT opportunity_id FROM kept_jobs')}
+            kept_saved = {r[0] for r in db.execute('SELECT job_id FROM kept_saved_jobs')}
             for alias in db.execute('SELECT canonical_id,job_id FROM opportunity_aliases WHERE job_id IS NOT NULL'):
                 primary = db.execute('SELECT * FROM opportunities WHERE id=?',(alias['canonical_id'],)).fetchone()
                 if primary and alias['job_id'] not in discovered:
@@ -209,13 +210,13 @@ class Discovery:
                     summary.update(state='JD_CHANGED', stage='Review the updated listing before assessment.')
             if summary['state'] == 'NOT_STARTED': continue
             if job_id in superseded and summary['state'] != 'COMPLETE': continue
-            # Same 4-day window as New jobs: older analyses leave the list unless kept or in progress.
-            if (row and row['id'] not in kept and summary['state'] not in ('RUNNING', 'QUEUED')
-                    and age_state({**json.loads(row['payload']), 'first_seen': row['first_seen']}) == 'older_than_four_days'):
+            entered_at = min(datetime.fromisoformat(row['first_seen']), job.created_at).isoformat() if row else job.created_at.isoformat()
+            explicitly_kept = job_id in kept_saved or bool(row and row['id'] in kept)
+            if not explicitly_kept and age_state({'first_seen': entered_at}) == 'older_than_four_days':
                 continue
             if job_id in passed_saved and not summary.get('choice'): summary['choice'] = 'SKIP'
             keys[job_id] = same_job({'company': job.company, 'title': job.title, 'description': job.description})
-            items.append({'yc_listing':bool(row and row['id'] in yc_ids),'job_id':job_id,'opportunity_id':row['id'] if row else None,'company':job.company,'title':job.title,'url':str(job.source_url or ''),'sponsorship':no_sponsorship(job.description),'assessment':summary, **(scans.get(row['id'], {}) if row else {})})
+            items.append({'entered_at':entered_at, 'kept':explicitly_kept, 'yc_listing':bool(row and row['id'] in yc_ids),'job_id':job_id,'opportunity_id':row['id'] if row else None,'company':job.company,'title':job.title,'url':str(job.source_url or ''),'sponsorship':no_sponsorship(job.description),'assessment':summary, **(scans.get(row['id'], {}) if row else {})})
         # A stuck copy of a posting already analyzed in another location needs no help.
         analyzed = {keys.get(i['job_id']) for i in items if i['assessment']['state'] == 'COMPLETE'} - {None}
         items = [i for i in items if i['assessment']['state'] == 'COMPLETE' or keys.get(i['job_id']) not in analyzed]
@@ -275,6 +276,7 @@ class Discovery:
                 selected_rows[oid]['position'] = n + 1
             fetched_rows = {r['opportunity_id']:dict(r) for r in db.execute('SELECT * FROM description_fetches')}
             kept = {r[0] for r in db.execute('SELECT opportunity_id FROM kept_jobs')}
+            kept_saved = {r[0] for r in db.execute('SELECT job_id FROM kept_saved_jobs')}
             passed = {r[0] for r in db.execute('SELECT opportunity_id FROM passed_jobs')}
             watched = {r[0] for r in db.execute('SELECT id FROM company_watchlist')}
             for row in db.execute('SELECT * FROM opportunities ORDER BY first_seen DESC'):
@@ -283,7 +285,7 @@ class Discovery:
                 item['kept'] = row['id'] in kept
                 item['passed'] = row['id'] in passed
                 # An analysis alone does not keep a listing past 4 days; Keep job does.
-                item['retention_protected'] = bool(row['id'] in kept or selected_rows.get(row['id'], {}).get('state') in ('QUEUED', 'RUNNING'))
+                item['retention_protected'] = bool(row['id'] in kept or row['job_id'] in kept_saved)
                 item['age_state'] = age_state({**item, 'first_seen': row['first_seen']})
                 item['company_watched'] = company_key(item.get('company','')) in watched
                 sources = sightings.get(row['id'], [])
