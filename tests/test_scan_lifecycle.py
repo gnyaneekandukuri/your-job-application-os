@@ -377,3 +377,156 @@ def test_historical_listing_error_is_display_only_and_interrupted_phase_matches(
     assert result['sources']['yc']['state']=='checked'
     assert payload==before
     assert scan_summary({'state':'interrupted','phase':'descriptions'})['phase']=='interrupted'
+
+
+@pytest.mark.parametrize('recovers', [True, False])
+def test_restart_script_retries_startup_and_reports_stopped_server(tmp_path, recovers):
+    import shutil, subprocess
+    from pathlib import Path
+    shell = shutil.which('powershell.exe')
+    if not shell:
+        pytest.skip('Windows restart script')
+    script = Path('scripts/restart-review-server.ps1').resolve()
+    recovery = '$true' if recovers else '$false'
+    command = rf"""
+    $env:JOB_REVIEW_DATA_DIR='{tmp_path}'
+    $global:stopped=0; $global:started=0; $global:ticks=0
+    function Get-NetTCPConnection {{ [pscustomobject]@{{OwningProcess=123}} }}
+    function Get-CimInstance {{ [pscustomobject]@{{ParentProcessId=456;CommandLine='{script.parent.parent}\.venv\Scripts\python.exe -m uvicorn app.main:app'}} }}
+    function Get-Date {{ $global:ticks++; [datetime]::new(2026,10,21).AddSeconds($global:ticks * 2) }}
+    function Invoke-RestMethod {{
+        if ($global:stopped -eq 0) {{ return [pscustomobject]@{{safe_to_restart=$true;draining=$true}} }}
+        if ({recovery} -and $global:started -eq 2) {{ return [pscustomobject]@{{safe_to_restart=$false;draining=$true}} }}
+        throw 'Mock startup not healthy'
+    }}
+    function Stop-Process {{ $global:stopped++ }}
+    function Wait-Process {{ }}
+    function Get-Process {{ }}
+    function Start-Sleep {{ }}
+    function Start-Process {{
+        if (-not (Test-Path '{tmp_path}\maintenance.flag')) {{ throw 'TEST FAILURE: flag missing' }}
+        $global:started++
+        Write-Output "mock-start=$global:started"
+    }}
+    & '{script}' -StartTimeoutSeconds 1
+    """
+    result = subprocess.run([shell, '-NoProfile', '-Command', command],
+                            capture_output=True, text=True, timeout=20)
+    assert result.returncode == (0 if recovers else 1), result.stdout + result.stderr
+    assert 'mock-start=2' in result.stdout
+    assert 'Server stopped; replacement not healthy yet' in result.stdout
+    assert 'Restart skipped' not in result.stdout
+    if not recovers:
+        assert 'after two startup attempts' in result.stdout
+    assert not (tmp_path/'maintenance.flag').exists()
+
+
+def test_light_runs_and_settings_realistic(tmp_path, monkeypatch):
+    from time import perf_counter
+    with TestClient(create_app(tmp_path)) as client:
+        d = client.app.state.discovery
+        monkeypatch.setattr(d, 'view', Mock(side_effect=AssertionError('full view called')))
+        role = {'id': 'role', 'company': 'Example', 'title': 'Product manager',
+                'reason': 'Evidence ' * 500, 'assessment': {'state': 'COMPLETE'}}
+        payload = {'state': 'complete', 'boards': ['yc'], 'tracking_version': 1,
+                   'sources': {'yc': {'state': 'checked', 'count': 200, 'coverage': 'Directory',
+                                       'warnings': ['Job x: description unavailable.'] * 200}}}
+        with d.db() as db:
+            for sid in range(1, 76):
+                db.execute('INSERT INTO scans VALUES(?,?,?,?)',
+                           (sid, '2026-10-21', '2026-10-21', json.dumps(payload)))
+                db.executemany('INSERT INTO scan_roles VALUES(?,?,?)',
+                    [(sid, str(n), json.dumps({**role, 'id': str(n)})) for n in range(200)])
+            for n in range(200):
+                db.execute('INSERT INTO opportunities(id,payload,first_seen,last_seen) VALUES(?,?,?,?)',
+                           (str(n), json.dumps(role), '2026-10-21', '2026-10-21'))
+        jl = client.app.state.job_list
+        with jl.connect() as db:
+            db.execute('INSERT OR REPLACE INTO snapshot VALUES(1,?,?,?,?)',
+                ('stale', 'revision', 'today', json.dumps({
+                    'run_reports': [{'body': 'x' * 2280000}],
+                    'assessment_results': {'body': 'x' * 480000},
+                    'board_counts': {'yc': 200},
+                    'keyword_profile': {'experience': ['x' * 500000],
+                                        'target': {'roles': ['PM'], 'keywords': [], 'version': 'v1'}}})))
+        start = perf_counter()
+        response = client.get('/api/discovery/page?runs=true')
+        elapsed = perf_counter() - start
+        data = response.json()
+        assert response.status_code == 200
+        assert len(response.content) < 200000 and elapsed < 1
+        assert data['board_counts'] == {'yc': 200}
+        assert data['unavailable'] is not None
+        assert data['keyword_profile']['experience'] == []
+        assert len(data['run_reports']) == 10 and data['total'] == 75
+        assert data['run_reports'][0]['id'] == 75
+        assert 'roles' not in data['run_reports'][0]
+        assert 'warnings' not in data['run_reports'][0]['sources']['yc']
+        assert data['run_reports'][0]['counts']['tracked'] == 200
+        assert client.get('/api/discovery/page?view=runs&runs_page=2&runs_limit=3').json()['run_reports'][0]['id'] == 72
+        assert jl.page(runs=True)['run_reports'][0]['id'] == 75
+        start_detail = perf_counter()
+        detail = client.get('/api/discovery/runs/75')
+        detail_elapsed = perf_counter() - start_detail
+        assert detail.status_code == 200 and len(detail.json()['roles']) == 200
+        assert detail.json()['sources']['yc']['coverage'] == 'Directory'
+        assert client.get('/api/discovery/runs/999').status_code == 404
+        d.pause_on_provider_limit('OpenAI HTTP 429')
+        with jl.connect() as db:
+            db.execute('UPDATE snapshot SET fingerprint=? WHERE id=1', (jl.fingerprint(),))
+        assert not jl.status()['refreshing']
+        start = perf_counter()
+        saved = client.post('/api/discovery/settings', json={'enabled': False, 'auto_assess': False},
+                            headers={'X-Local-Review': '1'})
+        settings_elapsed = perf_counter() - start
+        assert saved.status_code == 200 and settings_elapsed < 1
+        assert saved.json()['settings']['auto_assess_pause_reason']
+        assert jl.status()['refreshing']
+        enabled = d.configure(Settings(enabled=False, auto_assess=True))
+        assert 'auto_assess_pause_reason' not in enabled['settings']
+        assert d.settings() == enabled['settings']
+        print(f'BENCH runs={len(response.content)} bytes {elapsed:.4f}s; settings={len(saved.content)} bytes {settings_elapsed:.4f}s; detail={len(detail.content)} bytes {detail_elapsed:.4f}s')
+
+
+def test_idle_analysis_lock_does_not_block_drain(tmp_path):
+    from threading import Lock
+    with TestClient(create_app(tmp_path)) as client:
+        d = client.app.state.discovery
+        d.analysis.lock = Lock()
+        with d.analysis.lock:
+            assert client.get('/api/maintenance/status').json()['safe_to_restart']
+            d.analysis.worker = Mock(is_alive=lambda: True, join=lambda **kw: None)
+            assert 'deep_analysis' in client.get('/api/maintenance/status').json()['active']
+            d.analysis.worker = None
+
+
+def test_resume_approach_drain_finishes_current_and_keeps_queue(tmp_path, monkeypatch):
+    from app import resume_approach as mod
+    from pydantic import BaseModel
+    class Job(BaseModel):
+        id: str
+    with TestClient(create_app(tmp_path)) as client:
+        q = client.app.state.resume_approach
+        entered, release, second = Event(), Event(), Event()
+        monkeypatch.setattr(q.discovery, 'annotate_handled', lambda items: None)
+        monkeypatch.setattr(q.discovery, 'saved_assessment', lambda jid: {'state': 'COMPLETE'})
+        monkeypatch.setattr(mod, 'inputs', lambda t, job: (job.id, {}))
+        def evaluate(engine, job, key, body):
+            if job.id == 'one':
+                entered.set()
+                assert release.wait(5)
+            else:
+                second.set()
+            return {'state': 'COMPLETE'}
+        monkeypatch.setattr(mod, 'evaluate', evaluate)
+        q.queue.put((Job(id='one'), 'one', {}, 'stamp'))
+        assert entered.wait(2)
+        (tmp_path/'maintenance.flag').touch()
+        q.queue.put((Job(id='two'), 'two', {}, 'stamp'))
+        assert not client.get('/api/maintenance/status').json()['safe_to_restart']
+        release.set()
+        assert not second.wait(.3)
+        assert q.queue.unfinished_tasks == 1
+        assert client.get('/api/maintenance/status').json()['safe_to_restart']
+        (tmp_path/'maintenance.flag').unlink()
+        assert second.wait(2)

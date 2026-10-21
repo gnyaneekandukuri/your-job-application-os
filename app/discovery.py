@@ -214,7 +214,10 @@ class Discovery:
             cfg = self.settings(); cfg.update(data.model_dump())
             if data.auto_assess: cfg.pop('auto_assess_pause_reason', None)
             db.execute('UPDATE config SET payload=? WHERE id=1', (json.dumps(cfg),))
-        return self.view()
+        projection = getattr(self, 'job_list', None)
+        if projection:
+            projection.invalidate()
+        return {'settings': cfg, 'refreshing': True}
 
     def pause_on_provider_limit(self, error):
         if 'HTTP 429' not in error: return False

@@ -116,6 +116,7 @@ class ResumeApproach:
     def __init__(self, tailoring, discovery):
         self.tailoring, self.discovery, self.engine = tailoring, discovery, tailoring.engine
         self.lock, self.stop, self.queue = RLock(), Event(), Queue()
+        self.active = False
         # A restart must not silently repeat a paid request with unknown outcome.
         for key in self.engine.get('resume-approach-pending') or []:
             self.engine.put(key, {'state': 'ERROR', 'reason': 'Check interrupted. Retry explicitly.'})
@@ -159,9 +160,20 @@ class ResumeApproach:
 
     def work(self):
         while not self.stop.is_set():
+            if self.discovery.draining():
+                self.stop.wait(.1)
+                continue
             try:
                 job, key, body, stamp = self.queue.get(timeout=.5)
             except Empty:
+                continue
+            # Publish dispatch before the final drain check so readiness cannot
+            # observe an idle queue after this item has committed to running.
+            self.active = True
+            if self.discovery.draining():
+                self.active = False
+                self.queue.put((job, key, body, stamp))
+                self.queue.task_done()
                 continue
             try:
                 item = {**job.model_dump(), 'id': 'saved:' + job.id, 'job_id': job.id}
@@ -180,6 +192,7 @@ class ResumeApproach:
             finally:
                 with self.lock:
                     self.engine.put('resume-approach-pending', [k for k in self.engine.get('resume-approach-pending') or [] if k != key])
+                self.active = False
                 self.queue.task_done()
 
     def close(self):
