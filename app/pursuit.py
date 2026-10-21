@@ -2,6 +2,7 @@ from .cost_tracking import usage_scope
 """Versioned pursuit recommendation, separate from documented capability scores."""
 import json
 import re
+from contextlib import closing
 from typing import Literal, TypedDict
 from uuid import uuid4
 
@@ -15,6 +16,7 @@ from .retrieval import RetrievalError, digest, now
 from .jev_client import MODEL, VERSION as JEV_VERSION
 from .evidence_score import score_report
 
+INTERPRETATION_LOGIC = 'role-mass-v1'
 VERSION = 'pursuit-jev-v1:' + JEV_VERSION
 CONSTRAINTS = {'location', 'h1b_transfer', 'role_content', 'core_coding'}
 PRIORITIES = {'role_content', 'seniority', 'location', 'startup', 'investors'}
@@ -142,6 +144,12 @@ def recommend(run, interpreted, policy):
         {'label':'Core evidence coverage', 'passed':insufficient <= casual['maximum_core_insufficient_percent'], 'detail':f"{insufficient:.1f}% insufficient; maximum {casual['maximum_core_insufficient_percent']}%"},
         {'label':'Target work alignment', 'passed':not casual['requires_role_content_match'] or any(p.kind=='role_content' and p.finding=='match' for p in interpreted.priorities), 'detail':'Actual responsibilities must match desired work.'},
     ]
+    for check, required in ((checks[5], rules['requires_role_content_match']),
+                            (casual_checks[3], casual['requires_role_content_match'])):
+        if not required:
+            check.update(state='not_required', detail='Not required by the configured policy.')
+        else:
+            check['state'] = 'passed' if check['passed'] else 'failed'
     choice = 'SKIP' if blockers else 'REVIEW' if not all(c['passed'] for c in casual_checks) else 'ATTACK_HARD' if all(c['passed'] for c in checks) else 'CASUAL'
     checks = casual_checks + checks
     rationale = ('The saved JD indicates a conflict with a personal constraint. Review the cited interpretation before deciding.' if blockers else
@@ -170,7 +178,7 @@ def recommend(run, interpreted, policy):
 
 def interpretation_key(job_id, hashes):
     source = {k:v for k,v in hashes.items() if k != 'criteria'}
-    return 'pursuit-signals:' + job_id + ':' + digest(VERSION+MODEL+PROMPT+json.dumps(source,sort_keys=True))
+    return 'pursuit-signals:' + job_id + ':' + digest(INTERPRETATION_LOGIC+VERSION+MODEL+PROMPT+json.dumps(source,sort_keys=True))
 
 
 class Flow(TypedDict, total=False):
@@ -210,7 +218,7 @@ class PursuitService:
             raise RetrievalError('Personal preferences or pursuit criteria are missing or invalid.',409) from None
         hashes = {'analysis':view['input_version'], 'report':digest(json.dumps(view['run'],sort_keys=True)),
                   'profile':digest(json.dumps(profile,sort_keys=True)), 'criteria':digest(json.dumps(policy,sort_keys=True))}
-        version = digest(VERSION+MODEL+PROMPT+json.dumps(hashes,sort_keys=True))
+        version = digest(INTERPRETATION_LOGIC+VERSION+MODEL+PROMPT+json.dumps(hashes,sort_keys=True))
         return version, view['run'], profile, policy, hashes
 
     def config(self, job, version):
@@ -223,20 +231,6 @@ class PursuitService:
         key = interpretation_key(job.id, hashes)
         def interpret(_):
             raw = manager.engine.get(key)
-            if raw is None:
-                # Reuse only exact source/profile matches from the pre-migration policy.
-                policies = [policy]
-                backup = manager.library.root / 'criteria/pursuit-policy-before-0.4.json'
-                if backup.exists():
-                    policies.append(json.loads(backup.read_text(encoding='utf-8')))
-                for previous_policy in policies:
-                    previous_hashes = {**hashes, 'criteria':digest(json.dumps(previous_policy,sort_keys=True))}
-                    previous_version = digest(VERSION+MODEL+PROMPT+json.dumps(previous_hashes,sort_keys=True))
-                    raw = manager.engine.get('pursuit-interpretation:'+job.id+':'+previous_version)
-                    if raw is not None:
-                        validate_interpretation(Interpretation.model_validate(raw),job,run,profile)
-                        manager.engine.put(key,raw)
-                        break
             if raw is None:
                 from .jev_pursuit import interpret as interpret_with_jev
                 parsed = interpret_with_jev(manager.jev_client(), job, run, profile)
@@ -271,7 +265,18 @@ class PursuitService:
             from .pursuit_explanation import explain
             result = {**result, 'explanation':explain(result,inputs[1])}
             result['rationale'] = result['explanation']['summary']
-        return {'ready':True,'reason':'','version':version,'result':result,'choice':snapshot.values.get('choice'), 'automatic':self.manager.engine.get('pursuit-auto:'+job.id+':'+version)}
+        choice = snapshot.values.get('choice')
+        if not choice:
+            # The projection retains user decisions when recommendation inputs change.
+            # Preserve event metadata verbatim so feedback stale checks stay stable.
+            with closing(self.manager.engine.connect()) as db:
+                row = db.execute('SELECT payload FROM latest_pursuit_decisions WHERE job_id=?', (job.id,)).fetchone()
+            if row:
+                event = json.loads(row[0])
+                choice = {'choice':event['choice'], 'reason':event['reason'],
+                          'decided_at':event['created_at'], 'version':event['version'],
+                          'carried_forward':event['version'] != version}
+        return {'ready':True,'reason':'','version':version,'result':result,'choice':choice, 'automatic':self.manager.engine.get('pursuit-auto:'+job.id+':'+version)}
 
     def generate(self,job,data):
         with self.manager.lock, self.manager.library.lock:
