@@ -107,8 +107,9 @@ def run(command, root):
             context.set_default_timeout(15000)
             page = context.pages[0] if context.pages else context.new_page()
             response = page.goto(DIRECTORY_URL, wait_until='domcontentloaded', timeout=45000)
-            if response and response.status in (403,429):
-                return fail(root,'BLOCKED','YC denied this browser request. Reconnect to inspect the page; no bypass was attempted.','blocked')
+            if response and response.status >= 400:
+                from .discovery_network import SourceResponseError
+                raise SourceResponseError(response.status, 'www.workatastartup.com', '/companies', response.headers)
             if command == 'login':
                 save_status(root,'WAITING_FOR_LOGIN','Sign in to YC in the separate browser window. It will close after the directory is verified.')
                 deadline = time.monotonic() + 900
@@ -223,6 +224,8 @@ if __name__ == '__main__':
         result = run(command,root)
     except ImportError:
         result = fail(root,'SETUP_REQUIRED','Install requirements-yc.txt to enable the YC browser.')
-    except Exception:
-        result = fail(root,'ERROR','YC browser operation failed. Ensure Microsoft Edge is installed, close any previous YC connection window, and reconnect.')
+    except Exception as exc:
+        result = fail(root,'ERROR','YC browser operation failed. Ensure Microsoft Edge is installed, close any previous YC connection window, and reconnect.', getattr(exc, 'source_state', 'error'))
+        result['diagnostic'] = getattr(exc, 'discovery_diagnostic', dict(kind=type(exc).__name__, reason='YC browser operation failed; see exception type.',
+                                    host='www.workatastartup.com', path='/companies', http_status=None, attempts=1, causes=[]))
     (root / 'result.json').write_text(json.dumps(result),encoding='utf-8')

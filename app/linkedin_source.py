@@ -89,6 +89,10 @@ def collect_linkedin(client, fetch, countries, stop=None):
     from threading import Event
     from .discovery_sources import relevant, listing_freshness
     from .discovery_location import COUNTRIES
+    from .discovery_recovery import source_window
+    from .discovery_network import diagnose
+    days = (source_window.get() or {}).get('days', 1)
+    label = {1: 'Past 24 hours', 7: 'Past week', 30: 'Past month'}[days]
     names = {country['code']: country['name'] for country in COUNTRIES}
     if not countries or any(code not in names for code in countries):
         raise ValueError('Choose a supported country in your context preferences before scanning LinkedIn')
@@ -98,11 +102,16 @@ def collect_linkedin(client, fetch, countries, stop=None):
     for code in countries[:3]:
         if stop.is_set():
             break
-        params = {'keywords': 'product manager', 'location': names[code], 'f_TPR': 'r86400', 'sortBy': 'DD'}
+        params = {'keywords': 'product manager', 'location': names[code], 'f_TPR': f'r{days * 86400}', 'sortBy': 'DD'}
         raw = fetch(client, 'https://www.linkedin.com/jobs/search/?' + urlencode(params))
         # A login/challenge page must not be treated as a successful empty search.
-        if 'Past 24 hours filter is currently applied' not in raw:
-            raise ValueError('LinkedIn past-24-hours search could not be verified; login or search format may have changed')
+        if label + ' filter is currently applied' not in raw:
+            exc = ValueError(f'LinkedIn {label} search could not be verified; login or search format may have changed')
+            exc.discovery_diagnostic = {**diagnose(exc), 'reason':str(exc), 'kind':'filter_unverified'}
+            if re.search(r'authwall|captcha|security verification|sign in to see', raw, re.I):
+                exc.source_state = 'blocked'
+                exc.discovery_diagnostic['kind'] = 'access_challenge'
+            raise exc
         parser = Cards(); parser.feed(raw)
         if not parser.rows:
             raise ValueError('LinkedIn returned no readable job cards; empty results are not verified')
@@ -114,8 +123,9 @@ def collect_linkedin(client, fetch, countries, stop=None):
             try:
                 more = Cards(); more.feed(fetch(client, 'https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?'
                                                 + urlencode({**params, 'start': len(cards)})))
-            except Exception:
+            except Exception as exc:
                 warnings.append(f'LinkedIn limited requests after {pages + 1} pages in {names[code]}; the rest waits for the next scan.')
+                warnings.append({'severity':'error', **getattr(exc, 'discovery_diagnostic', diagnose(exc))})
                 break
             new = [row for row in more.rows if row['source_id'] not in cards]
             if not new:
@@ -133,13 +143,13 @@ def collect_linkedin(client, fetch, countries, stop=None):
             seen.add(row['source_id'])
             item = {**row, **age_bounds(row['date_label'], observed), 'description': '',
                          'date_basis': 'source_relative_age', 'funding': 'Unknown',
-                         'search_country': code, 'source_filter': 'past_24_hours'}
-            if listing_freshness(item, observed) != 'older':
+                         'search_country': code, 'source_filter': 'past_24_hours' if days == 1 else f'past_{days}_days'}
+            if days > 1 or listing_freshness(item, observed) != 'older':
                 rows.append(item)
     if skipped:
         warnings.append(f'Skipped {skipped} reposted or promoted LinkedIn jobs created more than about 30 days ago.')
     if len(countries) > 3:
         warnings.append('Only the first three preferred countries were searched.')
     return rows, (f'Partial coverage: up to {MORE_PAGES + 1} pages of public Product Manager results per preferred country; '
-                  'LinkedIn Past 24 hours filter verified. Rounded posting ages are preserved; '
+                  f'LinkedIn {label} filter verified. Rounded posting ages are preserved; '
                   'reposts are detected from LinkedIn job IDs.'), warnings

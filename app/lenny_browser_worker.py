@@ -64,11 +64,12 @@ def response_for(page, action):
         action()
     response = event.value
     if response.status != 200:
-        raise ValueError('Lenny search failed; reconnect to check access.')
+        from .discovery_network import SourceResponseError
+        raise SourceResponseError(response.status, 'www.lennysjobs.com', '/search', response.headers)
     return response.json()
 
 
-def collect_pages(page, first):
+def collect_pages(page, first, window='Past day'):
     jobs, warnings = {}, []
     data = first
     for _ in range(100):
@@ -96,11 +97,12 @@ def collect_pages(page, first):
         data = response_for(page, more.click)
     else:
         warnings.append('Reached 100-page safety limit; some results remain unchecked.')
-    if not ready(page) or not past_day(page).is_checked():
-        raise ValueError('Past day access changed during collection; results were not imported.')
+    control = past_day(page) if window == 'Past day' else page.get_by_role('radio', name='All', exact=True)
+    if not ready(page) or not control.is_checked():
+        raise ValueError('Date filter access changed during collection; results were not imported.')
     rows = lenny_rows({'results': [{'hits': list(jobs.values())}]})
     for row in rows:
-        row['date_label'] = 'Lenny Past day filter; source update time, original posting date unverified'
+        row['date_label'] = f'Lenny {window} filter; source update time, original posting date unverified'
         row['date_basis'] = 'source_updated_at'
     return rows, total, len(jobs), warnings
 
@@ -149,12 +151,14 @@ def run(command, root):
                     response_for(page, choice.click)
                     expect(choice).to_be_checked(timeout=15000)
             location.click()
-            save_status(root, 'SCANNING', 'Collecting Product Management jobs with Past day and preferred-country filters...')
-            if past_day(page).is_checked():
-                page.get_by_role('radio', name='All', exact=True).check()
-            first = response_for(page, lambda: past_day(page).check())
-            rows, total, loaded, warnings = collect_pages(page, first)
-            coverage = (f'Signed-in Product Management, Past day, countries {", ".join(countries)}: '
+            window = 'All' if options.get('lookback_days', 1) > 1 else 'Past day'
+            control = past_day(page) if window == 'Past day' else page.get_by_role('radio', name='All', exact=True)
+            save_status(root, 'SCANNING', f'Collecting Product Management jobs with {window} and preferred-country filters...')
+            if control.is_checked():
+                (page.get_by_role('radio', name='All', exact=True) if window == 'Past day' else past_day(page)).check()
+            first = response_for(page, control.check)
+            rows, total, loaded, warnings = collect_pages(page, first, window)
+            coverage = (f'Signed-in Product Management, {window}, countries {", ".join(countries)}: '
                         f'{loaded}/{total} search results read; {len(rows)} matching roles. '
                         'Source update dates are not verified original posting dates. '
                         'Full descriptions are fetched separately. '
@@ -170,11 +174,13 @@ def main():
     root.mkdir(parents=True, exist_ok=True)
     try:
         result = run(command, root)
-    except Exception:
+    except Exception as exc:
         # Never persist provider responses, cookies, tokens, or account-page contents.
         message = 'Lenny browser operation could not be verified. Reconnect and check Past day access; no unverified results were imported.'
         save_status(root, 'ERROR', message)
-        result = {'error': message, 'source_state': 'error'}
+        result = {'error': message, 'source_state': getattr(exc, 'source_state', 'error')}
+        result['diagnostic'] = getattr(exc, 'discovery_diagnostic', dict(kind=type(exc).__name__, reason='Lenny browser operation failed; see exception type.',
+                                    host='www.lennysjobs.com', path='/', http_status=None, attempts=1, causes=[]))
     (root / 'result.json').write_text(json.dumps(result), encoding='utf-8')
 
 

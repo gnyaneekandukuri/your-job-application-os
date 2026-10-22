@@ -288,7 +288,7 @@ def test_description_timeout_continues_to_next_listing(tmp_path, monkeypatch):
         monkeypatch.setattr('app.description_worker.extract_bounded', fetch)
         counts = discovery.complete_descriptions({first, second})
         assert len(calls) == 2
-        assert counts == {'fetched':1, 'needs_paste':1}
+        assert counts == {'fetched':1, 'needs_paste':1, 'attempted':2, 'deferred':0}
         with discovery.db() as db:
             error = db.execute('SELECT error FROM description_fetches WHERE opportunity_id=?', (first,)).fetchone()[0]
         assert 'timed out' in error
