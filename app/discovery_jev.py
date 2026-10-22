@@ -79,10 +79,12 @@ class JevClassifier:
                 (fingerprint,created_at,scan_id,opportunity_id,model,state) VALUES(?,?,?,?,?,?)''',
                 (fingerprint, datetime.now(timezone.utc).isoformat(), scan_id.get(), item.get('id'), policy['model'], 'DISPATCHING')).lastrowid
         error = 'Jev request interrupted; billing is unknown.'
+        validation_stage = 'request'
         try:
             response = self.post('https://api.typesafe.ai/v1/systemone', headers={'Authorization': f'Bearer {key}'}, json=body, timeout=25)
             response.raise_for_status()
             payload = response.json()
+            validation_stage = 'usage'
             # Preserve reported usage even when the classification is invalid.
             tokens = payload['usage']['input_tokens']
             outgoing = payload['usage'].get('output_tokens')
@@ -93,16 +95,20 @@ class JevClassifier:
             with closing(self.db()) as db, db:
                 db.execute('UPDATE jev_classification_calls SET input_tokens=?,output_tokens=?,cost=? WHERE id=?',
                            (tokens, outgoing, tokens*policy['input_usd_per_million']/1e6, call_id))
+            validation_stage = 'model'
             if payload.get('model') != policy['model']:
                 raise ValueError('Unexpected model version')
             answers = {}
             for name, question in policy['questions'].items():
+                validation_stage = 'answer:' + name
                 answer = Choice.model_validate(payload['answers'][name])
                 probs = answer.probabilities
                 if (answer.type != 'choice' or answer.choice not in question['criteria'] or set(probs) != set(question['criteria'])
                         or any(not 0 <= p <= 1 for p in probs.values()) or abs(sum(probs.values()) - 1) > .02
-                        or probs[answer.choice] < max(probs.values())):
+                        or max(probs.values()) - probs[answer.choice] > .020001):
                     raise ValueError('Invalid choice response')
+                if probs[answer.choice] < max(probs.values()):
+                    answer.confidence = 0.0  # Preserve a near-tied label for review; never trust it.
                 answers[name] = answer.model_dump()
             tokens = payload['usage']['input_tokens']
             if not isinstance(tokens, int) or isinstance(tokens, bool) or tokens < 0:
@@ -123,25 +129,29 @@ class JevClassifier:
             error = 'Jev connection failed. No automatic retry was made.'
             return {'state': 'error', 'error': error}
         except (ValueError, KeyError, TypeError):
-            error = 'Jev returned an invalid classification. Local matching remains active.'
-            return {'state': 'error', 'error': error}
+            error = 'Jev returned an invalid classification (' + validation_stage + '). Local matching remains active.'
+            return {'state': 'error', 'error': error, 'error_type':'response_validation', 'validation_stage':validation_stage}
         finally:
             with closing(self.db()) as db, db:
                 db.execute('UPDATE jev_classification_calls SET state=?,error=?,latency_ms=? WHERE id=?',
                            ('RECEIVED' if error is None else 'FAILED_OR_UNKNOWN', error, round((time.monotonic()-started)*1000), call_id))
 
     def run(self, items, stop):
-        counts = {'classified': 0, 'cached': 0, 'skipped': 0, 'state': 'complete'}
+        started = datetime.now(timezone.utc).isoformat()
+        counts = {'classified': 0, 'cached': 0, 'skipped': 0, 'attempts':0, 'state': 'complete', 'started_at':started}
+        def finished(result):
+            return {**result, 'ended_at':datetime.now(timezone.utc).isoformat()}
         if not self.status()['configured']:
-            return {**counts, 'state': 'not_configured'}
+            return finished({**counts, 'state': 'not_configured'})
         for item in items:
             if stop.is_set():
-                return {**counts, 'state': 'interrupted'}
+                return finished({**counts, 'state': 'interrupted'})
             if item.get('location_match', {}).get('status') == 'outside':
                 counts['skipped'] += 1
                 continue
             result = self.classify(item)
+            if result['state'] in ('error','classified') and not result.get('cached'): counts['attempts'] += 1
             if result['state'] == 'error':
-                return {**counts, **result}  # Circuit break for this scan, not one failure per listing.
+                return finished({**counts, **result})  # Circuit break for this scan, not one failure per listing.
             counts['cached' if result.get('cached') else 'classified' if result['state'] == 'classified' else 'skipped'] += 1
-        return counts
+        return finished(counts)

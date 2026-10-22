@@ -77,7 +77,9 @@ class YCConnection:
             self.process.terminate()
             self.process.wait(timeout=10)
             save_status(self.root,'ERROR','YC browser operation timed out. Try connecting again.')
-            raise YCConnectionError('error','YC browser operation timed out.')
+            exc = YCConnectionError('error','YC browser operation timed out.')
+            exc.discovery_diagnostic['kind'] = 'TimeoutError'
+            raise exc
         finally:
             self.process = None
         if not output.exists():
@@ -85,7 +87,9 @@ class YCConnection:
             raise YCConnectionError('error','YC browser could not start. Check the browser installation.')
         result = json.loads(output.read_text(encoding='utf-8'))
         if result.get('error'):
-            raise YCConnectionError(result.get('source_state','error'), result['error'])
+            exc = YCConnectionError(result.get('source_state','error'), result['error'])
+            if result.get('diagnostic'): exc.discovery_diagnostic = result['diagnostic']
+            raise exc
         return result
 
     def start(self, command='login'):

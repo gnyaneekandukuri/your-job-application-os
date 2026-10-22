@@ -9,6 +9,8 @@ MAX_DETAILS = 1000
 
 
 def collect_builtin(client, fetch, detail, parser_type, relevant, countries, stop=None):
+    from .discovery_recovery import source_window
+    days = (source_window.get() or {}).get('days', 1)
     from .discovery_location import COUNTRIES
     codes = {c['code']: c['alpha3'] for c in COUNTRIES}
     if not countries or any(c not in codes for c in countries):
@@ -16,7 +18,7 @@ def collect_builtin(client, fetch, detail, parser_type, relevant, countries, sto
     paths, seen, warnings = [], set(), []
     pages = 0
     for country in dict.fromkeys(countries):
-        params = dict(search='product manager', daysSinceUpdated='1',
+        params = dict(search='product manager', daysSinceUpdated=str(days),
                       country=codes[country], allLocations='true')
         number = 1
         page_signatures = set()
@@ -73,7 +75,7 @@ def collect_builtin(client, fetch, detail, parser_type, relevant, countries, sto
             from .discovery_network import diagnose
             warnings.append({'listing': path, **getattr(exc, 'discovery_diagnostic', diagnose(exc))})
     coverage = (f'Product Manager search; countries: {", ".join(codes[c] for c in dict.fromkeys(countries))}; '
-                f'all workplace types; updated within one day. {pages} search pages, '
+                f'all workplace types; updated within {"one day" if days == 1 else str(days) + " days"}. {pages} search pages, '
                 f'{len(paths)} matching links, {len(rows)} details read. '
                 'Update recency does not establish original posting age; detail posting dates are preserved. '
                 + ('Partial search coverage; see warnings.' if warnings else 'All returned search pages checked.'))

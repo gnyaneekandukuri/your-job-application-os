@@ -5,15 +5,21 @@ import hashlib
 import json
 import re
 import sqlite3
+import logging
+import time
+import httpx
+from urllib.parse import urlsplit
 from contextlib import contextmanager, closing
-from datetime import datetime, timezone
-from threading import RLock, Thread, Event
+from datetime import datetime, timezone, timedelta
+from threading import RLock, Thread, Event, Lock
 from uuid import uuid4, uuid5, NAMESPACE_URL
 
 from pydantic import BaseModel, ConfigDict, Field
 from .discovery_sources import BOARDS, UNAVAILABLE, canonical, collect, freshness, listing_freshness
 from .discovery_preferences import load_preferences
 from .discovery_network import diagnose
+from .discovery_recovery import lookback, source_window, source_metrics, ScanDeadline, SCAN_SECONDS, SourceDeferred
+from .discovery_backlog import priority as backlog_priority, DESCRIPTION_LIMIT, SCREENING_LIMIT, HOST_DELAY
 from .yc_connection import YCConnection
 from .lenny_connection import LennyConnection
 from .discovery_location import location_match
@@ -106,6 +112,8 @@ class Discovery:
     def __init__(self, path, service, analysis, collector=collect, sources=lambda: [], skills=None):
         self.path, self.service, self.analysis, self.collector = path, service, analysis, collector
         self.lock, self.stop = RLock(), Event()
+        self.scan_lock = Lock()
+        self.active_deadline = None
         self.import_lock = RLock()
         self.yc = YCConnection(path.parent)
         self.lenny = LennyConnection(path.parent)
@@ -365,15 +373,7 @@ class Discovery:
                 item["location_match"] = dict(locations[location])
                 item['sponsorship'] = no_sponsorship(item.get('description', ''))
                 item["company_fit"] = company_fit(item, company_policy)
-                us_state = (item.get('search_country') == 'US' and re.search(
-                    r',\s*(AL|AK|AZ|AR|CA|CO|CT|DE|DC|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|MA|MI|MN|MS|MO|MT|NE|NV|NH|NJ|NM|NY|NC|ND|OH|OK|OR|PA|RI|SC|SD|TN|TX|UT|VT|VA|WA|WV|WI|WY)\s*$', item.get('location', '')))
-                if ((item['location_match']['status'] == 'unclear' or us_state) and item.get('search_country')
-                        and item.get('source_filter') == 'past_24_hours'
-                        and any(s['board'] == 'linkedin' for s in sources)):
-                    code = item['search_country']
-                    target = preferences.get('location_filter', {}).get('countries', [])
-                    item['location_match'] = {**item['location_match'], 'status': 'match' if code in target else 'outside',
-                                              'countries': [code], 'reason': f'LinkedIn search country: {code}; listing location retained as provided.'}
+                self.search_country_location(item, preferences, any(s['board'] == 'linkedin' for s in sources))
                 item["content_hash"] = self.content_hash(item)
                 attempt = automatic.get(row['id'])
                 item['automatic_assessment'] = {k:attempt[k] for k in ('state','attempted_at','error')} if attempt else None
@@ -435,11 +435,56 @@ class Discovery:
             return self.yc.collect()
         if board == 'lenny':
             prefs = load_preferences(self.analysis.library.root / 'knowledge/discovery-preferences.json')
-            return self.lenny.collect(prefs.get('location_filter', {}).get('countries', []))
+            countries = prefs.get('location_filter', {}).get('countries', [])
+            window = source_window.get()
+            return self.lenny.collect(countries, lookback_days=window['days']) if window else self.lenny.collect(countries)
         if board in ('linkedin', 'builtin'):
             prefs = load_preferences(self.analysis.library.root / 'knowledge/discovery-preferences.json')
-            return collect(board, stop=self.stop, countries=prefs.get('location_filter', {}).get('countries', []))
-        return collect(board, stop=self.stop)
+            return collect(board, stop=self.scan_stop, countries=prefs.get('location_filter', {}).get('countries', []))
+        return collect(board, stop=self.scan_stop)
+
+    @property
+    def scan_stop(self):
+        return self.active_deadline or self.stop
+
+    def backlog_ids(self, kind, limit, profile=None):
+        """Select from saved jobs, including jobs absent from the latest source results."""
+        from .discovery_screening import inputs, VERSION, PREVIOUS_VERSIONS, TOO_SENIOR, exact_matches
+        from .needs_help import description_problem
+        with self.db() as db:
+            rows = db.execute('SELECT id,payload,first_seen,job_id FROM opportunities').fetchall()
+            passed = {r[0] for r in db.execute('SELECT opportunity_id FROM passed_jobs')}
+            kept = {r[0] for r in db.execute('SELECT opportunity_id FROM kept_jobs')}
+            fetched = {r[0]:r[1] for r in db.execute('SELECT opportunity_id,checked_at FROM description_fetches')}
+            linkedin = {r[0] for r in db.execute("SELECT opportunity_id FROM sightings WHERE board='linkedin'")}
+        candidates = []
+        current = datetime.now(timezone.utc)
+        preferences = (profile or {}).get('preferences') or load_preferences(self.analysis.library.root / 'knowledge/discovery-preferences.json')
+        for row in rows:
+            if row['id'] in passed or row['job_id']: continue
+            item = dict(json.loads(row['payload']), id=row['id'], first_seen=row['first_seen'], kept=row['id'] in kept)
+            item['location_match'] = location_match(item.get('location'), preferences)
+            self.search_country_location(item, preferences, item['id'] in linkedin)
+            if item['location_match']['status'] == 'outside': continue
+            if kind == 'description':
+                if len(item.get('description', '')) >= 200 or freshness(fetched.get(item['id'])) == 'within_24h': continue
+            else:
+                if description_problem(item.get('description', '')) or exact_matches(item.get('title', ''), TOO_SENIOR): continue
+                if any(self.analysis.engine.get(inputs(item, profile, v)[1]) for v in (VERSION, *PREVIOUS_VERSIONS)): continue
+            candidates.append(item)
+        return [i['id'] for i in sorted(candidates, key=lambda i: backlog_priority(i, current), reverse=True)[:limit]]
+
+    @staticmethod
+    def search_country_location(item, preferences, linkedin):
+        """Keep backlog cache identities identical to the displayed listing identity."""
+        us_state = (item.get('search_country') == 'US' and re.search(
+            r',\s*(AL|AK|AZ|AR|CA|CO|CT|DE|DC|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|MA|MI|MN|MS|MO|MT|NE|NV|NH|NJ|NM|NY|NC|ND|OH|OK|OR|PA|RI|SC|SD|TN|TX|UT|VT|VA|WA|WV|WI|WY)\s*$', item.get('location', '')))
+        if ((item['location_match']['status'] == 'unclear' or us_state) and item.get('search_country')
+                and item.get('source_filter') in ('past_24_hours', 'past_7_days', 'past_30_days') and linkedin):
+            code = item['search_country']
+            target = preferences.get('location_filter', {}).get('countries', [])
+            item['location_match'] = {**item['location_match'], 'status': 'match' if code in target else 'outside',
+                                      'countries': [code], 'reason': f'LinkedIn search country: {code}; listing location retained as provided.'}
 
     def assessment_summary(self, item):
         if not item.get('job_id'):
@@ -585,6 +630,9 @@ class Discovery:
         items = [item for item in self.view(include_analysis=False, opportunity_ids=seen_ids)['items']
                  if item['id'] in seen_ids and len(item.get('description','')) < 200
                  and item['location_match']['status'] != 'outside']
+        items.sort(key=backlog_priority, reverse=True)
+        hosts = {}
+        attempted = 0
         def progress(completed, current=None):
             sid = scan_id.get()
             if sid is None: return
@@ -596,12 +644,15 @@ class Discovery:
                     current=current, updated_at=now(), **counts)
                 db.execute('UPDATE scans SET payload=? WHERE id=?', (json.dumps(payload), sid))
         for index, item in enumerate(items):
-            if self.stop.is_set(): break
+            if self.scan_stop.is_set() or attempted >= DESCRIPTION_LIMIT: break
             progress(index, {'company': item['company'], 'title': item['title']})
             previous = item.get('description_fetch')
             if previous and freshness(previous['checked_at']) == 'within_24h':
                 counts['needs_paste'] += 1
                 continue
+            host = urlsplit(item['url']).hostname
+            if host in hosts and self.scan_stop.wait(max(0, HOST_DELAY - (time.monotonic() - hosts[host]))): break
+            attempted += 1
             try:
                 draft = extract_bounded(item['url'])
                 if (identity(draft['title']) != identity(item['title']) or identity(draft['company']) != identity(item['company']) or len(draft['description']) < 200):
@@ -620,7 +671,10 @@ class Discovery:
                 with self.db() as db:
                     db.execute('INSERT OR REPLACE INTO description_fetches VALUES(?,?,?,?)',(item['id'],'NEEDS_PASTE',now(),message))
                 counts['needs_paste'] += 1
+            finally:
+                hosts[host] = time.monotonic()
         progress(counts['fetched'] + counts['needs_paste'])
+        counts.update(attempted=attempted, deferred=max(0, len(items)-counts['fetched']-counts['needs_paste']))
         return counts
 
     def draining(self):
@@ -639,26 +693,98 @@ class Discovery:
             if self.draining(): raise Conflict('Server is draining for maintenance.')
             if self.worker and self.worker.is_alive():
                 raise Conflict('A discovery scan is already running. Your new scan was not started.')
+            if self.scan_lock.locked(): raise Conflict('A discovery scan is already running.')
+            with self.db() as db:
+                row = db.execute('SELECT started FROM scans WHERE finished IS NULL ORDER BY id DESC LIMIT 1').fetchone()
+                if row and (datetime.now(timezone.utc) - datetime.fromisoformat(row[0])).total_seconds() < SCAN_SECONDS:
+                    raise Conflict('A discovery scan is already running.')
             self.worker = Thread(target=self.scan, args=(boards,), daemon=True, name='discovery-scan')
             self.worker.start()
         return {'started': True, 'running': True, 'message': 'Discovery scan started. Deep analysis runs separately.'}
 
     def scan(self, boards=None):
+        if not self.scan_lock.acquire(blocking=False):
+            raise Conflict('A discovery scan is already running.')
+        self.active_deadline = ScanDeadline(self.stop)
+        try:
+            return self._scan(boards)
+        finally:
+            self.active_deadline = None
+            self.scan_lock.release()
+
+    def source_lookback(self, board):
+        with self.db() as db:
+            rows = db.execute('SELECT started,payload FROM scans ORDER BY id DESC').fetchall()
+        for row in rows:
+            source = json.loads(row['payload']).get('sources', {}).get(board, {})
+            missing_builtin_details = board == 'builtin' and any(listing_warning(w) for w in source.get('warnings', []))
+            if source.get('state') in ('checked', 'partial') and not missing_builtin_details and not source.get('error') and not any(warning_is_error(w) for w in source.get('warnings', [])):
+                return lookback(board, source.get('started_at') or row['started'])
+        return lookback(board, None)
+
+    def collect_with_recovery(self, board):
+        """Browser-operation retries only; HTTP requests already own their retry budget."""
+        from .discovery_network import transient, RETRY_DELAYS, uniform, MAX_RETRY_WAIT
+        for attempt in range(1, 4):
+            try:
+                return self.collector(board)
+            except Exception as exc:
+                requested = getattr(exc, 'discovery_diagnostic', {}).get('retry_after_seconds') or 0
+                # Do not multiply request retries or repeat login/blocked/format failures.
+                if (isinstance(exc, (httpx.RequestError, httpx.HTTPStatusError)) or
+                        not transient(exc) or attempt == 3 or
+                        requested > MAX_RETRY_WAIT or
+                        getattr(exc, 'source_state', '') in ('blocked', 'login_required', 'access_denied', 'busy')):
+                    raise
+                source_metrics.get()['attempts'] = attempt + 1
+                if self.scan_stop.wait(max(requested, RETRY_DELAYS[attempt-1] * uniform(1, 1.25))): raise
+
+    def source_cooldown(self, board):
+        with self.db() as db:
+            for row in db.execute('SELECT payload FROM scans ORDER BY id DESC'):
+                source = json.loads(row[0]).get('sources', {}).get(board)
+                if source and source.get('state') not in ('deferred', 'running', 'waiting'):
+                    until = source.get('retry_not_before')
+                    return until if until and datetime.fromisoformat(until) > datetime.now(timezone.utc) else None
+        return None
+
+    def claim_scan(self, result):
+        with self.db() as db:
+            db.execute('BEGIN IMMEDIATE')
+            for row in db.execute('SELECT * FROM scans WHERE finished IS NULL').fetchall():
+                if (datetime.now(timezone.utc) - datetime.fromisoformat(row['started'])).total_seconds() < SCAN_SECONDS:
+                    raise Conflict('A discovery scan is already running.')
+                old = json.loads(row['payload'])
+                old.update(state='abandoned', phase='abandoned', error='Scan deadline exceeded; saved listings retained. The next scan catches up.')
+                db.execute('UPDATE scans SET finished=?,payload=? WHERE id=?', (now(), json.dumps(old), row['id']))
+            return db.execute('INSERT INTO scans(started,payload) VALUES(?,?)', (now(), json.dumps(result))).lastrowid
+
+    def _scan(self, boards=None):
         include_leads = boards is None and self.collector == self.collect_board
         boards = list(boards) if boards is not None else list(BOARDS)
         if not boards or any(board not in BOARDS for board in boards):
             raise ValueError("Unknown discovery source")
         result = {'state': 'running', 'phase':'collecting', 'boards': boards, 'sources': {}, 'new_count': 0, 'cost_tracking_version': 1, 'tracking_version':1, 'board_tracking':True}
-        with self.db() as db:
-            sid = db.execute('INSERT INTO scans(started,payload) VALUES(?,?)', (now(), json.dumps(result))).lastrowid
+        sid = self.claim_scan(result)
         pending = set()
         scan_token = scan_id.set(sid)
         try:
             for board in boards:
-                if self.stop.is_set(): break
+                if self.scan_stop.is_set(): break
+                window = self.source_lookback(board)
+                started = now()
+                metrics = {'attempts': 1, 'requests': 0}
+                result['sources'][board] = dict(state='running', started_at=started, ended_at=None,
+                                                lookback=window, attempts=0, error_type=None)
+                with self.db() as db: db.execute('UPDATE scans SET payload=? WHERE id=?', (json.dumps(result), sid))
+                window_token, metrics_token = source_window.set(window), source_metrics.set(metrics)
+                cooldown = None
                 try:
-                    rows, coverage, warnings = self.collector(board)
-                    if self.stop.is_set(): break
+                    cooldown = self.source_cooldown(board)
+                    if cooldown:
+                        raise SourceDeferred('Source backoff is still active.')
+                    rows, coverage, warnings = self.collect_with_recovery(board)
+                    if self.scan_stop.is_set(): raise TimeoutError('Scan stopped or expired')
                     for row in rows:
                         oid, new = self.save(board, row)
                         if oid is None:
@@ -671,17 +797,37 @@ class Discovery:
                     result['sources'][board] = {'state': 'error' if any(warning_is_error(w) for w in warnings) else 'checked', 'count': len(rows), 'coverage_status': 'partial' if warnings or 'partial' in coverage.lower() or 'not established' in coverage.lower() else 'reported', 'coverage': coverage, 'warnings': warnings, 'checked_at': now()}
                 except Exception as exc:
                     code = getattr(getattr(exc, 'response', None), 'status_code', None)
-                    result['sources'][board] = {'state': getattr(exc, 'source_state', 'blocked' if code in (403, 429) else 'error'), 'error': f'{type(exc).__name__}' + (f' (HTTP {code})' if code else ''), 'checked_at': now(), 'diagnostic': getattr(exc, 'discovery_diagnostic', diagnose(exc))}
+                    result['sources'][board] = {'state': getattr(exc, 'source_state', 'blocked' if code in (401, 403, 429, 999) else 'error'), 'error': f'{type(exc).__name__}' + (f' (HTTP {code})' if code else ''), 'checked_at': now(), 'diagnostic': getattr(exc, 'discovery_diagnostic', diagnose(exc))}
+                finally:
+                    source_window.reset(window_token)
+                    source_metrics.reset(metrics_token)
+                source = result['sources'][board]
+                if cooldown: source['retry_not_before'] = cooldown
+                diagnostic = source.get('diagnostic') or next((w for w in source.get('warnings', []) if isinstance(w, dict) and warning_is_error(w)), {})
+                source.update(started_at=started, ended_at=now(), lookback=window,
+                              attempts=0 if cooldown else max(metrics['attempts'], diagnostic.get('attempts', 1)), requests=metrics['requests'],
+                              error_type=(diagnostic.get('kind') or 'collection_warning') if source['state'] != 'checked' else None)
+                if source['state'] != 'checked':
+                    source['error'] = diagnostic.get('reason') or source.get('error') or 'Some collection requests failed.'
+                    if diagnostic.get('retry_after_seconds') or diagnostic.get('http_status') in (401,403,429,999) or source['state'] in ('blocked','login_required','access_denied'):
+                        minimum = 900 if diagnostic.get('http_status') == 429 else 3600 if diagnostic.get('http_status') in (401,403,999) or source['state'] in ('blocked','login_required','access_denied') else 0
+                        delay = max(diagnostic.get('retry_after_seconds') or 0, minimum)
+                        source['retry_not_before'] = (datetime.now(timezone.utc) + timedelta(seconds=delay)).isoformat()
+                logging.getLogger('uvicorn.error.discovery').info('Discovery source scan=%s source=%s result=%s', sid, board,
+                    json.dumps({k:source.get(k) for k in ('state','attempts','error','error_type','started_at','ended_at','lookback')}))
                 with self.db() as db: db.execute('UPDATE scans SET payload=? WHERE id=?', (json.dumps(result), sid))
-            if include_leads and not self.stop.is_set():
+            if self.scan_stop.is_set(): raise TimeoutError('Scan stopped or expired')
+            if include_leads and not self.scan_stop.is_set():
                 from .source_leads import refresh
                 result['phase'] = 'company_leads'
                 with self.db() as db: db.execute('UPDATE scans SET payload=? WHERE id=?', (json.dumps(result), sid))
-                leads = refresh(self.path.parent, self.stop)
+                leads = refresh(self.path.parent, self.scan_stop)
                 result['lead_sources'] = {s['id']: {k: s.get(k) for k in ('state', 'checked_at', 'error')} for s in leads}
             result['phase'] = 'descriptions'
             with self.db() as db: db.execute('UPDATE scans SET payload=? WHERE id=?',(json.dumps(result),sid))
-            result['descriptions'] = self.complete_descriptions(pending)
+            description_ids = set(self.backlog_ids('description', DESCRIPTION_LIMIT))
+            result['descriptions'] = self.complete_descriptions(description_ids)
+            if self.scan_stop.is_set(): raise TimeoutError('Scan stopped or expired')
             from .job_dedup import consolidate, resolve
             # Global order when nested: import lock, discovery lock, analysis lock, database.
             with self.import_lock, self.lock, self.db() as db:
@@ -690,14 +836,20 @@ class Discovery:
             result['duplicates_consolidated'] = len(merged)
             result['phase'] = 'classifying'
             with self.db() as db: db.execute('UPDATE scans SET payload=? WHERE id=?',(json.dumps(result),sid))
-            phase_items = self.view(include_analysis=False, opportunity_ids=pending)['items']
-            screening_items = [item for item in phase_items if self.initial_screening_eligible(item)]
-            result['classification'] = self.jev.run(screening_items, self.stop)
-            from .discovery_screening import screen
+            from .discovery_screening import screen, inputs, VERSION, PREVIOUS_VERSIONS
             preferences = load_preferences(self.analysis.library.root / 'knowledge/discovery-preferences.json')
             screening_profile = self.screening_profile(preferences)
+            backlog = set(self.backlog_ids('screening', SCREENING_LIMIT, screening_profile))
+            phase_items = self.view(include_analysis=False, opportunity_ids=pending | backlog)['items']
+            keyed = [(item['id'], [inputs(item, screening_profile, v)[1] for v in (VERSION, *PREVIOUS_VERSIONS)]) for item in phase_items]
+            cached = self.analysis.engine.get_many([key for _, keys in keyed for key in keys])
+            cached_ids = {oid for oid, keys in keyed if any(cached.get(key) for key in keys)}
+            screening_items = sorted([item for item in phase_items if item['id'] in backlog | cached_ids and self.initial_screening_eligible(item)], key=backlog_priority, reverse=True)
+            result['backlog'] = {'screening_selected': len(backlog), 'screening_limit': SCREENING_LIMIT, 'description_limit': DESCRIPTION_LIMIT}
+            result['classification'] = self.jev.run([i for i in screening_items if i['id'] in backlog], self.scan_stop)
             self.jev.annotate(screening_items)
-            result['screening'] = screen(self.analysis.engine, screening_items, screening_profile, self.stop)
+            result['screening'] = screen(self.analysis.engine, screening_items, screening_profile, self.scan_stop)
+            pending |= backlog
             prioritized = self.view(opportunity_ids=pending)['items']
             for item in prioritized:
                 if item['id'] in pending:
@@ -714,16 +866,59 @@ class Discovery:
             result['assessments_queued'] = len(candidates)
             for item in candidates:
                 self.record_scan_role(item, stage='Queued for deep analysis', assessment_queued=True)
-            result['state'] = 'interrupted' if self.stop.is_set() else 'complete'
+            result['state'] = 'abandoned' if self.active_deadline.expired else 'interrupted' if self.stop.is_set() else 'complete'
             result = scan_summary(result)
             result['coverage'] = {'responded': sum(v['state']=='checked' for v in result['sources'].values()), 'total':len(boards)}
             result['phase'] = result['state']
         except Exception:
             result.update(state='incomplete', phase='incomplete', error='Discovery pipeline stopped. Saved results are retained.')
         finally:
+            if self.active_deadline.expired:
+                result.update(state='abandoned', phase='abandoned', error='Scan deadline exceeded (possibly sleep/suspension). Saved listings retained; next scan catches up.')
             scan_id.reset(scan_token)
             with self.db() as db: db.execute('UPDATE scans SET finished=?,payload=? WHERE id=?', (now(), json.dumps(result), sid))
         self.start_automatic()
+
+    def start_backlog(self):
+        with self.lock:
+            if self.draining(): raise Conflict('Server is draining for maintenance.')
+            if self.scan_lock.locked() or self.worker and self.worker.is_alive():
+                raise Conflict('A discovery scan is already running.')
+            self.worker = Thread(target=self.process_backlog, daemon=True, name='discovery-backlog')
+            self.worker.start()
+        return {'started': True, 'description_limit': DESCRIPTION_LIMIT, 'screening_limit': SCREENING_LIMIT,
+                'message': 'Bounded description fetching and paid initial screening started. No deep assessment is queued.'}
+
+    def process_backlog(self):
+        """Explicit repair batch, using the scan lease; no collection or deep assessment."""
+        if not self.scan_lock.acquire(blocking=False): raise Conflict('A discovery scan is already running.')
+        self.active_deadline = ScanDeadline(self.stop)
+        token = None
+        sid = None
+        result = dict(state='running', phase='descriptions', boards=[], sources={}, backlog_only=True)
+        try:
+            sid = self.claim_scan(result)
+            token = scan_id.set(sid)
+            result['descriptions'] = self.complete_descriptions(set(self.backlog_ids('description', DESCRIPTION_LIMIT)))
+            preferences = load_preferences(self.analysis.library.root / 'knowledge/discovery-preferences.json')
+            profile = self.screening_profile(preferences)
+            ids = set(self.backlog_ids('screening', SCREENING_LIMIT, profile))
+            items = sorted(self.view(include_analysis=False, opportunity_ids=ids)['items'], key=backlog_priority, reverse=True)
+            from .discovery_screening import screen
+            result['screening'] = screen(self.analysis.engine, items, profile, self.scan_stop)
+            result['state'] = 'incomplete' if result['screening'].get('errors') else 'complete'
+        except Conflict:
+            raise
+        except Exception:
+            result.update(state='incomplete', error='Backlog batch stopped. Saved work retained.')
+        finally:
+            if self.active_deadline.expired: result.update(state='abandoned', error='Scan deadline exceeded.')
+            result['phase'] = result['state']
+            if sid is not None:
+                with self.db() as db: db.execute('UPDATE scans SET finished=?,payload=? WHERE id=?', (now(), json.dumps(result), sid))
+            if token is not None: scan_id.reset(token)
+            self.active_deadline = None
+            self.scan_lock.release()
 
     def assess_high_priority(self, seen_ids, items=None):
         if self.assessment_blocked(): return

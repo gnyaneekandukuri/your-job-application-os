@@ -16,6 +16,11 @@ class InstantWait:
     def wait(self, seconds): self.delays.append(seconds); return False
 
 
+@pytest.fixture(autouse=True)
+def deterministic_jitter(monkeypatch):
+    monkeypatch.setattr('app.discovery_network.uniform', lambda low, high: low)
+
+
 def test_sleep_wake_connection_recovers_without_duplicate_requests():
     stop, requests = InstantWait(), []
     def handler(request):
@@ -25,11 +30,11 @@ def test_sleep_wake_connection_recovers_without_duplicate_requests():
     with BoardClient(stop=stop, transport=httpx.MockTransport(handler)) as client:
         assert fetch(client, 'https://example.com/jobs') == 'jobs'
         assert client.recovered_requests == 1
-    assert stop.delays == [10, 30]
+    assert stop.delays == [10, 20]
     assert len(requests) == 3
 
 
-@pytest.mark.parametrize('status', [403, 429, 401])
+@pytest.mark.parametrize('status', [403, 999, 401])
 def test_access_failures_are_not_retried(status):
     stop = InstantWait()
     with BoardClient(stop=stop, transport=httpx.MockTransport(lambda r:httpx.Response(status))) as client:
@@ -47,7 +52,7 @@ def test_network_retries_are_bounded_and_cancelable():
     def handler(request): raise httpx.ConnectError('private message', request=request)
     with BoardClient(stop=stop, transport=httpx.MockTransport(handler)) as client:
         with pytest.raises(httpx.ConnectError) as error: fetch(client, 'https://example.com/jobs')
-    assert stop.delays == [10, 30, 60]
+    assert stop.delays == [10, 20, 40]
     assert error.value.discovery_diagnostic['attempts'] == 4
     assert 'private message' not in str(error.value.discovery_diagnostic)
     canceled = Event(); canceled.set()

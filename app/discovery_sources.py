@@ -137,6 +137,8 @@ def listing_freshness(item, current=None):
 
 
 def collect(board, stop=None, countries=None):
+    from .discovery_recovery import source_window
+    days = (source_window.get() or {}).get('days') or 7
     rows, warnings = [], []
     if board == 'lenny':
         from .community_sources import collect_lenny
@@ -154,7 +156,7 @@ def collect(board, stop=None, countries=None):
             token = re.search(r'"csrfToken":"([^\"]+)"', page)
             if not token: raise ValueError('Anonymous session format changed')
             body = {'board': {'id': board_id, 'isParent': True}, 'meta': {'size': 50},
-                    'query': {'titlePrefix': 'product', 'postedSince': 'P7D'}, 'grouped': False}
+                    'query': {'titlePrefix': 'product', 'postedSince': f'P{days}D'}, 'grouped': False}
             seen = set()
             for _ in range(5):
                 data = json.loads(fetch(client, base + '/api-boards/search-jobs', body, {'X-CSRF-Token': token.group(1)}))
@@ -163,7 +165,7 @@ def collect(board, stop=None, countries=None):
                     if not relevant(j.get('title', '')): continue
                     rows.append({'source_id': str(j['jobId']), 'title': j['title'], 'company': j.get('companyName', 'Unknown'),
                                  'location': '; '.join(j.get('locations', [])), 'url': canonical(j['url']),
-                                 'description': plain_text(j.get('description', ''))[:50000], 'posted_at': j.get('timeStamp'), 'date_label': 'Board reports past 7 days',
+                                 'description': plain_text(j.get('description', ''))[:50000], 'posted_at': j.get('timeStamp'), 'date_label': f'Board reports past {days} days',
                                  'funding': (j.get('fundingLV') or {}).get('label', 'Unknown'),
                                  'date_basis': 'board_timestamp', 'snapshot_sha256': hashlib.sha256(json.dumps(j, sort_keys=True).encode()).hexdigest()})
                 cursor = data.get('meta', {}).get('sequence')
@@ -172,7 +174,7 @@ def collect(board, stop=None, countries=None):
                 seen.add(cursor)
                 body['meta'] = {**data['meta'], 'size': 50}
             else: warnings.append('Reached five-page limit; coverage is partial')
-            coverage = 'Product keyword, board past-7-days filter. Board timestamps are not verified original publication dates.'
+            coverage = f'Product keyword, board past-{days}-days filter. Board timestamps are not verified original publication dates.'
         elif board == 'yc':
             base = 'https://www.ycombinator.com'
             parser = PageParser(); parser.feed(fetch(client, base + '/jobs/role/product-manager'))

@@ -106,3 +106,29 @@ def test_policy_change_invalidates_cache(tmp_path, monkeypatch, item):
     assert item['role_classification'] is None
     classifier.classify(item)
     assert len(calls) == 2
+
+
+def test_near_tied_provider_choice_is_unclear(tmp_path, monkeypatch, item):
+    value = response()
+    probs = value['answers']['function']['probabilities']
+    other = next(key for key in probs if key != 'product')
+    probs['product'], probs[other] = .495, .505
+    classifier, calls = setup(tmp_path, monkeypatch, value)
+    result = classifier.classify(item)
+    assert result['state'] == 'classified'
+    assert result['labels']['function'] == 'Unclear'
+    assert result['answers']['function']['confidence'] == 0
+    assert len(calls) == 1
+
+
+def test_materially_contradictory_choice_records_stage_without_retry(tmp_path, monkeypatch, item):
+    value = response()
+    probs = value['answers']['function']['probabilities']
+    other = next(key for key in probs if key != 'product')
+    probs['product'], probs[other] = .1, .9
+    classifier, calls = setup(tmp_path, monkeypatch, value)
+    result = classifier.run([item, item], Event())
+    assert result['error_type'] == 'response_validation'
+    assert result['validation_stage'] == 'answer:function'
+    assert result['attempts'] == 1 and len(calls) == 1
+    assert result['started_at'] <= result['ended_at']

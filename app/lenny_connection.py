@@ -75,7 +75,9 @@ class LennyConnection:
             self.process.terminate()
             self.process.wait(timeout=10)
             save_status(self.root,'ERROR','Lenny browser operation timed out. Try connecting again.')
-            raise LennyConnectionError('error','Lenny browser operation timed out.')
+            exc = LennyConnectionError('error','Lenny browser operation timed out.')
+            exc.discovery_diagnostic['kind'] = 'TimeoutError'
+            raise exc
         finally:
             self.process = None
         if not output.exists():
@@ -83,7 +85,9 @@ class LennyConnection:
             raise LennyConnectionError('error','Lenny browser could not start. Check the browser installation.')
         result = json.loads(output.read_text(encoding='utf-8'))
         if result.get('error'):
-            raise LennyConnectionError(result.get('source_state','error'), result['error'])
+            exc = LennyConnectionError(result.get('source_state','error'), result['error'])
+            if result.get('diagnostic'): exc.discovery_diagnostic = result['diagnostic']
+            raise exc
         return result
 
     def start(self, command='login'):
@@ -103,13 +107,15 @@ class LennyConnection:
         self.thread.start()
         return self.status()
 
-    def collect(self, countries):
+    def collect(self, countries, lookback_days=1):
         if not (self.root / 'normal-profile').exists():
             raise LennyConnectionError('login_required','Connect Lenny in Discovery runs before scanning this source.')
         if not self.lock.acquire(blocking=False):
             raise LennyConnectionError('busy','Lenny sign-in or connection check is in progress. Try the scan after it finishes.')
         try:
-            (self.root / 'scan-options.json').write_text(json.dumps({'countries': countries}), encoding='utf-8')
+            options = {'countries': countries}
+            if lookback_days > 1: options['lookback_days'] = lookback_days
+            (self.root / 'scan-options.json').write_text(json.dumps(options), encoding='utf-8')
             result = self._run('scan')
             return result['rows'], result['coverage'], result['warnings']
         finally:
