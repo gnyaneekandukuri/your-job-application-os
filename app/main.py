@@ -90,9 +90,11 @@ def create_app(data_dir: Path | None = None):
             api.state.discovery.begin_scheduler()
         for job_id in store.ids():
             api.state.service.review(job_id)
+        if data_dir is None: api.state.google_sheets.schedule.start()
         try:
             yield
         finally:
+            api.state.google_sheets.schedule.close()
             api.state.resume_approach.close()
             api.state.manual_queue.close()
             api.state.job_list.close()

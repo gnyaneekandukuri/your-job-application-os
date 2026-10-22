@@ -178,6 +178,9 @@ After applying externally, choose **Done — save & download PDF** in the resume
 
 Application history is stored locally in `applications.sqlite3` alongside the other private databases. Each entry preserves the submitted resume blocks and formatting, JD, and assessment evidence used for tailoring. Later tailoring edits do not replace that snapshot. The tracker retains the exact downloaded PDF; older text-only applications remain downloadable as text. PDFs use saved paragraph text, fonts, sizes, alignment, bullets and date columns. Pagination is generated for US Letter pages; it is not a byte-for-byte reproduction of an uploaded Word file. Repeat confirmations for the same saved job do not create duplicate entries. Scan cleanup does not remove application history. No model/API calls are used for tracking or export; no Google Sheets connection is required.
 
+With Google Sheets connected and a destination selected, application additions and edits schedule one sync an hour after the first unsynced change. Later changes join that batch without delaying it. Successful manual sync cancels the pending batch; changes made during sync remain pending. The deadline survives server restarts and overdue work runs when the server starts. This uses a sleeping timer, not periodic checks or AI calls. A failed automatic sync keeps the changes and displays an error for manual retry.
+
+
 ### Job freshness and storage
 
 New jobs opens on Active jobs: postings from the last four days, retained jobs, and jobs with uncertain posting dates. Older retained listings remain accessible with All saved. Keep job protects a discovery listing; selecting it for assessment or importing it into Saved roles also protects it. Imported assessments, tailoring drafts and application history are not deleted.

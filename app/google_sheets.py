@@ -82,6 +82,8 @@ class GoogleSheets:
         self.transport = transport
         self.lock = RLock()
         self.pending = None
+        from .sheets_schedule import SheetsSchedule
+        self.schedule = SheetsSchedule(self) if hasattr(applications, 'path') else None
 
     def read(self):
         if not self.path.exists():
@@ -102,7 +104,8 @@ class GoogleSheets:
         with self.lock:
             data = self.read()
             return {'configured': bool(data.get('client')), 'connected': bool(data.get('tokens')),
-                    'target': data.get('target'), 'last_sync': data.get('last_sync')}
+                    'target': data.get('target'), 'last_sync': data.get('last_sync'),
+                    'automatic_sync': self.schedule.status() if self.schedule else None}
 
     def configure(self, value):
         try:
@@ -117,6 +120,7 @@ class GoogleSheets:
             if data.get('client') != client:
                 self.write({'client': client})
                 self.pending = None
+            if self.schedule:self.schedule.arm()
             return self.status()
 
     def connect(self):
@@ -161,6 +165,7 @@ class GoogleSheets:
                 raise RetrievalError('Google Sheets permission was not granted. Connect again and allow Sheets access.', 409)
             # A newly selected Google account must explicitly select its destination.
             self.write({'client': data['client'], 'tokens': {**tokens, 'expires_at': time.time() + tokens.get('expires_in', 3600)}})
+            if self.schedule:self.schedule.arm()
 
     def access_token(self):
         data = self.read()
@@ -199,6 +204,7 @@ class GoogleSheets:
             data['target'] = {'id': sid, 'title': info['properties']['title'], 'url': f'https://docs.google.com/spreadsheets/d/{sid}/edit'}
             data.pop('last_sync', None)
             self.write(data)
+            if self.schedule:self.schedule.arm()
             return self.status()
 
     def disconnect(self):
@@ -206,12 +212,14 @@ class GoogleSheets:
             data = self.read()
             self.write({'client': data['client']} if data.get('client') else {})
             self.pending = None
+            if self.schedule:self.schedule.arm()
             return self.status()
 
-    def sync(self):
-        if not self.lock.acquire(blocking=False):
+    def sync(self, automatic=False):
+        if not self.lock.acquire(blocking=automatic):
             raise RetrievalError('Google Sheets is busy. Let the current request finish.', 409)
         try:
+            if automatic and self.schedule and not self.schedule.status()['pending']: return self.status()
             data = self.read()
             target = data.get('target')
             if not target:
@@ -223,7 +231,7 @@ class GoogleSheets:
                 created = self.request('POST', sid + ':batchUpdate', json={'requests': [{'addSheet': {'properties': {'title': TAB, 'gridProperties': {'frozenRowCount': 1}}}}]})
                 sheet = created['replies'][0]['addSheet']['properties']
             saved = self.request('GET', sid + '/values/' + quote(f"'{TAB}'!A:K", safe='')).get('values', [])
-            rows = self.applications.list()
+            seq, rows = self.schedule.snapshot() if self.schedule else (None, self.applications.list())
             writes, added, updated = updates_for(rows, saved)
             max_row = max([len(saved), 1] + [int(re.search(r'!A(\d+)', w['range'])[1]) for w in writes])
             grid = sheet.get('gridProperties', {})
@@ -244,6 +252,7 @@ class GoogleSheets:
             data = self.read()  # Preserve a token refreshed during the requests.
             data['last_sync'] = {'at': datetime.now(timezone.utc).isoformat(), 'added': added, 'updated': updated, 'total': len(rows)}
             self.write(data)
+            if self.schedule:self.schedule.acknowledge(seq)
             return self.status()
         finally:
             self.lock.release()

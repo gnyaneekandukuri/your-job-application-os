@@ -11,10 +11,11 @@ def activity(state):
                           ('selected_analysis',d.selected.worker),('deep_analysis',d.analysis.worker),
                           ('tailoring',state.tailoring.worker),('skills',state.skills.worker)]:
         if alive(worker): busy.append(label)
+    if state.google_sheets.schedule.active: busy.append('google_sheets_sync')
     manual=getattr(d.analysis,'manual_queue',None)
     if manual and manual.pending() and not d.draining(): busy.append('manual_analysis_queue')
     if getattr(state.resume_approach, 'active', False): busy.append('resume_approach')
-    for label, lock in [('application_answer',answer_lock),('writing_help',message_lock),('tailoring_request',state.tailoring.lock)]:
+    for label, lock in [('google_sheets_request',state.google_sheets.lock),('application_answer',answer_lock),('writing_help',message_lock),('tailoring_request',state.tailoring.lock)]:
         acquired=lock.acquire(blocking=False)
         if acquired: lock.release()
         else: busy.append(label)

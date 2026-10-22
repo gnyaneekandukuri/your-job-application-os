@@ -47,10 +47,22 @@ class UpdateApplication(BaseModel):
 
 class Applications:
     def __init__(self, path):
+        self.on_change = None
         self.path = path
         with self.db() as db:
             db.execute('''CREATE TABLE IF NOT EXISTS applications
                 (id TEXT PRIMARY KEY, job_id TEXT UNIQUE NOT NULL, payload TEXT NOT NULL)''')
+            db.executescript('''
+                CREATE TABLE IF NOT EXISTS sheets_changes(seq INTEGER PRIMARY KEY AUTOINCREMENT, changed_at REAL NOT NULL);
+                CREATE TABLE IF NOT EXISTS sheets_sync_error(id INTEGER PRIMARY KEY CHECK(id=1), message TEXT);
+                CREATE TRIGGER IF NOT EXISTS sheets_application_insert AFTER INSERT ON applications
+                BEGIN INSERT INTO sheets_changes(changed_at) VALUES(unixepoch('now')); END;
+                CREATE TRIGGER IF NOT EXISTS sheets_application_update AFTER UPDATE OF payload ON applications
+                WHEN json_extract(OLD.payload,'$.status') IS NOT json_extract(NEW.payload,'$.status')
+                  OR json_extract(OLD.payload,'$.notes') IS NOT json_extract(NEW.payload,'$.notes')
+                  OR json_extract(OLD.payload,'$.follow_up_date') IS NOT json_extract(NEW.payload,'$.follow_up_date')
+                BEGIN INSERT INTO sheets_changes(changed_at) VALUES(unixepoch('now')); END;
+            ''')
 
     @contextmanager
     def db(self):
@@ -58,6 +70,11 @@ class Applications:
         try:
             with connection:
                 yield connection
+            if connection.total_changes and self.on_change:
+                try:self.on_change()
+                except Exception:
+                    import logging
+                    logging.getLogger(__name__).exception("Could not arm Sheets timer; durable pending changes retained")
         finally:
             connection.close()
 
