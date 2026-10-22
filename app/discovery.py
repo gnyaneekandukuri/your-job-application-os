@@ -836,14 +836,17 @@ class Discovery:
             result['duplicates_consolidated'] = len(merged)
             result['phase'] = 'classifying'
             with self.db() as db: db.execute('UPDATE scans SET payload=? WHERE id=?',(json.dumps(result),sid))
-            from .discovery_screening import screen
+            from .discovery_screening import screen, inputs, VERSION, PREVIOUS_VERSIONS
             preferences = load_preferences(self.analysis.library.root / 'knowledge/discovery-preferences.json')
             screening_profile = self.screening_profile(preferences)
             backlog = set(self.backlog_ids('screening', SCREENING_LIMIT, screening_profile))
             phase_items = self.view(include_analysis=False, opportunity_ids=pending | backlog)['items']
-            screening_items = sorted([item for item in phase_items if item['id'] in backlog and self.initial_screening_eligible(item)], key=backlog_priority, reverse=True)
-            result['backlog'] = {'screening_selected': len(screening_items), 'screening_limit': SCREENING_LIMIT, 'description_limit': DESCRIPTION_LIMIT}
-            result['classification'] = self.jev.run(screening_items, self.scan_stop)
+            keyed = [(item['id'], [inputs(item, screening_profile, v)[1] for v in (VERSION, *PREVIOUS_VERSIONS)]) for item in phase_items]
+            cached = self.analysis.engine.get_many([key for _, keys in keyed for key in keys])
+            cached_ids = {oid for oid, keys in keyed if any(cached.get(key) for key in keys)}
+            screening_items = sorted([item for item in phase_items if item['id'] in backlog | cached_ids and self.initial_screening_eligible(item)], key=backlog_priority, reverse=True)
+            result['backlog'] = {'screening_selected': len(backlog), 'screening_limit': SCREENING_LIMIT, 'description_limit': DESCRIPTION_LIMIT}
+            result['classification'] = self.jev.run([i for i in screening_items if i['id'] in backlog], self.scan_stop)
             self.jev.annotate(screening_items)
             result['screening'] = screen(self.analysis.engine, screening_items, screening_profile, self.scan_stop)
             pending |= backlog
