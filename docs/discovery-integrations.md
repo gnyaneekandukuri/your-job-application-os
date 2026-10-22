@@ -1,5 +1,35 @@
 # Discovery sources and assessment handoff
 
+## Recovery and backlog operations
+
+This section supersedes the older retry/window/processing notes below. Free HTTP reads retry timeouts, connection failures, 5xx and 429 with exponential delays of 10/20/40 seconds plus up to 25% jitter, at most four attempts. Retry-After (seconds or HTTP date) is a minimum wait. Delays above 120 seconds defer the source instead of sending an early retry. Browser operations retry recognized transient failures at most three times; request-level retry budgets are never multiplied. Paid calls are never automatically retried. Login, 401/403/999 and access challenges do not receive immediate retries. Persisted rate-limit cooldowns last at least 15 minutes; login/access blocks last at least an hour. Longer Retry-After values take precedence, including on 5xx responses.
+
+Each source records start/end timestamps, attempts (maximum attempts for an individual request or browser operation), request count, safe error type/message, cooldown and lookback. LinkedIn pagination retains HTTP/network diagnostics along with partial results. Run details expose these fields in the API and board detail panel. No response bodies, cookies, query strings or credentials are logged. Historical records lacking diagnostics cannot be reconstructed.
+
+The last successful source fetch is derived durably from scan records, using its start time conservatively. Errors and failed LinkedIn pagination do not advance it; Built In listing failures also preserve the previous success because those detail pages supply the listing records. Catch-up includes an hour of overlap and chooses 1/7/30-day windows, capped at 30 days. LinkedIn verifies the matching public date filter and retains older jobs inside wider searches. Built In sends daysSinceUpdated; venture boards retain their normal seven-day minimum and widen postedSince as needed. Lenny uses its verified All radio for gaps beyond a day, with bounded pagination, because that control is established in the existing connector; it has no temporal cap in All mode. YC reads its full directory; HN reads the current monthly thread. Pagination bounds still limit recovery: these collectors cannot guarantee every missed opening.
+
+A nonblocking scan lock covers direct calls, scheduler requests and backlog repair. An immediate SQLite transaction rejects fresh unfinished runs and marks records older than two hours abandoned before claiming a new run. Active threads retain the lock until they unwind; the app never starts a second collector while an old one still runs. A cooperative wall-clock deadline checks cancellation between requests, jobs and phases, including after a browser returns from sleep. It retains saved listings, stops further work, and records abandonment. Network/browser subprocess bounds still apply; the deadline cannot cancel a paid request already dispatched. Startup still marks interrupted process work explicitly.
+
+Description retrieval now selects saved, unimported, unpassed jobs rather than only current sightings: active/kept first, then newest discovery first. It uses the existing bounded subprocess around the same extract_job logic as the manual fetch endpoint, preserving SSRF, title/company identity and minimum-description checks. At most 50 descriptions are attempted per run, with five seconds between completions and the next attempt at the same original host. Failed attempts retain the 24-hour cooldown. JavaScript/login-only pages and mismatched metadata still require manual paste.
+
+Initial semantic screening similarly selects up to 200 uncached eligible saved jobs per run, active/kept first and newest first, independently of current sightings. Existing provider errors remain explicit-retry work. Cached current/previous-policy results consume no new paid attempt. Successful backlog screens can enter the ordinary opt-in automatic assessment queue during normal scans. Explicit repair batches do not collect boards, run advisory classification, or queue deep assessment.
+
+Preview a current workspace without opening the application or making any requests:
+
+```powershell
+.venv\Scripts\python.exe -m scripts.process_discovery_backlog --data-dir PATH_TO_PRIVATE_DATA --dry-run
+```
+
+Dry-run is the default. It opens only the existing job-list projection with SQLite mode=ro/query_only, reports its snapshot timestamp, and prints counts, paid steps and cost/time assumptions. Projection counts may lag the live database. Estimates use configured Jev pricing and cost_tracking.token_cost for embeddings; they exclude shared context preparation, advisory classification and deep assessment. Fetch successes can add screenable jobs. Timeout sums are scenario estimates, not expected runtime; each batch stops cooperatively at the two-hour deadline.
+
+After the updated server has been loaded, explicitly submit one bounded repair batch:
+
+```powershell
+.venv\Scripts\python.exe -m scripts.process_discovery_backlog --execute
+```
+
+This sends a guarded POST to /api/discovery/backlog and returns immediately. Inspect Discovery runs for results before requesting another batch. It can spend money on uncached JD/context embeddings and Jev screening. It honors scan exclusivity, existing failure cooldowns and cancellation. No repair is dispatched by previewing estimates.
+
 ## Evidence review questions (October 2, 2026)
 
 Completed, current reports derive a compact review checklist from saved judgments and pursuit constraints. This adds no model call, scoring weight, or new candidate fact. Strong transferable evidence is not a gap. Insufficient or low-confidence evidence is missing documentation; supported partial evidence is an experience coverage gap, not proof of missing ability. Ambiguous requirements stay unresolved. Only a sourced incompatible pursuit constraint is displayed as an explicit conflict. Unknown sponsorship stays a question. Core work and explicit requirements precede preferred qualifications.
