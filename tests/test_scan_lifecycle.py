@@ -330,7 +330,8 @@ def test_drain_preserves_manual_queue_without_dispatch(tmp_path,monkeypatch):
         assert client.get('/api/maintenance/status').json()['safe_to_restart']
 
 
-def test_restart_script_drains_then_restarts_unique_pid_and_cleans_flag(tmp_path):
+@pytest.mark.parametrize('transient_timeout', [False, True])
+def test_restart_script_drains_then_restarts_unique_pid_and_cleans_flag(tmp_path, transient_timeout):
     import shutil,subprocess
     from pathlib import Path
     shell=shutil.which('powershell.exe')
@@ -343,6 +344,7 @@ def test_restart_script_drains_then_restarts_unique_pid_and_cleans_flag(tmp_path
     function Get-CimInstance {{ [pscustomobject]@{{ParentProcessId=456;CommandLine='{script.parent.parent}\.venv\Scripts\python.exe -m uvicorn app.main:app'}} }}
     function Invoke-RestMethod {{
         $global:checks++
+        if ($global:checks -eq 1 -and ${str(transient_timeout).lower()}) {{ throw 'Simulated readiness timeout' }}
         [pscustomobject]@{{safe_to_restart=($global:checks -gt 1);draining=(Test-Path '{tmp_path}\maintenance.flag');active=@()}}
     }}
     function Start-Sleep {{ }}
