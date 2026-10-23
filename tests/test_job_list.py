@@ -300,3 +300,14 @@ def test_running_scan_preserves_description_progress_in_small_runs_response(mode
     assert 'large_detail' not in scan
     assert 'warnings' not in scan['sources']['yc']
     assert len(json.dumps(response).encode()) < 20000
+
+
+def test_identity_cache_reuses_exact_content_but_not_changed_opening():
+    from app.job_identity import same_job, _identity
+    _identity.cache_clear()
+    original=listing(1)
+    first=same_job(original)
+    assert same_job(dict(original,location='Chicago'))==first
+    assert _identity.cache_info().hits==1
+    assert same_job(dict(original,description=original['description']+'Different opening'))!=first
+    assert same_job(dict(original,company='Different company'))!=first

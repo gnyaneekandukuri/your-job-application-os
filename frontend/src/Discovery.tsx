@@ -18,6 +18,7 @@ type YCConnection = {state:string;message:string;busy:boolean;checked_at?:string
 type Overview={started:string;finished:string|null;state:string;tracked:boolean;seen:number;new:number|null;high:number;worth_checking:number;requested:number;completed:number;worth_applying:number;auto_paused:boolean;error?:string;failures:{board:string;state:string;reason:string}[]};
 type State = {help_count?:number;automatic_running?:boolean;freshness_counts?:{recent:number;older:number;uncertain:number};scan_overview?:Overview;ready:boolean;revision:string;total:number;page:number;pages:number;board_counts:Record<string,number>;run_reports?:ScanRunSummary[];recent_scans?:{started:string;finished:string|null;state:string;new_count?:number}[];pipeline?:{complete:number;running:number;attention:number;previous:number;queued:number};company_preference?:{focus:string;preferred_stages:string[]};jev?:{configured:boolean;message:string};yc_connection?:YCConnection;lenny_connection?:YCConnection;keyword_profile?:KeywordProfile;location_preference?:{label:string;countries:string[]};items:Item[];running:boolean;settings:{enabled:boolean;auto_assess:boolean};boards:Record<string,string>;unavailable:Record<string,string>;timezone:string;schedule:string[];scan:null|{started:string;finished:string|null;payload:{description_progress?:{total:number;completed:number;current?:{company:string;title:string}};phase?:string;classification?:{state:string;classified:number;cached:number;skipped:number;error?:string};descriptions?:{fetched:number;needs_paste:number};state:string;new_count?:number;sources?:Record<string,Source>;error?:string}}};
 async function request<T>(path="",body?:unknown,signal?:AbortSignal):Promise<T> {
+ if(body===undefined){const timeout=AbortSignal.timeout(20000);signal=signal?AbortSignal.any([signal,timeout]):timeout;}
  const response=await fetch(`/api/discovery${path}`,body===undefined?{signal}:{method:"POST",headers:{"Content-Type":"application/json","X-Local-Review":"1"},body:JSON.stringify(body)});
  const value=await response.json();if(!response.ok)throw new Error(typeof value.detail==="string"?value.detail:"Action failed. Try again.");return value;
 }
@@ -140,7 +141,7 @@ export function Discovery({onOpen,onResults,onAdd,initialReviewId,view="opportun
 
   {status.data?.error&&<p className="error" role="alert">{status.data.error}</p>}
   {state&&updating&&<p role="status">Updating saved results…</p>}
-  {!state?<p role="status">Preparing your saved jobs…</p>:view==="runs"?<>
+  {!state?<div role="status"><p>{connectionError?'Jobs could not load. Your saved jobs have not been removed.':'Preparing your saved jobs…'}</p><button onClick={()=>setState()}>Retry loading jobs</button></div>:view==="runs"?<>
    <p><a href="/#usage">View scan costs</a></p>
    <ScanReport scans={state.run_reports??[]} onOpen={onOpen}/>
    <nav aria-label="Run pages"><button disabled={page<=1} onClick={()=>setPage(p=>p-1)}>Newer runs</button><span>Page {page} of {state.pages}</span><button disabled={page>=state.pages} onClick={()=>setPage(p=>p+1)}>Older runs</button></nav>
