@@ -3,12 +3,21 @@ import hashlib
 import json
 import re
 import unicodedata
+from functools import lru_cache
 
 
 def identity(item):
-    def norm(value):
-        return re.sub(r"\s+", " ", unicodedata.normalize("NFKC", str(value or ""))).strip().casefold()
-    values = [norm(item.get(k)) for k in ("company", "title", "location", "description")]
+    # Key by the actual fields, so a changed JD or a distinct opening cannot
+    # inherit an old identity. Bounded reuse avoids re-normalizing every JD
+    # on each page request while background analysis is running.
+    return _identity(tuple(str(item.get(k) or '') for k in
+                           ('company', 'title', 'location', 'description')))
+
+
+@lru_cache(maxsize=4096)
+def _identity(fields):
+    values = [re.sub(r"\s+", " ", unicodedata.normalize("NFKC", value)).strip().casefold()
+              for value in fields]
     if not all(values) or len(values[-1]) < 200:
         return None
     return hashlib.sha256(json.dumps(values).encode()).hexdigest()

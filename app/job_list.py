@@ -187,8 +187,17 @@ class JobList:
         # Recover identity from the saved listing when older application snapshots lack location.
         keys.update(identity(p) for oid,jid,p in opportunities if jid in ids or 'opportunity:'+oid in ids or p.get('url','').rstrip('/') in urls)
         keys.discard(None)
+        # Only matching company/title pairs can share an exact-content identity.
+        # Avoid normalizing thousands of unrelated full descriptions on reads.
+        import re, unicodedata
+        def pair(p):
+            return tuple(re.sub(r'\s+', ' ', unicodedata.normalize('NFKC', str(p.get(k) or ''))).strip().casefold()
+                         for k in ('company','title'))
+        pairs = {pair(r.get('job_snapshot', {})) for r in records}
+        pairs.update(pair(p) for oid,jid,p in opportunities
+                     if jid in ids or 'opportunity:'+oid in ids or p.get('url','').rstrip('/') in urls)
         for oid,jid,p in opportunities:
-            if identity(p) in keys:
+            if pair(p) in pairs and identity(p) in keys:
                 ids.add('opportunity:'+oid)
                 if jid: ids.add(jid)
                 if p.get('url'): urls.add(p['url'].rstrip('/'))
