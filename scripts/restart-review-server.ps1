@@ -21,8 +21,14 @@ try {
         $ownsFlag = $true
         $deadline = (Get-Date).AddSeconds($DrainTimeoutSeconds)
         do {
-            $activity = Invoke-RestMethod 'http://127.0.0.1:8000/api/maintenance/status' -TimeoutSec 10
-            if ($activity.draining -and $activity.safe_to_restart) { break }
+            $activity = $null
+            try {
+                $activity = Invoke-RestMethod 'http://127.0.0.1:8000/api/maintenance/status' -TimeoutSec 30
+            } catch {
+                # A slow readiness response is not evidence of idle. Keep draining
+                # until a successful idle response or the overall deadline.
+            }
+            if ($null -ne $activity -and $activity.draining -and $activity.safe_to_restart) { break }
             if ((Get-Date) -ge $deadline) { Write-Output 'Restart skipped: drain timed out.'; exit 0 }
             Start-Sleep -Seconds 2
         } while ($true)
