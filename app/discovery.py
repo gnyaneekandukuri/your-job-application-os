@@ -1031,8 +1031,10 @@ class Discovery:
         from .job_list import JobList
         from .job_identity import same_job
         # Reuse the UI's application identity/alias resolution without starting a worker.
-        reader = object.__new__(JobList)
-        reader.path, reader.discovery = self.path.parent / 'job-list.sqlite3', self
+        reader = getattr(self, 'job_list', None)
+        if reader is None:
+            reader = object.__new__(JobList)
+            reader.path, reader.discovery = self.path.parent / 'job-list.sqlite3', self
         applied_ids, applied_urls = reader.applied_keys()
         with self.db() as db:
             passed_ids = {r[0] for r in db.execute('SELECT opportunity_id FROM passed_jobs')}

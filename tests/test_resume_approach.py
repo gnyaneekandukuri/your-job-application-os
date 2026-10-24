@@ -137,3 +137,22 @@ def test_bulk_skips_stale_and_explicit_recheck_queues_current_master(monkeypatch
     assert body['sources'][0]['text']=='Updated master'
     assert a.view(j)=={'state':'QUEUED'}
     assert not e.calls
+
+
+def test_batched_views_match_single_views_and_keep_freshness(monkeypatch):
+    e,j,t=fixture(monkeypatch);a=service(e,t)
+    batches=[]
+    def get_many(keys):
+        batches.append(list(keys))
+        return {k:e.data[k] for k in keys if k in e.data}
+    e.get_many=get_many
+    assert a.views([j])[j.id]==a.view(j)
+    a.enqueue(j)
+    key=e.get('resume-approach-latest:job')['key']
+    e.put(key,{'state':'COMPLETE','approach':'USE_MASTER'})
+    assert a.views([j])[j.id]==a.view(j)
+    e.put('skills:resume',{'text':'Changed master'})
+    assert a.views([j])[j.id]==a.view(j)
+    assert a.views([j])[j.id]['stale']
+    assert not e.calls
+    assert len(batches)==8

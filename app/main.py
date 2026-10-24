@@ -240,10 +240,12 @@ def create_app(data_dir: Path | None = None):
     def saved_assessment_results(request: Request):
         result = request.app.state.job_list.assessments()
         resumes = request.app.state.tailoring.statuses([r['job_id'] for r in result.get('items', [])])
+        jobs = request.app.state.service.store.read_jobs([r['job_id'] for r in result.get('items', []) if r['assessment']['state']=='COMPLETE'])
+        approaches = request.app.state.resume_approach.views(jobs.values())
         for item in result.get('items', []):
             if item['job_id'] in resumes: item['resume'] = resumes[item['job_id']]
             if item['assessment']['state'] == 'COMPLETE':
-                item['resume_approach'] = request.app.state.resume_approach.view(request.app.state.discovery.saved_job(item['job_id']))
+                item['resume_approach'] = approaches.get(item['job_id'], {'state':'UNAVAILABLE','reason':'Saved job not found.'})
             else:
                 item['resume_approach'] = {'state': 'UNAVAILABLE', 'reason': 'Complete a current deep analysis first.'}
         return result

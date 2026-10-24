@@ -138,6 +138,43 @@ class ResumeApproach:
                 return {**result, 'stale': True, 'stale_reason': 'checked against previous master'}
         return {'state': 'NOT_CHECKED', 'reason': 'Compare your current master resume with this role.'}
 
+    def views(self, jobs):
+        """Same freshness rules as view(), using bounded batches for list reads."""
+        jobs = list(jobs)
+        if not jobs: return {}
+        resume = self.tailoring.skills.engine.get('skills:resume')
+        if not resume:
+            try:
+                _, resume = self.tailoring.baseline()
+            except RetrievalError as exc:
+                return {j.id:{'state':'UNAVAILABLE','reason':str(exc)} for j in jobs}
+        if not resume or not resume.get('text', '').strip():
+            return {j.id: {'state':'UNAVAILABLE','reason':'Upload your master resume first.'} for j in jobs}
+        pointers = self.engine.get_many([prefix+j.id for j in jobs
+                                       for prefix in ('resume-approach-latest:', 'role-analysis-latest:')])
+        keys = []
+        for j in jobs:
+            saved = pointers.get('resume-approach-latest:'+j.id)
+            latest = pointers.get('role-analysis-latest:'+j.id)
+            if saved: keys.append(saved['key'])
+            if latest: keys.append(latest)
+        records = self.engine.get_many(keys)
+        results = {}
+        for j in jobs:
+            saved = pointers.get('resume-approach-latest:'+j.id)
+            latest = pointers.get('role-analysis-latest:'+j.id)
+            run = records.get(latest) or {}
+            stamp = digest(json.dumps([VERSION, MODEL, PROMPT, j.description, resume['text'],
+                                       latest, run.get('updated_at')], sort_keys=True))
+            result = records.get(saved['key']) if saved else None
+            if saved and saved['fingerprint'] == stamp:
+                results[j.id] = result or {'state':'NOT_CHECKED'}
+            elif result and result.get('approach') and result.get('state') not in ('QUEUED','RUNNING'):
+                results[j.id] = {**result,'stale':True,'stale_reason':'checked against previous master'}
+            else:
+                results[j.id] = {'state':'NOT_CHECKED','reason':'Compare your current master resume with this role.'}
+        return results
+
     def fingerprint(self, job):
         resume = self.tailoring.skills.engine.get('skills:resume')
         if not resume:
