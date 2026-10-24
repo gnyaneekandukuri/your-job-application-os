@@ -22,6 +22,8 @@ class JobList:
         self.path = discovery.path.parent / 'job-list.sqlite3'
         self.stop = Event()
         self.lock = Lock()
+        self.applied_lock = Lock()
+        self.applied_cache = None
         self.worker = None
         self.error = None
         with closing(self.connect()) as db, db:
@@ -38,6 +40,32 @@ class JobList:
                 CREATE TABLE IF NOT EXISTS boards (id TEXT, board TEXT, PRIMARY KEY(id,board));
                 CREATE INDEX IF NOT EXISTS listing_board ON boards(board,id);
             ''')
+        self.install_identity_revisions()
+
+    def install_identity_revisions(self):
+        """Only identity changes invalidate exclusions, not scan progress or costs."""
+        self.identity_revision_paths = set()
+        for path, table in ((self.path.parent/'applications.sqlite3','applications'),
+                            (self.discovery.path,'opportunities')):
+            if not path.exists(): continue
+            with closing(sqlite3.connect(path, timeout=15)) as db, db:
+                if not db.execute("SELECT 1 FROM sqlite_master WHERE name=?",(table,)).fetchone(): continue
+                db.execute('CREATE TABLE IF NOT EXISTS job_list_identity_revision(id INTEGER PRIMARY KEY, revision INTEGER NOT NULL)')
+                db.execute('INSERT OR IGNORE INTO job_list_identity_revision VALUES(1,0)')
+                condition = ''
+                if table == 'opportunities':
+                    fields = ('company','title','description','url','source_url','sources','listing_urls')
+                    condition = ' WHEN OLD.job_id IS NOT NEW.job_id OR ' + ' OR '.join(
+                        "json_extract(OLD.payload,'$."+f+"') IS NOT json_extract(NEW.payload,'$."+f+"')" for f in fields)
+                for operation in ('INSERT','UPDATE','DELETE'):
+                    db.execute('CREATE TRIGGER IF NOT EXISTS job_list_identity_'+table+'_'+operation+
+                               ' AFTER '+operation+' ON '+table+(condition if operation=='UPDATE' else '')+
+                               ' BEGIN UPDATE job_list_identity_revision SET revision=revision+1 WHERE id=1; END')
+                if table == 'opportunities' and db.execute("SELECT 1 FROM sqlite_master WHERE name='opportunity_aliases'").fetchone():
+                    for operation in ('INSERT','UPDATE','DELETE'):
+                        db.execute('CREATE TRIGGER IF NOT EXISTS job_list_identity_alias_'+operation+
+                                   ' AFTER '+operation+' ON opportunity_aliases BEGIN UPDATE job_list_identity_revision SET revision=revision+1 WHERE id=1; END')
+                self.identity_revision_paths.add(path)
 
     def connect(self):
         db = sqlite3.connect(self.path, timeout=5)
@@ -153,7 +181,36 @@ class JobList:
         with closing(self.connect()) as db, db:
             db.execute('UPDATE snapshot SET fingerprint=NULL WHERE id=1')
 
+    def applied_signature(self):
+        values = []
+        for base in (self.path.parent / 'applications.sqlite3', self.discovery.path):
+            if base in self.identity_revision_paths:
+                with closing(sqlite3.connect(base, timeout=5)) as db:
+                    values.append(db.execute('SELECT revision FROM job_list_identity_revision WHERE id=1').fetchone()[0])
+                continue
+            for path in (base, base.with_name(base.name+'-wal'), base.with_name(base.name+'-journal')):
+                try:
+                    stat = path.stat()
+                    values.append((stat.st_mtime_ns, stat.st_ctime_ns, stat.st_size))
+                except FileNotFoundError:
+                    values.append(None)
+        return tuple(values)
+
     def applied_keys(self):
+        # Single-flight reads: concurrent tabs share one computation. A change to
+        # either source (including WAL writes) invalidates the result immediately.
+        if not hasattr(self, 'applied_lock'):
+            return self.compute_applied_keys()
+        with self.applied_lock:
+            stamp = self.applied_signature()
+            if self.applied_cache and self.applied_cache[0] == stamp:
+                return self.applied_cache[1]
+            result = self.compute_applied_keys()
+            if self.applied_signature() == stamp:
+                self.applied_cache = (stamp, result)
+            return result
+
+    def compute_applied_keys(self):
         path = self.path.parent / 'applications.sqlite3'
         if not path.exists(): return set(), set()
         with closing(sqlite3.connect('file:'+path.as_posix()+'?mode=ro', uri=True, timeout=5)) as db:

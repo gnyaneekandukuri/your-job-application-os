@@ -311,3 +311,31 @@ def test_identity_cache_reuses_exact_content_but_not_changed_opening():
     assert _identity.cache_info().hits==1
     assert same_job(dict(original,description=original['description']+'Different opening'))!=first
     assert same_job(dict(original,company='Different company'))!=first
+
+
+def test_exclusion_cache_invalidates_on_wal_identity_changes_not_progress(model):
+    import sqlite3
+    m,source,d=model
+    apps=d.path.parent/'applications.sqlite3'
+    with sqlite3.connect(apps) as db:
+        db.execute('CREATE TABLE applications(job_id TEXT,payload TEXT)')
+    with sqlite3.connect(d.path) as db:
+        db.execute('CREATE TABLE opportunities(id TEXT,job_id TEXT,payload TEXT)')
+        db.execute('INSERT INTO opportunities VALUES(?,?,?)',('1','job1',json.dumps(listing(1))))
+    m.install_identity_revisions()
+    original=m.compute_applied_keys
+    m.compute_applied_keys=Mock(side_effect=original)
+    assert not m.applied_keys()[0]
+    m.applied_keys();assert m.compute_applied_keys.call_count==1
+    with sqlite3.connect(d.path) as db:
+        db.execute("UPDATE opportunities SET payload=json_set(payload,'$.progress',1)")
+    m.applied_keys();assert m.compute_applied_keys.call_count==1
+    with sqlite3.connect(apps) as db:
+        db.execute('PRAGMA journal_mode=WAL')
+        db.execute('INSERT INTO applications VALUES(?,?)',('job1',json.dumps(listing(1))));db.commit()
+        assert 'job1' in m.applied_keys()[0]
+    assert m.compute_applied_keys.call_count==2
+    with sqlite3.connect(d.path) as db:
+        db.execute("UPDATE opportunities SET payload=json_set(payload,'$.url','https://new.example/job')")
+    assert 'https://new.example/job' in m.applied_keys()[1]
+    assert m.compute_applied_keys.call_count==3

@@ -99,6 +99,17 @@ class Store:
             db.execute("INSERT INTO assessments VALUES (?, 1, ?)", (job.id, assessment.model_dump_json()))
             return job.id
 
+    def read_jobs(self, job_ids):
+        """Read job content for list enrichment without loading approval histories."""
+        result = {}
+        ids = list(dict.fromkeys(job_ids))
+        with self.connection() as db:
+            for start in range(0, len(ids), 500):
+                group = ids[start:start+500]
+                for row in db.execute('SELECT id,payload FROM jobs WHERE id IN ('+','.join('?' for _ in group)+')', group):
+                    result[row['id']] = Job.model_validate_json(row['payload'])
+        return result
+
     def read(self, job_id: str):
         with self.connection() as db:
             db.execute("BEGIN")

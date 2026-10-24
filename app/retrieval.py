@@ -6,6 +6,7 @@ Provider access is injected, so tests never need credentials or network access.
 import os
 import time
 from .cost_tracking import scope, token_cost
+from .read_snapshot import snapshot_cached
 import hashlib
 import json
 import math
@@ -233,13 +234,15 @@ class RetrievalService:
         with closing(self.connect()) as db, db:
             db.execute("INSERT OR REPLACE INTO cache VALUES (?,?)", (key, json.dumps(value)))
 
+    @snapshot_cached
     def usage(self):
         with closing(self.connect()) as db:
-            rows = db.execute("SELECT state,reserved,cost,input_tokens,output_tokens FROM calls").fetchall()
-        return {"cap_usd": PILOT_CAP_USD, "estimated_cost_usd": sum(r[2] or 0 for r in rows),
-                "reserved_unknown_usd": sum(r[1] for r in rows if r[2] is None),
-                "calls": len(rows), "input_tokens": sum(r[3] or 0 for r in rows),
-                "output_tokens": sum(r[4] or 0 for r in rows)}
+            row = db.execute("""SELECT count(*),coalesce(sum(cost),0),
+                coalesce(sum(CASE WHEN cost IS NULL THEN reserved ELSE 0 END),0),
+                coalesce(sum(input_tokens),0),coalesce(sum(output_tokens),0) FROM calls""").fetchone()
+        return {"cap_usd": PILOT_CAP_USD, "estimated_cost_usd": row[1],
+                "reserved_unknown_usd": row[2], "calls": row[0],
+                "input_tokens": row[3], "output_tokens": row[4]}
 
     def paid(self, kind, payload):
         """Reserve before dispatch. A timeout/crash retains its entire reservation.
