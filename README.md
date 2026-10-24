@@ -2,6 +2,10 @@
 
 A local-first assistant that runs a product-management job search end to end: it finds new roles, scores how well your documented experience fits each one, tailors your resume with a source citation behind every claim, and tracks what you applied with.
 
+**In use:** 3,169 job listing records collected and 242 applications tracked as of October 24, 2026. Counts come from the local discovery and application stores; listings are not necessarily unique openings, and applications are submitted externally by the user.
+
+[See the interface](#why-i-built-it) · [Architecture](#architecture) · [Run locally](#run-locally)
+
 ## Why I built it
 
 Job searching with AI tools has two failure modes: hours of manual triage across job boards, and AI-written resumes that quietly invent experience. I built this for my own PM search to fix both. It does the tedious parts automatically, but it treats my real stories and resume as the only source of truth, and keeps me in control of every decision and every paid model call.
@@ -27,7 +31,31 @@ Job searching with AI tools has two failure modes: hours of manual triage across
 
 ## How it was built
 
-I designed and built this solo, directing an AI coding agent (OpenAI Codex) over 119 commits. I owned the product decisions: the workflows, the evidence and claim-checking rules, the cost and privacy guardrails, and the testing approach. The stack is React and TypeScript on the frontend, with FastAPI, Pydantic, LangGraph and SQLite running locally, plus OpenAI and TypeSafe (Jev) model APIs. The repository contains no candidate profile, resume, stories or databases.
+I designed and built this solo, directing an AI coding agent (OpenAI Codex) through iterative development. I owned the product decisions: the workflows, the evidence and claim-checking rules, the cost and privacy guardrails, and the testing approach. The stack is React and TypeScript on the frontend, with FastAPI, Pydantic, LangGraph and SQLite running locally, plus OpenAI APIs and [Jev by TypeSafe](https://typesafe.ai/) for structured classification and assessment. The repository contains no candidate profile, resume, stories or databases.
+
+## Architecture
+
+React and TypeScript call a local FastAPI API with Pydantic models. Discovery and assessment run separately; LangGraph checkpoints persist evidence-review and pursuit workflows in SQLite. Retrieval selects passages from the candidate's documents for assessment and citation-backed writing.
+
+```mermaid
+flowchart LR
+    UI[React + TypeScript] --> API[FastAPI + Pydantic]
+    Boards[Job boards] --> Discovery[Discovery + screening]
+    API --> Discovery
+    Discovery --> Queue[Automatic assessment queue]
+    Queue --> Review[Evidence assessment + LangGraph review]
+    Context[Resume + firsthand stories] --> RAG[Passage retrieval + embeddings]
+    RAG --> Review
+    API --> Writing[Resume tailoring + writing help]
+    RAG --> Writing
+    Writing --> Check[Claim checking + human review]
+    API --> Tracker[Application tracker]
+    Review --> DB[(Local SQLite stores + checkpoints)]
+    Check --> DB
+    Tracker --> DB
+```
+
+Implementation details: [retrieval design](docs/rag-design.md), [Jev assessment](docs/jev-assessment.md), [discovery integrations](docs/discovery-integrations.md), and [API cost accounting](docs/api-costs.md). This is a locally run app; the screenshots above are the available product preview.
 
 ## Run locally
 
@@ -41,12 +69,7 @@ Requires Python 3.12 and Node.js with npm.
 
 Discovery is initially unscheduled; enable it in Discovery runs when ready. Paid automatic assessment is initially disabled. Board collection currently focuses on product-management roles, with partial coverage and source-dependent posting dates. It is not a universal job search engine.
 
-A scan finishes after collection, screening, and saving eligible jobs to the automatic assessment queue. Deep analysis continues separately and does not delay the next scheduled scan. Limited board coverage is informational; collection or screening failures make a scan incomplete. Historical scan records are preserved.
-
-Scans recover transient free-source failures with bounded backoff and widen each source's next lookback after missed collection. A two-hour cooperative deadline abandons expired scans after sleep/suspension; a returning collector cannot continue into paid screening. Saved pending jobs are screened in bounded batches, active/newest first, including jobs absent from current search results. See [recovery and backlog operations](docs/discovery-integrations.md#recovery-and-backlog-operations) for limits and a read-only repair preview.
-
-On Windows, use `./scripts/restart-review-server.ps1` to activate server changes. It verifies the repository listener, creates `maintenance.flag` in the data directory (`.local/` or `JOB_REVIEW_DATA_DIR`), and polls `/api/maintenance/status` for up to 300 seconds (`-DrainTimeoutSeconds` overrides this). Draining prevents new scans and stops automatic, selected, and manual queues between jobs; an active paid request finishes normally. The script stops the listener only after the server acknowledges draining and reports no active work, then launches the supervisor and waits for readiness. It removes its flag on success, failure, or timeout; failures report Restart skipped. Other active writing/tailoring work also blocks restart. The supervisor leaves an existing listener alone. Crash/forced-termination recovery still marks unfinished scans interrupted and retains saved listings; phase replay is not supported.
-
+For scan recovery, safe restarts, workspace migration and Windows scheduling, see the [operations guide](docs/operations.md).
 
 ## Personal data and model access
 
@@ -63,14 +86,6 @@ Generic defaults live in `criteria/`. Feedback changes the user's local copies, 
 ## Verify
 
 Run `python -m pytest tests -q` and `npm run build` in `frontend`. Tests use fictional inputs, temporary directories, and no paid model calls.
-
-## Migrate an existing local workspace
-
-Stop both app servers. Run `python scripts/migrate_workspace.py LEGACY_ROOT .local/personal` from this repository. The destination must not exist. The script copies user sources and local uploads, backs up all top-level SQLite databases, verifies database integrity and row counts, and checks copied file hashes. It leaves the source intact. Write `personal` into `.local/active-workspace` to select the migrated directory on future starts, or set `JOB_REVIEW_DATA_DIR` explicitly. The selection file and all migrated data are ignored by Git. The Windows launcher is `./scripts/start-review.ps1`.
-
-Make future feature changes in this repository, test, then commit and push only code. Back up `.local` separately for personal history. Do not resume the legacy app after cutover unless deliberately restoring that older snapshot.
-
-
 
 ### Connect YC / Work at a Startup
 
@@ -144,11 +159,6 @@ These are editable, uncalibrated product defaults, not hiring probabilities.
 Existing workspace migrations add the baseline gates while preserving custom
 Attack Hard thresholds. Reports requiring review appear under Analyzed jobs >
 Unfinished / needs review and All analyzed; candidates retain their apply/pass choice.
-
-### Keep the local scheduler available on Windows
-
-Run `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-server-task.ps1` once to register a current-user Windows task. It starts the server at sign-in and checks every five minutes, without restarting an existing server. It runs while that user is signed in, including on battery; it does not wake a sleeping laptop. Scan times and paid-analysis choices remain controlled by Discovery runs. Startup/exit diagnostics are saved in `.local/server-supervisor.log`; API keys remain in your Windows user environment. Disable or remove **Job Review Local Server** in Windows Task Scheduler to stop automatic server startup.
-
 
 ## Resume tailoring
 
