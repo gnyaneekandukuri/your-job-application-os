@@ -2,16 +2,12 @@
 
 A local-first assistant that runs a product-management job search end to end: it finds new roles, scores how well your documented experience fits each one, tailors your resume with a source citation behind every claim, and tracks what you applied with.
 
-[See the interface](#why-i-built-it) · [Architecture](#architecture) · [Run locally](#run-locally)
+[Architecture](#architecture) · [Run locally](#run-locally)
 
 ## Why I built it
 
 Job searching with AI tools has two failure modes: hours of manual triage across job boards, and AI-written resumes that quietly invent experience. I built this for my own PM search to fix both. It does the tedious parts automatically, but it treats my real stories and resume as the only source of truth, and keeps me in control of every decision and every paid model call.
 
-<p>
-  <img src="docs/images/fit-score.png" alt="Documented fit score of 66/100 with a pursuit recommendation of Apply normally" width="380">
-  <img src="docs/images/setup.png" alt="Setup screen for target roles, countries and cities" width="380">
-</p>
 
 ## How it works
 
@@ -53,7 +49,7 @@ flowchart LR
     Tracker --> DB
 ```
 
-Implementation details: [retrieval design](docs/rag-design.md), [Jev assessment](docs/jev-assessment.md), [discovery integrations](docs/discovery-integrations.md), and [API cost accounting](docs/api-costs.md). This is a locally run app; the screenshots above are the available product preview.
+Implementation details: [retrieval design](docs/rag-design.md), [Jev assessment](docs/jev-assessment.md), [discovery integrations](docs/discovery-integrations.md), and [API cost accounting](docs/api-costs.md). This is a locally run app.
 
 ## Run locally
 
