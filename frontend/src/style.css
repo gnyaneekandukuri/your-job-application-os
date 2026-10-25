@@ -1223,3 +1223,10 @@ button.text-button { border: 0; background: transparent; padding: .2rem .25rem; 
 .application-answer-dialog .answer-reuse-toggle input[type=checkbox] {width:18px;height:18px;min-width:18px;min-height:18px;flex:0 0 18px;margin:2px 0 0;padding:0;accent-color:#245943;}
 .application-answer-dialog .answer-reuse-toggle span {display:block;line-height:1.5;}
 .application-answer-dialog .answer-reuse-toggle small {display:block;margin-top:2px;color:#64746b;font-size:12px;font-weight:400;}
+
+.application-status {display:inline-block;border-radius:999px;padding:4px 10px;font-size:13px;font-weight:600;white-space:nowrap;background:#edf0f3;color:#374151;}
+.application-status-applied {background:#e5efff;color:#224e86;}
+.application-status-interviewing {background:#fff0ce;color:#795300;}
+.application-status-offer {background:#ddf3e3;color:#235b35;}
+.application-status-rejected {background:#fce3e3;color:#8c2929;}
+.application-status-withdrawn {background:#ece7f3;color:#59416f;}

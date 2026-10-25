@@ -54,7 +54,7 @@ def group_listings(items):
 
 
 def listing_url(value):
-    """Ignore known tracking only; preserve requisition-bearing query parameters."""
+    """Normalize listing/apply URLs while preserving requisition query parameters."""
     from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
     try:
         parts = urlsplit(str(value or ''))
@@ -62,9 +62,11 @@ def listing_url(value):
             return ''
         query = [(k, v) for k, v in parse_qsl(parts.query, keep_blank_values=True)
                  if not k.lower().startswith('utm_') and k.lower() not in
-                 {'trk', 'trackingid', 'refid', 'gclid', 'fbclid'}]
-        return urlunsplit((parts.scheme.lower(), parts.netloc.lower(),
-                           parts.path.rstrip('/'), urlencode(sorted(query)), ''))
+                 {'trk', 'trackingid', 'refid', 'gclid', 'fbclid', 'i', 'preference_id',
+                  'gh_src', 'source', 'ref', 'lever-source', 'mc_cid', 'mc_eid'}]
+        path = re.sub(r'/(?:apply|application)$', '', parts.path.rstrip('/'), flags=re.I).rstrip('/')
+        return urlunsplit((parts.scheme.lower(), parts.netloc.lower().removeprefix('www.'),
+                           path, urlencode(sorted(query)), ''))
     except ValueError:
         return ''
 
@@ -73,3 +75,66 @@ def listing_urls(item):
     return {listing_url(value) for value in
             [item.get('url'), item.get('source_url'), *item.get('listing_urls', []),
              *(source.get('url') for source in item.get('sources', []))]} - {''}
+
+
+def ats_keys(item):
+    """Explicit requisition IDs; generic query IDs remain scoped to their host."""
+    from urllib.parse import urlsplit, parse_qsl
+    result = set()
+    uuid = r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'
+    for url in listing_urls(item):
+        p = urlsplit(url)
+        query = dict((k.casefold(), v) for k, v in parse_qsl(p.query))
+        if query.get('gh_jid', '').isdigit():
+            result.add(('gh', query['gh_jid']))
+        if p.hostname and (p.hostname == 'greenhouse.io' or p.hostname.endswith('.greenhouse.io')):
+            match = re.search(r'/jobs/(\d+)', p.path)
+            if match: result.add(('gh', match[1]))
+        for host, provider in (('ashbyhq.com', 'ashby'), ('lever.co', 'lever')):
+            if p.hostname and (p.hostname == host or p.hostname.endswith('.' + host)):
+                match = re.search(uuid, p.path, re.I)
+                if match: result.add((provider, match[0].casefold()))
+        if p.hostname and (p.hostname == 'comeet.com' or p.hostname.endswith('.comeet.com') or p.hostname == 'comeet.co'):
+            match = re.search(r'/([a-z0-9]+\.[a-z0-9]+)(?:/|$)', p.path, re.I)
+            if match: result.add(('comeet', match[1].casefold()))
+        if query.get('jobid'):
+            result.add(('jobid:' + (p.hostname or ''), query['jobid'].casefold()))
+    return frozenset(result)
+
+
+def company_title_key(item):
+    def words(value):
+        return re.sub(r'[^\w]+', ' ', unicodedata.normalize('NFKC', str(value or '')).casefold()).split()
+    company = words(item.get('company'))
+    while company and company[-1] in {'inc', 'incorporated', 'llc', 'ltd', 'limited', 'corp', 'corporation'}:
+        company.pop()
+    title = ['senior' if w == 'sr' else w for w in words(item.get('title'))]
+    return (' '.join(company), ' '.join(title)) if company and title else None
+
+
+class AppliedMatchIndex:
+    """Index applications once; each card only visits its company/title bucket."""
+    def __init__(self, records):
+        self.urls, self.ids, self.pairs = set(), set(), {}
+        for record in records:
+            item = {**record.get('job_snapshot', {}), **{k: v for k, v in record.items() if v}}
+            self.urls.update(listing_urls(item))
+            keys = ats_keys(item)
+            self.ids.update(keys)
+            pair = company_title_key(item)
+            # Internal applications keep their existing exact-content behavior.
+            # Only external logs need the company/title fallback.
+            if pair and ('job_id' not in record or str(record['job_id']).startswith('external:')):
+                self.pairs.setdefault(pair, set()).add(keys)
+
+    def reason(self, item):
+        if listing_urls(item) & self.urls: return 'url'
+        keys = ats_keys(item)
+        if keys & self.ids: return 'ats_id'
+        for applied in self.pairs.get(company_title_key(item), ()):
+            # A shared provider with disjoint IDs means a different requisition.
+            common = {p for p, _ in keys} & {p for p, _ in applied}
+            if not any({v for p, v in keys if p == provider}.isdisjoint(
+                       {v for p, v in applied if p == provider}) for provider in common):
+                return 'company_title'
+        return None

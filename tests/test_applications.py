@@ -40,7 +40,13 @@ def test_application_workflow_and_snapshot(tmp_path):
         assert len(client.get('/api/applications').json())==1
         assert '12 users' in client.get(f"/api/applications/{row['id']}/resume").text
         update=dict(revision=row['revision'],status='Interviewing',follow_up_date='2026-10-15',notes='=HYPERLINK("unsafe")\nFollow up & ask <question>')
-        assert client.post(f"/api/applications/{row['id']}",json=update,headers=headers).status_code==200
+        response=client.post(f"/api/applications/{row['id']}",json=update,headers=headers)
+        assert response.status_code==200
+        updated=response.json()
+        assert updated['revision']!=row['revision']
+        listed=client.get('/api/applications').json()[0]
+        for field in ('status','notes','follow_up_date'):
+            assert listed[field]==updated[field]==update[field]
         assert client.post(f"/api/applications/{row['id']}",json=update,headers=headers).status_code==409
         export=client.get('/api/applications/export')
         assert export.status_code==200
