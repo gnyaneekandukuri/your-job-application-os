@@ -49,6 +49,26 @@ from .user_workspace import initialize, SetupInput, save_setup, setup_view, defa
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def application_posted_times(discovery_path):
+    """Read board timestamps only, never scanner first_seen or relative age labels."""
+    from .application_stats import precise_timestamp
+    from contextlib import closing
+    candidates = {}
+    with closing(sqlite3.connect(Path(discovery_path).resolve().as_uri() + '?mode=ro', uri=True)) as db:
+        rows = db.execute("SELECT job_id,payload FROM opportunities WHERE job_id IS NOT NULL "
+                          "UNION ALL SELECT o.job_id,s.payload FROM sightings s "
+                          "JOIN opportunities o ON o.id=s.opportunity_id WHERE o.job_id IS NOT NULL")
+        for job_id, payload in rows:
+            value = json.loads(payload).get('posted_at')
+            if value:
+                candidates.setdefault(job_id, []).append(value)
+    result = {}
+    for job_id, values in candidates.items():
+        absolute = [(precise_timestamp(value), value) for value in values if precise_timestamp(value)]
+        result[job_id] = min(absolute, key=lambda pair: pair[0])[1] if absolute else values[0]
+    return result
+
+
 def create_app(data_dir: Path | None = None):
     private_dir = data_dir or default_data_directory()
 
@@ -91,6 +111,21 @@ def create_app(data_dir: Path | None = None):
         for job_id in store.ids():
             api.state.service.review(job_id)
         if data_dir is None: api.state.google_sheets.schedule.start()
+        from .application_stats import SavedPriorities
+        from .read_snapshot import read_snapshot
+        @read_snapshot
+        def saved_priorities(job_ids):
+            # One read snapshot shares library/retrieval inputs across all jobs.
+            priorities = {}
+            for job_id in job_ids:
+                assessment = api.state.discovery.saved_assessment(job_id)
+                priorities[job_id] = assessment.get('choice') or assessment.get('recommendation')
+            return priorities
+        api.state.stats_priorities = SavedPriorities(saved_priorities)
+        if data_dir is None:
+            with api.state.applications.db() as db:
+                applied = {json.loads(row[0])['job_id'] for row in db.execute('SELECT payload FROM applications')}
+            api.state.stats_priorities.refresh({j for j in applied if not j.startswith(('external:', 'opportunity:'))})
         try:
             yield
         finally:
@@ -504,6 +539,16 @@ def create_app(data_dir: Path | None = None):
     @api.get("/api/applications")
     def applications_list(request: Request):
         return request.app.state.applications.list()
+
+    @api.get("/api/applications/stats")
+    def applications_stats(request: Request):
+        from .application_stats import application_stats
+        store = request.app.state.applications
+        with store.db() as db:
+            records = [json.loads(row[0]) for row in db.execute('SELECT payload FROM applications')]
+        # Reuse saved job recommendations. No generation, scan, or status mutations.
+        priorities = request.app.state.stats_priorities.get({record['job_id'] for record in records})
+        return application_stats(records, priorities, application_posted_times(request.app.state.discovery.path))
 
     @api.get("/api/applications/sheets")
     def sheets_status(request: Request):
