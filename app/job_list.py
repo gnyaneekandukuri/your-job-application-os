@@ -216,7 +216,9 @@ class JobList:
         with closing(sqlite3.connect('file:'+path.as_posix()+'?mode=ro', uri=True, timeout=5)) as db:
             rows = db.execute('SELECT job_id,payload FROM applications').fetchall()
         ids = {r[0] for r in rows}
-        records = [json.loads(r[1]) for r in rows]
+        records = [{**json.loads(payload), 'job_id': jid} for jid, payload in rows]
+        from .job_identity import AppliedMatchIndex, ats_keys, company_title_key
+        applied = AppliedMatchIndex(records)
         urls = {r.get('url','').rstrip('/') for r in records if r.get('url')}
         if not self.discovery.path.exists(): return ids, urls
         # Applying to one location of an identical posting covers its other locations.
@@ -255,9 +257,20 @@ class JobList:
                      if jid in ids or 'opportunity:'+oid in ids or p.get('url','').rstrip('/') in urls)
         for oid,jid,p in opportunities:
             if pair(p) in pairs and identity(p) in keys:
+                # Exact content alone must not defeat explicit requisition IDs.
+                candidates = applied.pairs.get(company_title_key(p), ())
+                if ats_keys(p) and candidates and not applied.reason(p):
+                    continue
                 ids.add('opportunity:'+oid)
                 if jid: ids.add(jid)
                 if p.get('url'): urls.add(p['url'].rstrip('/'))
+        # Resolve broader external identities inside the existing stamp cache.
+        # Do not seed this index from matched cards: that could transitively hide
+        # a different requisition via a duplicate without an ATS ID.
+        for oid, jid, p in opportunities:
+            if applied.reason(p):
+                ids.add('opportunity:' + oid)
+                if jid: ids.add(jid)
         return ids, urls
 
     def page(self, page=1, size=25, query='', priority='all', location='match',

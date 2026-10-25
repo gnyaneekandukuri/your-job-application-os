@@ -9,7 +9,8 @@
     "dev": "vite --host 127.0.0.1",
     "test:queue": "tsc src/assessmentQueue.ts --target ES2022 --module ES2022 --outDir ../.local/queue-tests --skipLibCheck && node --test tests/assessmentQueue.test.mjs",
     "test:resume": "tsc src/resumeDocumentLogic.ts src/resumeChanges.ts --target ES2022 --module NodeNext --moduleResolution NodeNext --outDir .resume-tests --skipLibCheck && node --test tests/resumeDocument.test.mjs",
-    "test:scans": "tsc src/scanReportLogic.ts --target ES2022 --module ES2022 --outDir ../.local/scan-tests --skipLibCheck && node --test tests/scanReport.test.mjs"
+    "test:scans": "tsc src/scanReportLogic.ts --target ES2022 --module ES2022 --outDir ../.local/scan-tests --skipLibCheck && node --test tests/scanReport.test.mjs",
+    "test:applications": "tsc src/AppliedJobs.tsx --jsx react-jsx --target ES2022 --module ES2022 --moduleResolution bundler --outDir ../.local/application-tests --skipLibCheck && node --test tests/applications.test.mjs"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.104.1",
