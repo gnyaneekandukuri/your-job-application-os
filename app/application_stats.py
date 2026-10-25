@@ -10,8 +10,7 @@ APPLICATION_STATUS_TO_FUNNEL_BUCKET = {
     'Offer': 'Interview',
     'Withdrawn': None,
 }
-ATS_HS_MASTER_SINCE = datetime(2026, 10, 21, 7, 30, tzinfo=timezone.utc)
-APPROACHES = ('Tailored resume', 'ATS-HS (untailored)', 'Older resume', 'Attack Hard', 'Casual')
+APPROACHES = ('Tailored resume', 'Untailored resume', 'Attack Hard', 'Casual')
 
 
 def precise_timestamp(value):
@@ -28,10 +27,9 @@ def precise_timestamp(value):
 def application_stats(records, priorities=None, posted_times=None):
     priorities = priorities or {}
     posted_times = posted_times or {}
-    hs = Counter()
     timing = Counter()
     reasons = Counter(no_posted_time=0, date_only_posted_time=0, applied_before_posted=0)
-    hs_weeks, timing_weeks = {}, {}
+    timing_weeks = {}
     buckets = Counter()
     groups = {name: Counter() for name in APPROACHES}
     weeks = Counter()
@@ -44,7 +42,7 @@ def application_stats(records, priorities=None, posted_times=None):
         buckets[bucket] += 1
         created = precise_timestamp(record.get('created_at'))
         tailored = bool(record.get('resume_revision') or record.get('resume_snapshot') or record.get('tailoring_revision'))
-        approach = 'Tailored resume' if tailored else 'ATS-HS (untailored)' if created is not None and created >= ATS_HS_MASTER_SINCE else 'Older resume'
+        approach = 'Tailored resume' if tailored else 'Untailored resume'
         snapshot = record.get('job_snapshot') or {}
         assessment = record.get('assessment_snapshot') or {}
         priority = priorities.get(record['job_id']) or snapshot.get('priority') or snapshot.get('recommendation') or assessment.get('recommendation')
@@ -56,11 +54,6 @@ def application_stats(records, priorities=None, posted_times=None):
         applied = date.fromisoformat(record['applied_date'])
         week = applied - timedelta(days=applied.weekday())
         weeks[week] += 1
-        # Reuse the approach above exactly; free-text notes are not parsed.
-        if approach == 'ATS-HS (untailored)':
-            for counts in (hs, hs_weeks.setdefault(week, Counter())):
-                counts['hs_applications'] += 1
-                counts['interviews'] += status in ('Interviewing', 'Offer')
         posted_value = posted_times.get(record['job_id']) or snapshot.get('posted_at')
         posted = precise_timestamp(posted_value)
         reason = None
@@ -88,18 +81,13 @@ def application_stats(records, priorities=None, posted_times=None):
         while week <= max(weeks):
             weekly.append({'week_start': week.isoformat(), 'count': weeks[week]})
             week += timedelta(days=7)
-    hs_weekly, timing_weekly = [], []
+    timing_weekly = []
     for row in weekly:
         week = date.fromisoformat(row['week_start'])
         timing_weekly.append(dict(week_start=row['week_start'], **{
             key: timing_weeks.get(week, Counter())[key] for key in ('within_6h', 'measurable', 'unknown')}))
-        if week >= ATS_HS_MASTER_SINCE.date() - timedelta(days=ATS_HS_MASTER_SINCE.weekday()):
-            hs_weekly.append(dict(week_start=row['week_start'], **{
-                key: hs_weeks.get(week, Counter())[key] for key in ('hs_applications', 'interviews')}))
     return {
         'primary': {
-            'hs_interviews': dict(interviews=hs['interviews'], hs_applications=hs['hs_applications'],
-                                  rate=percent(hs['interviews'], hs['hs_applications']), weekly=hs_weekly),
             'applied_within_6h': dict(within_6h=timing['within_6h'], measurable=timing['measurable'],
                                      unknown=timing['unknown'], unknown_reasons=dict(reasons),
                                      rate=percent(timing['within_6h'], timing['measurable']), weekly=timing_weekly),

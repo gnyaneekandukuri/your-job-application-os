@@ -35,7 +35,7 @@ def test_endpoint_maps_every_supported_status_once(tmp_path):
     assert stats['unknown_statuses'] == {'Legacy': 1}
 
 
-def test_endpoint_resume_cutoff_and_tailoring_precedence(tmp_path):
+def test_endpoint_tailoring_precedence(tmp_path):
     stats = fetch_stats(tmp_path, [
         record(0, created='2026-10-21T07:29:59+00:00'),
         record(1, recorded_without_resume=True),
@@ -44,7 +44,8 @@ def test_endpoint_resume_cutoff_and_tailoring_precedence(tmp_path):
         record(4, resume_snapshot={'draft': {}}),
         record(5, tailoring_revision='revision-2'),
     ])
-    assert [r['applied'] for r in stats['approaches']] == [3, 2, 1, 0, 0]
+    assert [(r['label'], r['applied']) for r in stats['approaches']] == [
+        ('Tailored resume', 3), ('Untailored resume', 3), ('Attack Hard', 0), ('Casual', 0)]
 
 
 def test_endpoint_priorities_monday_buckets_and_missing_weeks(tmp_path):
@@ -55,8 +56,8 @@ def test_endpoint_priorities_monday_buckets_and_missing_weeks(tmp_path):
     rows[2]['job_id'] = 'saved-job'
     rows[2]['applied_date'] = '2026-11-01'
     stats = fetch_stats(tmp_path, rows, {'saved-job': {'choice': 'ATTACK_HARD', 'recommendation': 'CASUAL'}})
-    assert stats['approaches'][3] == dict(label='Attack Hard', applied=2, screens=1, screen_rate=50, rejection_rate=0)
-    assert stats['approaches'][4]['rejection_rate'] == 100
+    assert stats['approaches'][2] == dict(label='Attack Hard', applied=2, screens=1, screen_rate=50, rejection_rate=0)
+    assert stats['approaches'][3]['rejection_rate'] == 100
     assert stats['weekly'] == [dict(week_start='2026-10-05', count=1),
                               dict(week_start='2026-10-12', count=1),
                               dict(week_start='2026-10-19', count=0),
@@ -70,17 +71,11 @@ def test_endpoint_empty(tmp_path):
     assert stats['weekly'] == []
 
 
-def test_primary_hs_classification_and_existing_keys():
+def test_existing_keys():
     from app.application_stats import application_stats
-    rows = [record(0, 'Interviewing'), record(1, 'Offer'), record(2, 'Rejected'),
-            record(3), record(4, 'Interviewing', resume_revision='tailored'),
-            record(5, 'Offer', created='2026-10-20T00:00:00Z'),
-            record(6, 'Offer', resume_snapshot={'draft': {}}),
-            record(7, 'Offer', tailoring_revision='v1')]
-    stats = application_stats(rows)
+    stats = application_stats([record(0, 'Interviewing'), record(1, 'Offer', resume_revision='tailored')])
     assert set(stats) == {'primary', 'funnel', 'approaches', 'weekly', 'withdrawn', 'unknown_statuses'}
-    assert stats['primary']['hs_interviews'] == dict(interviews=2, hs_applications=4, rate=50,
-        weekly=[dict(week_start='2026-10-19', hs_applications=4, interviews=2)])
+    assert set(stats['primary']) == {'applied_within_6h'}
 
 
 def test_primary_posting_precision_boundaries_and_weekly():
