@@ -1,0 +1,34 @@
+.application-stats { display: grid; gap: 12px; }
+.stats-funnel { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }
+.stats-card, .stats-box { background: #fff; border: 1px solid #dfe4dc; border-radius: 10px; padding: 12px 14px; }
+.stats-card { display: flex; flex-direction: column; gap: 2px; }
+.stats-card > span, .stats-card small, .stats-note { color: #617168; font-size: 12px; }
+.stats-card strong { font-size: 28px; line-height: 1.15; }
+.stats-box h2 { margin: 0 0 8px; font-size: 15px; }
+.stats-box h2 small { font-size: 11px; font-weight: normal; color: #617168; }
+.stats-box table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.stats-box th, .stats-box td { padding: 7px 6px; text-align: right; }
+.stats-box th:first-child { text-align: left; }
+.stats-box thead th { border-bottom: 1px solid #dfe4dc; color: #617168; font-weight: normal; }
+.stats-box tbody th { font-weight: normal; }
+.application-stats .stats-note { margin: 4px 0 0; line-height: 1.35; }
+.stats-chart { display: flex; align-items: end; gap: 3px; height: 94px; }
+.stats-week { flex: 1; min-width: 0; max-width: 70px; height: 100%; text-align: center; }
+.stats-bar-space { height: 76px; display: flex; align-items: end; justify-content: center; }
+.stats-bar { width: 85%; background: #53816e; border-radius: 3px 3px 0 0; }
+.stats-week small { display: block; font-size: 10px; color: #617168; white-space: nowrap; }
+@media (max-width: 650px) {
+ .stats-funnel { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+ .stats-box { padding: 10px; overflow-x: auto; }
+ .stats-box th, .stats-box td { padding: 7px 3px; font-size: 11px; }
+}
+main.stats-workspace { padding-top: 22px; padding-bottom: 16px; }
+.stats-workspace .jobs-heading { margin-bottom: 12px; }
+.stats-workspace .jobs-heading h1 { font-size: 28px; margin: 4px 0; }
+.stats-workspace .jobs-heading .decision-tabs { margin-top: 8px; }
+
+.stats-primary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.stats-headline { padding: 20px; border-color: #83a795; background: #f2f8f4; gap: 7px; }
+.stats-headline h2 { margin: 0; font-size: 17px; }
+.stats-headline strong { font-size: 42px; color: #285640; }
+@media (max-width: 650px) { .stats-primary { grid-template-columns: 1fr; } }
