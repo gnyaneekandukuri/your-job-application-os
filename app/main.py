@@ -230,10 +230,10 @@ def create_app(data_dir: Path | None = None):
     @api.get("/api/discovery/page")
     def job_list_page(request: Request, page: int = Query(1, ge=1), size: int = Query(25, ge=1, le=100),
                       query: str = Query('', max_length=200), priority: str = 'all', location: str = 'match',
-                      company: str = 'focus', board: str = 'all', show: str = 'all', runs: bool = False, view: str = '', runs_page: int = Query(1, ge=1), runs_limit: int = Query(10, ge=1, le=50)):
+                      company: str = 'focus', board: str = 'all', show: str = 'all', added: str = Query('all', pattern='^(all|today|yesterday|last4)$'), runs: bool = False, view: str = '', runs_page: int = Query(1, ge=1), runs_limit: int = Query(10, ge=1, le=50)):
         if runs or view == 'runs':
             return request.app.state.job_list.runs(runs_page, runs_limit)
-        return request.app.state.job_list.page(page,size,query,priority,location,company,board,show,runs or view == 'runs')
+        return request.app.state.job_list.page(page,size,query,priority,location,company,board,show,runs or view == 'runs',added=added)
 
     @api.get("/api/discovery/runs/{scan_id}")
     def discovery_run(scan_id: int, request: Request):
@@ -673,6 +673,28 @@ def create_app(data_dir: Path | None = None):
         return team_message.save(request.app.state.retrieval, request.app.state.service.store.read(job_id)[0], data)
 
     from . import application_answer, answer_library
+
+    @api.get("/api/answer-library")
+    def personal_answers(request: Request):
+        return application_answer.view(request.app.state.retrieval, answer_library.PERSONAL_LIBRARY)
+
+    @api.post("/api/answer-library/matches")
+    def personal_answer_matches(data: answer_library.MatchInput, request: Request):
+        def company_of(job_id):
+            try: return request.app.state.service.store.read(job_id)[0].company
+            except Exception: return ''
+        applied = {a['job_id'] for a in request.app.state.applications.list()}
+        return answer_library.local_matches(request.app.state.retrieval, data, company_of, applied)
+
+    @api.post("/api/answer-library/draft")
+    def personal_answer_draft(data: application_answer.AnswerInput, request: Request):
+        return application_answer.generate(request.app.state.tailoring, answer_library.PERSONAL_LIBRARY, data)
+
+    @api.post("/api/answer-library/save")
+    def personal_answer_save(data: application_answer.SaveInput, request: Request):
+        if not data.text.strip():
+            raise RetrievalError('Paste your answer before saving.', 422)
+        return application_answer.save(request.app.state.retrieval, answer_library.PERSONAL_LIBRARY, data)
 
     @api.get("/api/jobs/{job_id}/application-answers")
     def application_answers(job_id: str, request: Request):

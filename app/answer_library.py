@@ -5,6 +5,7 @@ embeddings (no generation call); the candidate always chooses whether to reuse.
 """
 import json
 import re
+from types import SimpleNamespace
 from contextlib import closing
 from pydantic import Field
 from .job_requirements import Strict
@@ -14,6 +15,8 @@ from .cost_tracking import usage_scope
 THRESHOLD = 0.55
 LIMIT = 3
 PREFIX = 'application-answers:'
+# A local library namespace, not a job or an application. Saving never embeds or drafts.
+PERSONAL_LIBRARY = SimpleNamespace(id='personal-library', company='', title='', description='', general_answer=True)
 SPECIFIC = re.compile(
     r"\bwhy\b[^?.!]{0,60}\b(us|join|joining|work|working|here|company|role|team|position|opportunity|interested|apply|applying)\b"
     # YC-style intros, not "a product introduction you led".
@@ -58,6 +61,8 @@ def reusable(row, company='', applied=frozenset()):
     # Answers saved before review tracking count as reviewed once that application was submitted.
     reviewed = row['reviewed'] if row.get('reviewed') is not None else row.get('job_id') in applied
     if not reviewed: return False
+    # Library answers were written without an employer, so "Why are you interested…" stays reusable.
+    if row.get('job_id') == PERSONAL_LIBRARY.id: return True
     text = row.get('text', '')
     if mentions(text, company) or SPECIFIC_ANSWER.search(text): return False
     return row.get('reusable') is True or not specific(row.get('question', ''), company)
@@ -128,3 +133,27 @@ def matches(engine, job, data, company_of, applied=frozenset()):
                        'over_limit': bool(data.limit and size > data.limit),
                        'stories_changed': bool(changed and e.get('updated_at') and changed > e['updated_at'])})
     return {'specific': False, 'matches': result}
+
+
+def local_matches(engine, data, company_of, applied=frozenset()):
+    """Free lexical lookup. No embeddings, model calls, or writes."""
+    from difflib import SequenceMatcher
+    def normalize(text):
+        return ' '.join(re.findall(r'[a-z0-9]+', text.casefold()))
+    query = normalize(data.question)
+    stop = {'a','an','the','i','you','your','to','of','and','or','in','is','it','what','how','that','with','for','have','do','did','me','us'}
+    tokens = set(query.split())-stop
+    scored = []
+    for e in entries(engine, company_of, applied):
+        question = normalize(e['question'])
+        other = set(question.split())-stop
+        overlap = len(tokens & other)/max(1,len(tokens | other))
+        exact = query == question
+        score = 1.0 if exact else max(overlap, SequenceMatcher(None,query,question).ratio())
+        if not exact and (score < .55 or len(tokens & other)<2): continue
+        size = length(e['text'],data.unit)
+        scored.append({**{k:e.get(k,'') for k in ('job_id','company','question','text','updated_at')},
+            'answer_id':e['id'], 'evidence':e.get('evidence',[]), 'exact':exact, 'score':round(score,2),
+            'length':size,'unit':data.unit,'over_limit':bool(data.limit and size>data.limit),
+            'stories_changed':False})
+    return {'specific':False,'matches':sorted(scored,key=lambda e:(e['exact'],e['score'],e['updated_at']),reverse=True)[:LIMIT]}

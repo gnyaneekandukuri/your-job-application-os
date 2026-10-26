@@ -150,3 +150,18 @@ def test_completed_deep_analysis_guides_story_choice_without_becoming_evidence(s
     run['state']='RUNNING';e.calls.clear();e.data.clear()
     a.generate(t,j,question())
     assert json.loads(e.calls[0]['input'])['deep_analysis_findings']==[]
+
+
+def test_general_draft_uses_sources_without_job_or_analysis(setup, monkeypatch):
+    from app.answer_library import PERSONAL_LIBRARY
+    e,t,_=setup
+    def forbidden(*args, **kwargs): raise AssertionError('No job analysis for general questions')
+    monkeypatch.setattr(a,'findings',forbidden)
+    result=a.generate(t,PERSONAL_LIBRARY,question(note='Use my integration prototype.'))
+    assert len(e.calls)==1
+    payload=json.loads(e.calls[0]['input'])
+    assert payload['answer_scope']=='general'
+    assert payload['job']=={'company':'','title':'','description':''}
+    assert payload['deep_analysis_findings']==[]
+    assert payload['candidate_sources'] and payload['candidate_directions']=='Use my integration prototype.'
+    assert result['reviewed'] is False

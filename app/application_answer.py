@@ -111,7 +111,8 @@ def context(tailoring,job,data):
         guidance.append({'title':entry['title'],'text':document['text']})
     docs=control_documents(library.root)
     return {'question':data.question,'length_limit':{'maximum':data.limit,'unit':data.unit},
-        'candidate_directions':data.note,'deep_analysis_findings':findings(tailoring,job),
+        'candidate_directions':data.note,'deep_analysis_findings':[] if getattr(job,'general_answer',False) else findings(tailoring,job),
+        'answer_scope':'general' if getattr(job,'general_answer',False) else 'application',
         'job':{'company':job.company,'title':job.title,'description':job.description},
         'candidate_sources':sources,'positioning_guidance':guidance,
         'candidate_fact_rules':{k:json.loads(docs[k]) for k in ('facts','forbidden','conflicts')}}
