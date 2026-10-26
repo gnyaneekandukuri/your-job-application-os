@@ -994,7 +994,9 @@ class Discovery:
     @staticmethod
     def auto_eligible(item):
         from .needs_help import description_problem
-        return (item.get('keyword_match',{}).get('priority')=='high'
+        from .automatic_company_policy import initial_only
+        return (not initial_only(item.get('company', ''))
+                and item.get('keyword_match',{}).get('priority')=='high'
                 and not description_problem(item.get('description',''))
                 and not item.get('passed') and not item.get('applied')
                 and (item.get('assessment') or {}).get('choice') != 'SKIP'
@@ -1014,6 +1016,8 @@ class Discovery:
         assessment = item.get('assessment') or {}
         if item.get('applied'): return 'Already applied; no repeat analysis.'
         if item.get('passed') or assessment.get('choice') == 'SKIP': return 'Passed by you; no repeat analysis.'
+        from .automatic_company_policy import initial_only, REASON
+        if initial_only(item.get('company', '')): return REASON
         if item.get('keyword_match', {}).get('priority') != 'high': return 'Not High priority.'
         if item.get('age_state') == 'older_than_four_days' and not item.get('retention_protected'): return 'Outside the four-day active window and not kept.'
         if assessment.get('state') == 'COMPLETE': return 'Completed analysis already exists.'
@@ -1079,6 +1083,9 @@ class Discovery:
                 row = db.execute('SELECT * FROM opportunities WHERE id=?', (oid,)).fetchone()
                 if not row: raise Missing('Opportunity not found')
                 item = json.loads(row['payload'])
+                from .automatic_company_policy import initial_only
+                if automatic and analyze and initial_only(item.get('company', '')):
+                    return {'job_id': row['job_id'], 'assessment_started': False}
                 if analyze:
                     checked = {**item, 'id': oid, 'job_id': row['job_id']}
                     self.annotate_handled([checked])
