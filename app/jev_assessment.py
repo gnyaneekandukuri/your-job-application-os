@@ -42,7 +42,7 @@ def excerpt_units(passages):
     return units
 
 
-def candidate_excerpts(passages, query, jd='', engine=None):
+def candidate_excerpts(passages, query, jd='', engine=None, vectors=None):
     units = excerpt_units(passages)
     texts = [u['heading']+'\n'+u['text'] for u in units]
     primary = bm25(lexical_query(query), texts)
@@ -50,7 +50,7 @@ def candidate_excerpts(passages, query, jd='', engine=None):
     orders = [sorted(range(len(units)), key=lambda i: (-scores[i], units[i]['id'])) for scores in (primary, broader)]
     if engine is not None:
         from .semantic_context import rank_units
-        orders = [rank_units(engine, units, query)]
+        orders = [rank_units(engine, units, query, vectors)]
     selected, seen = [], set()
     # Most slots go to the requirement; a few whole-JD matches add context.
     order = orders[0] if engine is not None else list(dict.fromkeys(orders[0][:9] + orders[1][:3] + orders[0][9:]))
@@ -70,10 +70,13 @@ def assess(client, job_id, requirements, passages, rules, jd='', feedback=None):
     from .role_analysis import ScoredJudgment
     by_id = {p['id']: p for p in passages}
     results = []
+    from .semantic_context import unit_vectors
+    # One read per analysis instead of one lookup per excerpt per requirement.
+    vectors = unit_vectors(client.engine, excerpt_units(passages)) if requirements else {}
     for req in requirements:
         from .cost_tracking import usage_scope
         with usage_scope(job_id, 'requirement_embedding'):
-            candidates = candidate_excerpts(passages, req.quote, jd, engine=client.engine)
+            candidates = candidate_excerpts(passages, req.quote, jd, engine=client.engine, vectors=vectors)
         trace = {'method': 'api-embeddings-hybrid-plus-jev', 'job_id': job_id, 'requirement_id': req.id,
                  'candidate_ids': [u['passage_id'] for u in candidates],
                  'source_revisions': {u['passage_id']: by_id[u['passage_id']]['source_sha256'] for u in candidates},

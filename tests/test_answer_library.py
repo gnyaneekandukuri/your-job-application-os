@@ -98,3 +98,76 @@ def test_answers_naming_their_employer_and_unreviewed_drafts_are_not_offered(tmp
         row = client.get(f'/api/jobs/{other}/application-answers').json()['items'][0]
         answer(client, other, row['question'], row['text'], id=row['id'], revision=row['revision'])
         assert [m['company'] for m in client.post(route, headers=H, json={'question': 'Which AI tools do you use?'}).json()['matches']] == ['Beta']
+
+
+def test_personal_library_save_edit_and_reuse_without_drafting(tmp_path, monkeypatch):
+    with TestClient(create_app(tmp_path)) as client:
+        engine = client.app.state.retrieval
+        def forbidden(*args, **kwargs):
+            raise AssertionError('Manual library must not call an AI provider')
+        monkeypatch.setattr(engine, 'embed', forbidden)
+        monkeypatch.setattr(engine, 'paid', forbidden)
+        question = "What's something you do today with AI that would have taken you 10x longer a year ago? Walk us through it."
+        text = 'I built my own job search app.\n\nI review the results myself.'
+        body = {'id':str(uuid4()), 'question':question, 'text':text, 'revision':''}
+        response = client.post('/api/answer-library/save', headers=H, json=body)
+        assert response.status_code == 200, response.text
+        saved = response.json()
+        assert saved['text'] == text and saved['reviewed'] and saved['evidence'] == []
+        assert client.get('/api/answer-library').json()['items'][0]['text'] == text
+        assert client.post('/api/answer-library/save', headers=H, json=body).status_code == 409
+        body.update(revision=saved['revision'], text=text+' My own edit.')
+        saved = client.post('/api/answer-library/save', headers=H, json=body).json()
+        from app.answer_library import entries
+        library = entries(engine, lambda _: '')
+        assert len(library)==1 and library[0]['text']==body['text']
+        # Reusing the saved text for a job also makes no AI call.
+        jid = job(client, 'Example')
+        reused = answer(client, jid, question, body['text'], reused_from='personal-library:'+saved['id'])
+        assert reused['text']==body['text'] and reused['evidence']==[]
+        body.update(revision=saved['revision'], reusable=False)
+        assert client.post('/api/answer-library/save', headers=H, json=body).status_code==200
+        assert all(e['job_id']!='personal-library' for e in entries(engine, lambda _: ''))
+
+
+def test_personal_library_rejects_blank_answer(tmp_path):
+    with TestClient(create_app(tmp_path)) as client:
+        response = client.post('/api/answer-library/save', headers=H,
+            json={'id':str(uuid4()), 'question':'Question?', 'text':'  '})
+        assert response.status_code==422
+
+
+def test_library_lookup_is_free_and_finds_saved_question(tmp_path, monkeypatch):
+    with TestClient(create_app(tmp_path)) as client:
+        engine=client.app.state.retrieval
+        def forbidden(*args, **kwargs): raise AssertionError('Lookup must be free')
+        monkeypatch.setattr(engine,'embed',forbidden)
+        monkeypatch.setattr(engine,'paid',forbidden)
+        q="What's something you do today with AI that would have taken you 10x longer a year ago? Walk us through it."
+        body={'id':str(uuid4()),'question':q,'text':'My original answer, unchanged.'}
+        assert client.post('/api/answer-library/save',headers=H,json=body).status_code==200
+        def lookup(question):
+            r=client.post('/api/answer-library/matches',headers=H,json={'question':question})
+            assert r.status_code==200
+            return r.json()['matches']
+        found=lookup(q)
+        assert found[0]['exact'] and found[0]['text']==body['text']
+        assert lookup('What work do you do with AI today that took 10x longer a year ago?')
+        assert lookup('Describe your Kubernetes cluster incident response')==[]
+        body.update(revision=client.get('/api/answer-library').json()['items'][0]['revision'],reusable=False)
+        client.post('/api/answer-library/save',headers=H,json=body)
+        assert lookup(q)==[]
+
+
+def test_library_answers_to_why_questions_stay_reusable(tmp_path):
+    with TestClient(create_app(tmp_path)) as client:
+        q = 'Why are you interested in product management roles?'
+        body = {'id':str(uuid4()), 'question':q, 'text':'I like turning customer problems into this role\'s roadmap.'}
+        assert client.post('/api/answer-library/save', headers=H, json=body).status_code == 200
+        found = client.post('/api/answer-library/matches', headers=H, json={'question':q}).json()['matches']
+        assert found and found[0]['exact']
+        # The same question saved for a specific job stays with that job.
+        jid = job(client, 'Example')
+        answer(client, jid, 'Why are you interested in this role?', 'Because of Example.')
+        from app.answer_library import entries
+        assert [e['job_id'] for e in entries(client.app.state.retrieval, lambda _: 'Example')] == ['personal-library']

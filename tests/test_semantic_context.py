@@ -1,8 +1,9 @@
+import pytest
 import json
 from threading import Event
 from types import SimpleNamespace
 
-from app.retrieval import RetrievalService
+from app.retrieval import RetrievalError, RetrievalService
 from app.semantic_context import prepare_source, embedding_key
 from app.jev_assessment import candidate_excerpts
 from app.discovery_screening import screen, annotate
@@ -180,3 +181,23 @@ def test_old_answers_are_reused_with_new_cutoff_without_provider_calls(tmp_path)
     profile['preferences']['target_roles']=['Designer']
     annotate(engine,[item],profile)
     assert item['keyword_match']['label']=='Not screened'
+
+
+def test_preloaded_vectors_rank_identically_without_per_excerpt_reads(tmp_path, monkeypatch):
+    from app.semantic_context import unit_vectors
+    from app.jev_assessment import excerpt_units
+    provider=Embeddings(); engine=RetrievalService(tmp_path/'r.sqlite3',tmp_path/'unused',provider)
+    passages=[{'id':str(i),'text':f'I led launch number {i} with customers.','source_title':'Work'} for i in range(15)]
+    for i,p in enumerate(passages):
+        engine.put(embedding_key(p['text']),[float(i==j) for j in range(1536)])
+    expected=candidate_excerpts(passages,'Lead customer discovery.',engine=engine)
+    vectors=unit_vectors(engine,excerpt_units(passages))
+    def per_excerpt_read(key):
+        assert key not in vectors, 'excerpt vectors must come from the preloaded set'
+        return original(key)
+    original=engine.get
+    monkeypatch.setattr(engine,'get',per_excerpt_read)
+    assert candidate_excerpts(passages,'Lead customer discovery.',engine=engine,vectors=vectors)==expected
+    passages.append({'id':'new','text':'An excerpt that was never prepared.','source_title':'Work'})
+    with pytest.raises(RetrievalError):
+        candidate_excerpts(passages,'Lead customer discovery.',engine=engine,vectors=vectors)

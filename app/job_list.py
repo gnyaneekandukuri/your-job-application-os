@@ -9,6 +9,7 @@ import time
 from contextlib import closing
 from datetime import datetime, timezone, timedelta
 from threading import Event, Lock, Thread
+from zoneinfo import ZoneInfo
 
 from .job_identity import listing_urls
 
@@ -274,7 +275,7 @@ class JobList:
         return ids, urls
 
     def page(self, page=1, size=25, query='', priority='all', location='match',
-             company='focus', board='all', show='all', runs=False):
+             company='focus', board='all', show='all', runs=False, added='all'):
         if runs:
             return self.runs(page)
         with closing(self.connect()) as db:
@@ -307,6 +308,15 @@ class JobList:
             if board != 'all':
                 where.append('id IN (SELECT id FROM boards WHERE board=?)'); args.append(board)
             if query: where.append('instr(search_text,?)>0'); args.append(query.lower())
+            if added in ('today', 'yesterday'):
+                midnight = datetime.now(ZoneInfo('America/Chicago')).replace(hour=0, minute=0, second=0, microsecond=0)
+                start = midnight - timedelta(days=1) if added == 'yesterday' else midnight
+                end = start + timedelta(days=1)
+                where.append('julianday(first_seen)>=julianday(?) AND julianday(first_seen)<julianday(?)')
+                args.extend([start.isoformat(), end.isoformat()])
+            elif added == 'last4':
+                where.append("(julianday(first_seen)>=julianday(?) OR json_extract(payload,'$.retention_protected')=1 OR first_seen IS NULL OR first_seen='')")
+                args.append((datetime.now(timezone.utc)-timedelta(days=4)).isoformat())
             freshness_counts = {'recent': 0, 'older': 0, 'uncertain': 0}
             for age, count in db.execute('SELECT freshness,count(*) FROM listings WHERE '+
                                         ' AND '.join(where)+' GROUP BY freshness', args):

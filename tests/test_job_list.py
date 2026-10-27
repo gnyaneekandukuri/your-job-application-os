@@ -339,3 +339,44 @@ def test_exclusion_cache_invalidates_on_wal_identity_changes_not_progress(model)
         db.execute("UPDATE opportunities SET payload=json_set(payload,'$.url','https://new.example/job')")
     assert 'https://new.example/job' in m.applied_keys()[1]
     assert m.compute_applied_keys.call_count==3
+
+
+@pytest.mark.parametrize('day', ['2026-10-26', '2026-11-02', '2026-03-09'])
+def test_added_calendar_days_chicago_boundaries(model, monkeypatch, day):
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+    import app.job_list as module
+    now = datetime.fromisoformat(day).replace(hour=12, tzinfo=ZoneInfo('America/Chicago'))
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return now.astimezone(tz)
+    monkeypatch.setattr(module, 'datetime', Clock)
+    midnight = now.replace(hour=0)
+    yesterday = midnight-timedelta(days=1)
+    m, source, _ = model
+    source['items'] = [
+        listing(1, first_seen=(midnight-timedelta(seconds=1)).isoformat()),
+        listing(2, first_seen=midnight.isoformat()),
+        listing(3, first_seen=(midnight+timedelta(days=1)).isoformat()),
+        listing(4, first_seen=yesterday.isoformat()),
+        listing(5, first_seen=(yesterday-timedelta(seconds=1)).isoformat()),
+    ]
+    m.refresh()
+    assert {i['id'] for i in m.page(added='today')['items']} == {'2'}
+    assert {i['id'] for i in m.page(added='yesterday')['items']} == {'1', '4'}
+    assert m.page(added='all')['total'] == 5
+
+
+def test_added_last4_keeps_saved_and_filters_before_pagination(model):
+    from datetime import datetime, timezone, timedelta
+    now = datetime.now(timezone.utc)
+    m, source, _ = model
+    source['items'] = [listing(1, first_seen=(now-timedelta(days=3)).isoformat()),
+                       listing(2, first_seen=(now-timedelta(days=5)).isoformat()),
+                       listing(3, first_seen=(now-timedelta(days=5)).isoformat(), retention_protected=True)]
+    m.refresh()
+    result = m.page(added='last4', size=1)
+    assert result['total'] == 2 and result['pages'] == 2
+    assert {i['id'] for i in m.page(added='last4')['items']} == {'1', '3'}
+    assert m.page(added='all')['total'] == 3

@@ -43,7 +43,8 @@ export function Discovery({onOpen,onResults,onAdd,initialReviewId,view="opportun
  const [tab,setTab]=useState<"jobs"|"help">("jobs");
  const [error,setError]=useState("");
  const [busy,setBusy]=useState(false);
- const [filter,setFilter]=useState("active");
+ const [filter,setFilter]=useState("all");
+ const [addedFilter,setAddedFilter]=useState("last4");
  const [watchCompany,setWatchCompany]=useState<string|null>(null);
  const [query,setQuery]=useState("");
 
@@ -60,7 +61,7 @@ export function Discovery({onOpen,onResults,onAdd,initialReviewId,view="opportun
  const status=useQuery({queryKey:['job-list-status'],queryFn:({signal})=>request<{ready:boolean;revision:string;refreshing:boolean;error:string|null;running:boolean;automatic_running?:boolean}>('/status',undefined,signal),refetchInterval:4000,refetchIntervalInBackground:true});
  const [search,setSearch]=useState(query);
  useEffect(()=>{const timer=setTimeout(()=>setSearch(query),250);return()=>clearTimeout(timer);},[query]);
- const params=new URLSearchParams({page:String(page),query:search,priority:priorityFilter,location:locationFilter,company:companyFilter,board:boardFilter,show:tab==="help"?"help":filter,runs:String(view==='runs'),runs_page:String(page)});
+ const params=new URLSearchParams({page:String(page),query:search,priority:priorityFilter,location:locationFilter,company:companyFilter,board:boardFilter,show:tab==="help"?"help":filter,added:tab==="help"?"all":addedFilter,runs:String(view==='runs'),runs_page:String(page)});
  const listing=useQuery({queryKey:['job-list',view,params.toString(),status.data?.revision],queryFn:({signal})=>request<State>('/page?'+params.toString(),undefined,signal),enabled:view==='runs'||!!status.data?.ready,refetchInterval:view==='runs'?4000:false,placeholderData:(previous,previousQuery)=>previousQuery?.queryKey[1]===view?keepPreviousData(previous):undefined});
  const state=listing.data?.ready?{...listing.data,running:status.data?.running??listing.data.running,automatic_running:status.data?.automatic_running}:null;
  const connectionError=(status.error||listing.error)?.message;
@@ -68,7 +69,7 @@ export function Discovery({onOpen,onResults,onAdd,initialReviewId,view="opportun
  function setState(response?:unknown){if(response&&typeof response==='object'&&'message' in response)setSelectionNotice(String(response.message));void queryClient.invalidateQueries({queryKey:['job-list-status']});void queryClient.invalidateQueries({queryKey:['job-list']});}
  useEffect(()=>{if(initialReviewId&&openedReview.current!==initialReviewId){openedReview.current=initialReviewId;void act(()=>openJD({id:initialReviewId}));}},[initialReviewId]);
  useEffect(()=>{if(jd)jdDialog.current?.showModal();else jdDialog.current?.close();},[jd?.id]);
- useEffect(()=>setPage(1),[query,priorityFilter,locationFilter,boardFilter,filter,companyFilter]);
+ useEffect(()=>setPage(1),[query,priorityFilter,locationFilter,boardFilter,filter,companyFilter,addedFilter]);
  async function saveSettings(settings:State['settings']){
   await request<{settings:State['settings'];refreshing:boolean}>('/settings',settings);
   setState();
@@ -208,7 +209,8 @@ export function Discovery({onOpen,onResults,onAdd,initialReviewId,view="opportun
     <label>Companies<select value={companyFilter} onChange={e=>setCompanyFilter(e.target.value)}><option value="focus">{companyFocus==='startups'?'Your startup focus':companyFocus==='established'?'Established companies':'All companies'}</option><option value="all">All companies</option><option value="preferred">Preferred stages</option><option value="startups">All reported startups</option><option value="established">Established companies</option><option value="unknown">Company / stage unknown</option></select></label>
     <label>Location<select value={locationFilter} onChange={e=>setLocationFilter(e.target.value)}><option value="match">{state.location_preference?.label || "Preferred country"} matches</option><option value="unclear">Location unclear</option><option value="all">All locations</option></select></label>
     <label>Job board<select value={boardFilter} onChange={e=>setBoardFilter(e.target.value)}><option value="all">All boards</option>{Object.entries(state.boards).map(([id,name])=><option key={id} value={id}>{name}</option>)}</select></label>
-    <label>Show<select value={filter} onChange={e=>setFilter(e.target.value)}>{[["active","Added within 4 days + kept"],["passed","Passed by me"],["kept","Kept jobs"],["watched","Watched companies"],["recent","Posted <24h (source-reported)"],["older","Older than 24h"],["uncertain","Posting date uncertain"],["all","All saved"],["discovered","Discovered <24h (any posting age)"],["missing","Description needed"]].map(([id,label])=><option key={id} value={id}>{label}</option>)}</select></label>
+    <label>Added to Job OS<select value={addedFilter} onChange={e=>setAddedFilter(e.target.value)} title="First added to Job OS, in Chicago time; not the board's posting date"><option value="last4">Last 4 days + kept</option><option value="today">Today</option><option value="yesterday">Yesterday</option><option value="all">All saved</option></select></label>
+    <label>Show<select value={filter} onChange={e=>setFilter(e.target.value)}>{[["passed","Passed by me"],["kept","Kept jobs"],["watched","Watched companies"],["recent","Posted <24h (source-reported)"],["older","Older than 24h"],["uncertain","Posting date uncertain"],["all","All jobs"],["discovered","Discovered <24h (any posting age)"],["missing","Description needed"]].map(([id,label])=><option key={id} value={id}>{label}</option>)}</select></label>
    </div>
    {companyFilter==='focus'&&companyFocus!=='any'&&<p className="discovery-clock">Showing your company focus. <button className="text-action" onClick={()=>setCompanyFilter('unknown')}>Review unknown companies</button> · <button className="text-action" onClick={()=>setCompanyFilter('all')}>Show all companies</button></p>}
    <div className="opportunity-toolbar">
