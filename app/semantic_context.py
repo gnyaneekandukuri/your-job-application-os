@@ -27,12 +27,18 @@ def prepare_source(service):
                 'semantic_version': INDEX_VERSION, 'context_policy': 'ORIGINAL_TEXT', 'chunks': chunks})
 
 
-def rank_units(engine, units, query):
+def unit_vectors(engine, units):
+    """Stored excerpt vectors in one read. Keyed by exact text, so reuse across requirements cannot go stale."""
+    return engine.get_many([embedding_key(u['text']) for u in units])
+
+
+def rank_units(engine, units, query, vectors=None):
     if not units:
         return []
+    vectors = unit_vectors(engine, units) if vectors is None else vectors
     indexed = []
     for u in units:
-        vector = engine.get(embedding_key(u['text']))
+        vector = vectors.get(embedding_key(u['text']))
         if vector is None:
             raise RetrievalError('Prepare the changed experience before semantic assessment. No keyword-only fallback was used.', 409)
         indexed.append({**u, 'raw_vector': vector})
