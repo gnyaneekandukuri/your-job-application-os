@@ -4,22 +4,25 @@ description: Draft a company-specific application cover letter using the JD, can
 ---
 
 # Cover letter
-Policy version: 1.0.
+Policy version: 1.1.
 
 ## Runtime contract
 Load this entire skill into the cover-letter model instructions on every generation. Supply the JD, available resume and relevant firsthand stories, candidate fact corrections, personal note/application instructions, and optional positioning documents. Include the skill in the request cache identity so changed rules invalidate old generated results. Keep saved user edits until explicitly redrafted. Use the same shared request-size limit as resume tailoring; never silently cut supplied context to fit. No automatic submission, extra paid review call, or download gate.
+
+## Choose the content from the job first
+Before writing, identify the two or three responsibilities or requirements most central to this role, quoted from the JD, and match each to the one candidate experience that most directly demonstrates the same kind of work. Direct evidence of the same activity beats similarity of industry or setting. These matches decide which experiences appear. Positioning coaching is the main source for who the candidate is, which a resume cannot show: their professional identity and working pattern lead the opening, each example is told through that pattern, and the close carries their motivation and how they work with people.
 
 ## Default framework: reason, positioning, proof, contribution
 This is a practical synthesis of Harvard's employer-specific opening and evidence-based middle, with candidate coaching guiding positioning. It is not a promise of hiring outcomes or a rigid resume-summary template.
 
 Write about 250-350 words in three or four short paragraphs, normally suitable for one page. Follow a supplied word limit instead. Use a simple greeting and sign-off. Do not invent a recipient, postal address, candidate name, or placeholders.
 
-1. **Reason and positioning:** Name the role and a concrete product, customer problem or responsibility that makes this company relevant. Establish one distinctive working strength in natural first-person language. Avoid opening with a generic title stack or praise interchangeable across companies.
-2. **Proof:** Choose one strong experience or two complementary examples. Explain the constraint, the candidate's choice and contribution, and the supported consequence. Connect those decisions explicitly to the employer's work. Do not narrate the entire career or repeat every resume bullet.
+1. **Reason and positioning:** Name the role and what it is responsible for, and the matching capability the candidate brings, in natural first-person language. Avoid opening with a generic title stack or praise interchangeable across companies.
+2. **Proof:** Use the experiences matched to the role's central needs, one short paragraph each, and say which need each answers. Explain the constraint, the candidate's choice and contribution, and the supported consequence. Connect those decisions explicitly to the employer's work. Do not narrate the entire career or repeat every resume bullet.
 3. **Contribution and close:** Explain what the candidate would bring to this work and invite a conversation. Motivation must come from candidate-provided interests, not imagined passion. Do not close with the diagnostic question used in YC introductions.
 
 ## Use coaching to shape how the candidate is understood
-When supplied, actively read supplied positioning documents, such as executive summaries or strengths assessments. Choose ONE relevant theme for this role, grounded in candidate evidence. Do not list all strengths or copy theatrical metaphors. Preserve the candidate's authentic professional identity across applications while changing which aspect leads.
+When supplied, actively read supplied positioning documents, such as executive summaries or strengths assessments. Lead with the candidate's core identity from the coaching and choose the strengths that the matched experiences demonstrate; a theme never replaces a better-matched example. Do not list all strengths or copy theatrical metaphors. Preserve the candidate's authentic professional identity across applications while changing which aspect leads.
 
 Coaching can identify a pattern in how the candidate approaches problems, makes decisions or brings people along. These are examples, not mandatory traits for every candidate. Translate the selected theme into observable behavior, then demonstrate it in the proof paragraph.
 
@@ -45,4 +48,6 @@ Before returning, check: would changing only the company name leave the letter g
 ## Sources behind the framework
 - Harvard Mignone Center for Career Success, HES: Create Impactful Resumes and Cover Letters: https://careerservices.fas.harvard.edu/resources/hes-create-impactful-resumes-and-cover-letters/
 - Harvard, AI for Resumes and Cover Letters: https://careerservices.fas.harvard.edu/ai-resumes-and-cover-letters/
+- Recruiter guidance that the letter shows motivation and the thinking behind results, which a resume cannot: IDEO recruiter tips (https://www.core77.com/posts/79869/An-IDEO-Recruiters-5-Tips-for-Writing-a-Better-Cover-Letter), Fast Company (https://www.fastcompany.com/90367147/is-writing-a-cover-letter-worth-it).
+- Product-manager letters: map a few top requirements to relevant experiences and connect them as a narrative rather than a list (BrainStation, https://brainstation.io/career-guides/how-write-a-product-manager-cover-letter; Aakash Gupta, https://www.aakashg.com/product-manager-cover-letter-examples/).
 - Candidate-supplied coaching is provided at runtime. No individual candidate's history or private feedback belongs in this reusable skill.
