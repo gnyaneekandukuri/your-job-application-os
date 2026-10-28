@@ -14,12 +14,15 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Table, TableStyle, 
 import reportlab
 
 _lock = Lock()
-LAYOUT_VERSION = 'compact-letter-v2'
+LAYOUT_VERSION = 'compact-letter-v3'
+BULLET_INDENT, BULLET_HANGING = 36, 18
 
 def font_name(fmt):
     family = fmt.get('font_family', 'Arial')
     stem = {'Arial':'arial', 'Calibri':'calibri', 'Times New Roman':'times', 'serif':'times'}.get(family, 'arial')
-    suffix = 'bi' if fmt.get('bold') and fmt.get('italic') else 'bd' if fmt.get('bold') else 'i' if fmt.get('italic') else ''
+    # Windows names Calibri's bold italic calibriz.ttf; Arial and Times use the "bi" suffix.
+    suffix = ('z' if stem == 'calibri' else 'bi') if fmt.get('bold') and fmt.get('italic') else 'bd' if fmt.get('bold') else 'i' if fmt.get('italic') else ''
+    if stem == 'calibri' and suffix == 'bd': suffix = 'b'
     # Use the same installed fonts as the editor on Windows. Portable fallback is bundled with ReportLab.
     path = Path('C:/Windows/Fonts') / (stem + suffix + '.ttf')
     if not path.is_file():
@@ -92,7 +95,9 @@ def _render_resume(blocks, compact=False, scale=1):
             row.spaceBefore=style.spaceBefore;row.spaceAfter=style.spaceAfter
             flow.append(row)
         elif kind=='bullet':
-            style.leftIndent=10;style.firstLineIndent=0;style.bulletIndent=0
+            # The master's own indent, else Word's default bullet: text at 0.5 in, bullet at 0.25 in.
+            indent=fmt.get('indent') or BULLET_INDENT
+            style.leftIndent=indent;style.firstLineIndent=0;style.bulletIndent=max(0,indent-(fmt.get('hanging') if fmt.get('hanging') is not None else BULLET_HANGING))
             style.bulletFontName=font_name({**fmt,'bold':False,'italic':False});style.bulletFontSize=size
             flow.append(Paragraph(markup(block['text'],lead=lead),style,bulletText='•'))
         else:
