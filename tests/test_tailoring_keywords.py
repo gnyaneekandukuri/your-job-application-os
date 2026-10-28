@@ -345,6 +345,14 @@ def test_model_cannot_claim_a_keyword_is_present_when_the_resume_lacks_it():
     assert 'not on your resume' in rows[0]['reason']
 
 
+def test_singular_and_plural_both_count_but_two_letter_initials_do_not():
+    blocks = [{'kind': 'bullet', 'item_id': 'b1', 'text': 'Built it as an agentic workflow with LLM evaluations.', 'citations': []}]
+    row = lambda keyword: {'keyword': keyword, 'jd_quote': '', 'priority': 'required', 'importance': 'important', 'status': 'missing', 'reason': ''}
+    coverage = KeywordCoverage.model_validate({'keywords': [row('agentic workflows'), row('evaluation'), row('agentic systems')], 'edits': []})
+    rows, _, _ = keyword_proposals(coverage, blocks, '', [])
+    assert [r['status'] for r in rows][:2] == ['present', 'present'] and rows[2]['status'] != 'present'  # "as" is not "agentic systems".
+
+
 def test_ready_list_shows_unapplied_prepared_resumes_best_fit_first(setup):
     from types import SimpleNamespace
     s, j, p, *_ = setup
