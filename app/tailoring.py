@@ -483,10 +483,11 @@ def keyword_proposals(coverage, blocks, description, proposals, job=None, requir
     for row in rows:
         # Literal coverage is decided here, not by the model; singular forms count ("LLM" covers "LLMs").
         word = row['keyword'].casefold()
-        forms = [word] + ([word[:-1]] if word.endswith('s') and len(word) > 3 else [])
+        forms = [word, word + 's'] + ([word[:-1]] if word.endswith('s') and len(word) > 3 else [])
         # A standard abbreviation also counts: "RAG" covers "retrieval-augmented generation".
+        # Two-letter initials are ordinary words too ("agentic systems" -> "as"), so they never count.
         initials = ''.join(w[0] for w in re.findall(r'[a-z0-9]+', word))
-        if len(initials) >= 2: forms += [initials, initials + 's']
+        if len(initials) >= 3: forms += [initials, initials + 's']
         on_page = any(re.search(r'(?<!\w)' + re.escape(f) + r'(?!\w)', page) for f in forms)
         if row['status'] != 'present' and on_page:
             row['status'], row['reason'] = 'present', 'This wording is already on your resume.'

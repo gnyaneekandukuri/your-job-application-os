@@ -99,7 +99,9 @@ export function TailorResume({jobId,label,buttonLabel}:{jobId:string;label?:stri
  const keywordCards=pendingKeywords.filter(p=>!p.inline).sort((a,b)=>Math.min(...(a.keywords||[]).map(w=>tierRank(keywordTier(w))))-Math.min(...(b.keywords||[]).map(w=>tierRank(keywordTier(w)))));
  const resumeText=visibleBlocks.map(b=>b.text).join(' ').toLowerCase();
  // Whole words only, as the server checks: the letter "r" inside other words is not the R language.
- const onResume=(word:string)=>new RegExp(`(?<![\\p{L}\\p{N}])${word.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}(?![\\p{L}\\p{N}])`,'u').test(resumeText);
+ // Singular and plural count alike, and a standard abbreviation counts ("RAG"), as the server checks.
+ const keywordForms=(word:string)=>{const w=word.toLowerCase(),initials=(w.match(/[\p{L}\p{N}]+/gu)||[]).map(p=>p[0]).join('');return [w,w+'s',...(w.endsWith('s')&&w.length>3?[w.slice(0,-1)]:[]),...(initials.length>=3?[initials,initials+'s']:[])];};
+ const onResume=(word:string)=>keywordForms(word).some(f=>new RegExp(`(?<![\\p{L}\\p{N}])${f.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}(?![\\p{L}\\p{N}])`,'u').test(resumeText));
  const keywordRows=(record?.keywords||[]).map(k=>({...k,state:pendingKeywords.some(p=>p.keywords?.some(w=>w.toLowerCase()===k.keyword.toLowerCase()))?'pending':['present','implied'].includes(k.status)||onResume(k.keyword)?'covered':k.status==='unplaced'?'unplaced':'missing',tier:k.importance||'important'}));
  const essentialGaps=keywordRows.filter(k=>k.tier==='essential'&&k.state==='missing');
  // One list of the AI's own wording that needs a look: unsupported claims and weak structure, by point.
