@@ -766,6 +766,14 @@ class Tailoring:
         if uploaded: resume = uploaded
         return sources, resume
 
+    def quick_start(self, job):
+        """One click from a job list: the master resume and saved writing preferences, queued like Prepare draft."""
+        master = next((o for o in self.resume_options(job) if o['id'].startswith('profile:')), None)
+        if not master: raise RetrievalError('Upload a master resume in Tailor resume first.', 409)
+        prefs = self.preferences()
+        return self.start(job, Generate(consent_to_send=True, framework=prefs['framework'], base_resume=master['text'],
+                                        base_source_id=master['id'], include_summary=prefs.get('include_summary', False)))
+
     def resume_options(self, job):
         _, resume = self.baseline()
         key = self.engine.get('tailoring:latest:' + job.id)

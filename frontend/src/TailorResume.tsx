@@ -98,7 +98,9 @@ export function TailorResume({jobId,label,buttonLabel}:{jobId:string;label?:stri
  const keptKeywords=(record?.proposals||[]).filter(p=>p.operation==='keyword'&&p.inline&&p.automatic&&p.status==='accepted');
  const keywordCards=pendingKeywords.filter(p=>!p.inline).sort((a,b)=>Math.min(...(a.keywords||[]).map(w=>tierRank(keywordTier(w))))-Math.min(...(b.keywords||[]).map(w=>tierRank(keywordTier(w)))));
  const resumeText=visibleBlocks.map(b=>b.text).join(' ').toLowerCase();
- const keywordRows=(record?.keywords||[]).map(k=>({...k,state:pendingKeywords.some(p=>p.keywords?.some(w=>w.toLowerCase()===k.keyword.toLowerCase()))?'pending':['present','implied'].includes(k.status)||resumeText.includes(k.keyword.toLowerCase())?'covered':k.status==='unplaced'?'unplaced':'missing',tier:k.importance||'important'}));
+ // Whole words only, as the server checks: the letter "r" inside other words is not the R language.
+ const onResume=(word:string)=>new RegExp(`(?<![\\p{L}\\p{N}])${word.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}(?![\\p{L}\\p{N}])`,'u').test(resumeText);
+ const keywordRows=(record?.keywords||[]).map(k=>({...k,state:pendingKeywords.some(p=>p.keywords?.some(w=>w.toLowerCase()===k.keyword.toLowerCase()))?'pending':['present','implied'].includes(k.status)||onResume(k.keyword)?'covered':k.status==='unplaced'?'unplaced':'missing',tier:k.importance||'important'}));
  const essentialGaps=keywordRows.filter(k=>k.tier==='essential'&&k.state==='missing');
  // One list of the AI's own wording that needs a look: unsupported claims and weak structure, by point.
  const lookItems=(()=>{const rows=new Map<number,string[]>();for(const f of record?.checks?.findings||[])if(!f.supported)rows.set(f.block_index,[...(rows.get(f.block_index)||[]),f.reason]);for(const f of record?.quality?.failures||[])rows.set(f.block_index,[...(rows.get(f.block_index)||[]),f.reason]);return [...rows].sort((a,b)=>a[0]-b[0]);})();
