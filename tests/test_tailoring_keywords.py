@@ -35,15 +35,14 @@ def test_important_keyword_is_placed_in_the_resume_and_yes_keeps_it(setup):
     keywords = p.calls[names.index('resume_keywords')]
     assert 'Return keywords and edits' in keywords['instructions'] and 'Return keywords and edits' not in reviews(p.calls)[0]['instructions']
     card = next(x for x in r['proposals'] if x['operation'] == 'keyword')
-    assert card['status'] == 'pending' and card['inline'] and card['keywords'] == ['reporting tools']
+    assert card['status'] == 'accepted' and card['automatic'] and card['inline'] and card['keywords'] == ['reporting tools']
     block = r['draft']['blocks'][-1]
-    assert block['text'] == KEYWORD_TEXT and block['change_type'] == 'job_alignment'  # Placed, awaiting ✓ or ✕.
+    assert block['text'] == KEYWORD_TEXT and block['change_type'] == 'job_alignment'  # Proven, so kept without a click.
     assert card['before'][0]['text'] != KEYWORD_TEXT  # The original is kept for undo.
     assert [k['status'] for k in r['keywords']] == ['suggested', 'missing']
-    updated = s.decide_proposal(j, ProposalDecision(revision=r['revision'], proposal_id=card['id'], decision='accept'))['record']
-    assert updated['draft']['blocks'][-1]['text'] == KEYWORD_TEXT
-    assert updated['proposals'][-1]['status'] == 'accepted'
-    assert len(p.calls) == 3  # Answering is local.
+    undone = s.decide_proposal(j, ProposalDecision(revision=r['revision'], proposal_id=card['id'], decision='reject'))['record']
+    assert undone['draft']['blocks'][-1] == card['before'][0]
+    assert len(p.calls) == 3  # Undo is local.
 
 
 def test_no_restores_the_original_point_exactly(setup):
@@ -66,16 +65,31 @@ def test_no_never_overwrites_the_candidates_own_edit(setup):
         s.decide_proposal(j, ProposalDecision(revision=edited['revision'], proposal_id=card['id'], decision='reject'))
 
 
-def test_recheck_takes_undecided_suggestions_back_out_first(setup):
+def test_recheck_keeps_decided_keyword_edits(setup):
     s, j, p, *_ = setup
     keyword_review(p, [{'text': KEYWORD_TEXT}])
     r = generate(s, j)
-    original = next(x for x in r['proposals'] if x['operation'] == 'keyword')['before'][0]['text']
     s.recheck(j, Action(revision=r['revision'], confirmed=True)); s.worker.join(5)
     review = json.loads(reviews(p.calls)[-1]['input'])
-    assert review['full_draft'][-1]['text'] == original  # The check saw the candidate's own wording.
+    assert review['full_draft'][-1]['text'] == KEYWORD_TEXT  # An automatically kept edit is part of the resume.
     again = s.view(j)['record']
-    assert [x['status'] for x in again['proposals'] if x['operation'] == 'keyword'] == ['withdrawn', 'pending']
+    assert [x['status'] for x in again['proposals'] if x['operation'] == 'keyword'] == ['accepted']  # Not suggested twice.
+
+
+def test_a_yes_is_remembered_and_not_asked_again_on_the_next_job(setup):
+    from types import SimpleNamespace
+    s, j, p, *_ = setup
+    keyword_review(p, [{'text': KEYWORD_TEXT, 'question': 'Was the prototype a reporting tool?', 'evidence_quote': ''}])
+    r = generate(s, j)
+    card = next(x for x in r['proposals'] if x['operation'] == 'keyword')
+    assert card['question'] and not card.get('inline')  # First job: asks.
+    s.decide_proposal(j, ProposalDecision(revision=r['revision'], proposal_id=card['id'], decision='accept'))
+    second = SimpleNamespace(id='job-2', title=j.title, company='Other Inc', description=j.description)
+    later = generate(s, second)
+    again = next(x for x in later['proposals'] if x['operation'] == 'keyword')
+    assert again['question'] == '' and again['inline']  # Second job: placed without asking.
+    sent = next(c for c in p.calls if c['text']['format']['name'] == 'resume_keywords' and 'Other Inc' in c['input'])
+    assert json.loads(sent['input'])['candidate_confirmed_keywords'] == ['reporting tools']
 
 
 def test_failed_keyword_call_keeps_the_resume(setup):
@@ -320,3 +334,26 @@ def test_edit_without_a_question_must_quote_the_candidates_own_words():
     grounded, guessed = created
     assert grounded['question'] == ''  # Proven by the candidate's own word, so it can be placed.
     assert guessed['question'].startswith('Is this accurate')  # A guess always asks first.
+
+
+def test_model_cannot_claim_a_keyword_is_present_when_the_resume_lacks_it():
+    blocks = [{'kind': 'bullet', 'item_id': 'b1', 'text': 'Built RAG features with Docker for 3 teams.', 'citations': []}]
+    row = lambda keyword: {'keyword': keyword, 'jd_quote': '', 'priority': 'required', 'importance': 'important', 'status': 'present', 'reason': 'Model says so.'}
+    coverage = KeywordCoverage.model_validate({'keywords': [row('Kubernetes'), row('retrieval-augmented generation'), row('Docker')], 'edits': []})
+    rows, _, _ = keyword_proposals(coverage, blocks, '', [])
+    assert [r['status'] for r in rows] == ['unplaced', 'present', 'present']  # Kubernetes is absent; RAG covers its expansion.
+    assert 'not on your resume' in rows[0]['reason']
+
+
+def test_ready_list_shows_unapplied_prepared_resumes_best_fit_first(setup):
+    from types import SimpleNamespace
+    s, j, p, *_ = setup
+    second = SimpleNamespace(id='job-2', title='Data PM', company='Other Inc', description=j.description, source_url='https://example.com/2')
+    third = SimpleNamespace(id='job-3', title='AI PM', company='Third Co', description=j.description, source_url='')
+    for job in (j, second, third): generate(s, job)
+    jobs = {job.id: job for job in (j, second, third)}
+    scores = {'job-1': {'assessment': {'score': 55, 'recommendation': 'Apply normally'}},
+              'job-2': {'assessment': {'score': 81, 'recommendation': 'Attack hard'}}}
+    rows = s.ready(jobs, scores, applied={'job-3'})
+    assert [r['job_id'] for r in rows] == ['job-2', 'job-1']  # Applied jobs drop out; best fit first.
+    assert rows[0]['url'] == 'https://example.com/2' and rows[0]['to_answer'] == 0

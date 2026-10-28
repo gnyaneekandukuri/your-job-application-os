@@ -9,8 +9,9 @@ def activity(state):
     busy=[]
     for label, worker in [('scan',d.worker),('automatic_analysis',d.assessment_worker),
                           ('selected_analysis',d.selected.worker),('deep_analysis',d.analysis.worker),
-                          ('tailoring',state.tailoring.worker),('skills',state.skills.worker)]:
+                          ('skills',state.skills.worker)]:
         if alive(worker): busy.append(label)
+    if state.tailoring.alive_keys(): busy.append('tailoring')
     if state.google_sheets.schedule.active: busy.append('google_sheets_sync')
     manual=getattr(d.analysis,'manual_queue',None)
     if manual and manual.pending() and not d.draining(): busy.append('manual_analysis_queue')
