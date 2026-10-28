@@ -271,6 +271,16 @@ def create_app(data_dir: Path | None = None):
     def linkedin_scan(request: Request):
         return request.app.state.discovery.start(['linkedin'])
 
+    @api.get("/api/ready-to-apply")
+    def ready_to_apply(request: Request):
+        state = request.app.state
+        from contextlib import closing
+        with closing(state.retrieval.connect()) as db:
+            ids = [k.removeprefix('tailoring:latest:') for (k,) in db.execute("SELECT key FROM cache WHERE key LIKE 'tailoring:latest:%'")]
+        applied = {row.get('job_id') for row in state.applications.list()}
+        scores = {row['job_id']: row for row in state.job_list.assessments().get('items', [])}
+        return {'items': state.tailoring.ready(state.service.store.read_jobs(ids), scores, applied)}
+
     @api.get("/api/assessments/saved")
     def saved_assessment_results(request: Request):
         result = request.app.state.job_list.assessments()
@@ -732,6 +742,10 @@ def create_app(data_dir: Path | None = None):
     @api.post("/api/jobs/{job_id}/tailoring")
     def tailoring_generate(job_id: str, data: TailorGenerate, request: Request):
         return request.app.state.tailoring.start(request.app.state.service.review(job_id).job, data)
+
+    @api.post("/api/jobs/{job_id}/tailoring/quick")
+    def tailoring_quick(job_id: str, request: Request):
+        return request.app.state.tailoring.quick_start(request.app.state.service.review(job_id).job)
 
     @api.post("/api/jobs/{job_id}/tailoring/edit")
     def tailoring_edit(job_id: str, data: TailorEdit, request: Request):

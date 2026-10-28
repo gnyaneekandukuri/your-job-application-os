@@ -22,12 +22,13 @@ const Metadata=Extension.create({name:'resumeMetadata',addGlobalAttributes(){ret
  origin:{default:null,rendered:false},manualId:{default:null,rendered:false},format:{default:null,renderHTML:attrs=>attrs.format?{style:formatStyle(attrs.format,attrs.kind)}:{}},kind:{default:'text',renderHTML:attrs=>({'data-kind':attrs.kind})}
 }}];}});
 const RightField=Mark.create({name:'resumeRight',renderHTML(){return ['span',{class:'resume-right-field'},0];}});
-export type KeywordSuggestion={id:string;item_id:string;keywords:string[];question:string};
+export type KeywordSuggestion={id:string;item_id:string;keywords:string[];question:string;kept?:boolean};
 // Keep/undo controls for a job keyword already placed in this point; not part of the editable text.
 function keywordControl(s:KeywordSuggestion,onDecide:(id:string,decision:'accept'|'reject')=>void){
  const box=document.createElement('span');box.className='keyword-inline';box.contentEditable='false';
- const label=document.createElement('span');label.textContent=`Job keyword: ${s.keywords.join(', ')}${s.question?` · ${s.question}`:''}`;box.append(label);
- for(const [decision,mark,name] of [['accept','✓','Keep'],['reject','✕','Undo']] as const){
+ const label=document.createElement('span');label.textContent=`${s.kept?'Added job keyword':'Job keyword'}: ${s.keywords.join(', ')}${s.question?` · ${s.question}`:''}`;box.append(label);
+ // A kept edit was proven by the candidate's own words; it only offers undo.
+ for(const [decision,mark,name] of (s.kept?[['reject','✕','Undo']]:[['accept','✓','Keep'],['reject','✕','Undo']]) as [('accept'|'reject'),string,string][]){
   const button=document.createElement('button');button.type='button';button.textContent=mark;button.title=`${name} this keyword edit`;button.setAttribute('aria-label',`${name} job keyword ${s.keywords.join(', ')}`);
   button.onmousedown=e=>e.preventDefault();button.onclick=e=>{e.preventDefault();onDecide(s.id,decision);};box.append(button);
  }
