@@ -4,8 +4,11 @@ import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 const ResumeDocument=lazy(()=>import('./ResumeDocument').then(module=>({default:module.ResumeDocument})));
 
 type Block={change_type?:string;jd_quote?:string;item_id?:string;format?:{font_family:string;font_size:number;bold:boolean;italic:boolean;align:string};kind:'heading'|'contact'|'role'|'bullet'|'text';text:string;citations:{source_id:string;quote:string}[];reason:string};
-type Proposal={automatic?:boolean;after_id:string;id:string;operation:string;status:string;error:string;text:string;reason:string;jd_quote:string;before:Block[];citations:Block["citations"]};
-type RecordValue={approach_decisions?:{suggested_change:string;decision:string;item_ids:string[];reason:string}[];edit_warnings?:string[];review_warnings?:string[];include_summary?:boolean;job_review?:{summary:string;priorities:{jd_quote:string;status:string;block_indices:number[];reason:string;improvement:string}[];readability:string[];preservation:string[]}|null;quality?:{framework:string;passed:number;total:number;required:number;percent:number|null;meets_threshold:boolean;failures:{block_index:number;reason:string}[]}|null;proposals?:Proposal[];state:string;stage:string;error:string;revision:string;framework:string;policy_version:string;draft:{blocks:Block[];questions:string[]}|null;checks:{findings:{block_index:number;supported:boolean;reason:string}[]}|null;context:{master?:Block[];sources:{id:string;title:string;text:string;employer?:string;start_line?:number}[]}};
+type Proposal={inline?:boolean;keywords?:string[];question?:string;automatic?:boolean;after_id:string;id:string;operation:string;status:string;error:string;text:string;reason:string;jd_quote:string;before:Block[];citations:Block["citations"]};
+type JobKeyword={keyword:string;jd_quote:string;priority:string;importance?:string;signals?:string[];status:string;reason:string};
+const tiers=[['essential','Essential'],['important','Important'],['minor','Minor']] as const;
+const chipMark:Record<string,string>={covered:'✓ ',pending:'? ',unplaced:'~ ',missing:'✕ '};
+type RecordValue={keywords?:JobKeyword[];keyword_warnings?:string[];keyword_error?:string;approach_decisions?:{suggested_change:string;decision:string;item_ids:string[];reason:string}[];edit_warnings?:string[];review_warnings?:string[];include_summary?:boolean;job_review?:{summary:string;priorities:{jd_quote:string;status:string;block_indices:number[];reason:string;improvement:string}[];readability:string[];preservation:string[]}|null;quality?:{framework:string;passed:number;total:number;required:number;percent:number|null;meets_threshold:boolean;failures:{block_index:number;reason:string}[]}|null;proposals?:Proposal[];state:string;stage:string;error:string;revision:string;framework:string;policy_version:string;draft:{blocks:Block[];questions:string[]}|null;checks:{findings:{block_index:number;supported:boolean;reason:string}[]}|null;context:{master?:Block[];sources:{id:string;title:string;text:string;employer?:string;start_line?:number}[]}};
 type FinalReview={score:number|null;summary:string;strengths:string[];gaps:string[];improvements:string[];dimensions:{name:string;points:number;maximum:number}[];rubric:string};
 type View={preferences?:{framework:string;remember:boolean;include_summary:boolean};resume_options?:{id:string;title:string;text:string;date:string}[];base_source?:{title:string;version:string;selected_at:string}|null;final_review_supported?:boolean;pages?:number|null;master_pages?:number|null;final_review?:FinalReview|null;summary_supported?:boolean;job_url?:string;exported?:{revision:string;created_at:string}|null;quality_checks_version?:number;framework:string;base_resume:string;base_title:string;configured:boolean;record:RecordValue|null;citation_sources?:RecordValue['context']['sources']};
 const styles=[['PAR','Recommended · Project, Action, Result'],['XYZ','Metrics-focused · Accomplishment, measurement, method'],['STAR','Context-focused · Concise STAR'],['EXISTING','Keep my existing style']];
@@ -17,6 +20,7 @@ export function TailorResume({jobId,label}:{jobId:string;label?:string}) {
  const dialog=useRef<HTMLDialogElement>(null);
  const finalReviewPanel=useRef<HTMLElement>(null);
  const [open,setOpen]=useState(false),[view,setView]=useState<View|null>(null),[error,setError]=useState(''),[busy,setBusy]=useState(false);
+ const [readError,setReadError]=useState(''),[reload,setReload]=useState(0);
  const [framework,setFramework]=useState('PAR'),[base,setBase]=useState(''),[remember,setRemember]=useState(false),[editing,setEditing]=useState(false),[blocks,setBlocks]=useState<Block[]>([]),[confirmed,setConfirmed]=useState(false);
  const [checkingFinal,setCheckingFinal]=useState(false);
  const [includeSummary,setIncludeSummary]=useState(false);
@@ -25,13 +29,13 @@ export function TailorResume({jobId,label}:{jobId:string;label?:string}) {
  const [selected,setSelected]=useState(0),[showEvidence,setShowEvidence]=useState(true),[editorReset,setEditorReset]=useState(0);
  const path=`/api/jobs/${jobId}/tailoring`,record=view?.record,running=record?.state==='RUNNING'||record?.state==='QUEUED';
  async function request(suffix='',body?:unknown):Promise<View>{
-  const response=await fetch(path+suffix,body===undefined?undefined:{method:'POST',headers:{'Content-Type':'application/json','X-Local-Review':'1'},body:JSON.stringify(body)});
+  const response=await fetch(path+suffix,body===undefined?{signal:AbortSignal.timeout(20000)}:{method:'POST',headers:{'Content-Type':'application/json','X-Local-Review':'1'},body:JSON.stringify(body)});
   const data=await response.json();if(!response.ok)throw new Error(typeof data.detail==='string'?data.detail:'Could not save this resume. Check the fields and try again.');return data;
  }
  useEffect(()=>{if(open)dialog.current?.showModal();else dialog.current?.close();},[open]);
- useEffect(()=>{if(!open)return;setUploadStatus('');setUploadError('');let live=true;void request().then(data=>{if(live){setView(data);setFramework(data.record?.framework||data.framework);setRemember(data.preferences?.remember??false);setIncludeSummary(data.record?.include_summary??data.preferences?.include_summary??false);setBase(data.record?.context.sources[0]?.text||data.base_resume);setBaseSource(data.resume_options?.find(o=>o.id.startsWith(data.record?'original:':'profile:'))?.id||'');}}).catch(e=>{if(live)setError(String(e));});return()=>{live=false;};},[open,jobId]);
- useEffect(()=>{if(!open||!running)return;let live=true;const timer=setInterval(()=>{void request().then(data=>{if(live)setView(data);}).catch(e=>{if(live)setError(String(e));});},2500);return()=>{live=false;clearInterval(timer);};},[open,running,jobId]);
- async function act(suffix:string,body:unknown){if(busy)return;setBusy(true);setError('');setConfirmed(false);try{setView(await request(suffix,body));setEditing(false);}catch(e){setError(String(e));}finally{setBusy(false);}}
+ useEffect(()=>{if(!open)return;setReadError('');setUploadStatus('');setUploadError('');let live=true;void request().then(data=>{if(live){setReadError('');setView(data);setFramework(data.record?.framework||data.framework);setRemember(data.preferences?.remember??false);setIncludeSummary(data.record?.include_summary??data.preferences?.include_summary??false);setBase(data.record?.context.sources[0]?.text||data.base_resume);setBaseSource(data.resume_options?.find(o=>o.id.startsWith(data.record?'original:':'profile:'))?.id||'');}}).catch(e=>{if(live)setReadError(e instanceof TypeError||e.name==='TimeoutError'?'Could not connect to the local server to load your saved resume. Reload to try again; this does not use AI.':String(e));});return()=>{live=false;};},[open,jobId,reload]);
+ useEffect(()=>{if(!open||!running)return;let live=true,inFlight=false;const timer=setInterval(()=>{if(inFlight)return;inFlight=true;void request().then(data=>{if(live){setView(data);setReadError('');}}).catch(e=>{if(live)setReadError('Connection to the local server was interrupted. Reconnecting to check your saved draft; no new AI request is being made.');}).finally(()=>{inFlight=false;});},2500);return()=>{live=false;clearInterval(timer);};},[open,running,jobId]);
+ async function act(suffix:string,body:unknown){if(busy)return;setBusy(true);setError('');setConfirmed(false);try{setView(await request(suffix,body));setReadError('');setEditing(false);}catch(e){setError(e instanceof TypeError?'Connection lost before the server confirmed the action. Close and reopen this resume to check whether it saved before retrying.':String(e));}finally{setBusy(false);}}
  async function rememberChoices(nextFramework:string,nextSummary:boolean,nextRemember:boolean){
   setFramework(nextFramework);setIncludeSummary(nextSummary);setRemember(nextRemember);
   if(!nextRemember&&!remember)return;
@@ -76,11 +80,26 @@ export function TailorResume({jobId,label}:{jobId:string;label?:string}) {
   try{const next=await request('/proposal',{revision:record.revision,proposal_id:id,decision});setView(next);setEditing(false);setEditorReset(n=>n+1);setProposalFeedback({id,message:decision==='accept'?'Applied and saved in your resume below. Changed or added paragraphs are highlighted yellow.':'Suggestion declined. Your resume is unchanged.',error:false});}
   catch(e){setProposalFeedback({id,message:String(e),error:true});}finally{setBusy(false);}
  }
+ async function decideInline(id:string,decision:'accept'|'reject'){
+  if(busy||!record)return;setBusy(true);setError('');
+  try{setView(await request('/proposal',{revision:record.revision,proposal_id:id,decision}));setEditorReset(n=>n+1);}catch(e){setError(String(e));}finally{setBusy(false);}
+ }
  function close(){if(editing&&!window.confirm('Discard unsaved resume edits?'))return;setOpen(false);}
  useEffect(()=>{if(!editing)return;const warn=(event:BeforeUnloadEvent)=>{event.preventDefault();event.returnValue='';};window.addEventListener('beforeunload',warn);return()=>window.removeEventListener('beforeunload',warn);},[editing]);
  const visibleBlocks=editing?blocks:record?.draft?.blocks||[];
  const appliedChanges=visibleBlocks.map((block,index)=>({block,index,original:record?.context.master?.find(item=>item.item_id===block.item_id)})).filter(({block,original})=>changedFromMaster(block,original));
  const selectedBlock=visibleBlocks[selected];
+ const structural=(record?.proposals||[]).filter(p=>p.operation!=='keyword');
+ const keywordTier=(word:string)=>record?.keywords?.find(k=>k.keyword.toLowerCase()===word.toLowerCase())?.importance||'important';
+ const tierRank=(tier:string)=>tiers.findIndex(([id])=>id===tier);
+ const pendingKeywords=(record?.proposals||[]).filter(p=>p.operation==='keyword'&&p.status==='pending');
+ const inlineKeywords=pendingKeywords.filter(p=>p.inline);
+ const keywordCards=pendingKeywords.filter(p=>!p.inline).sort((a,b)=>Math.min(...(a.keywords||[]).map(w=>tierRank(keywordTier(w))))-Math.min(...(b.keywords||[]).map(w=>tierRank(keywordTier(w)))));
+ const resumeText=visibleBlocks.map(b=>b.text).join(' ').toLowerCase();
+ const keywordRows=(record?.keywords||[]).map(k=>({...k,state:pendingKeywords.some(p=>p.keywords?.some(w=>w.toLowerCase()===k.keyword.toLowerCase()))?'pending':['present','implied'].includes(k.status)||resumeText.includes(k.keyword.toLowerCase())?'covered':k.status==='unplaced'?'unplaced':'missing',tier:k.importance||'important'}));
+ const essentialGaps=keywordRows.filter(k=>k.tier==='essential'&&k.state==='missing');
+ // One list of the AI's own wording that needs a look: unsupported claims and weak structure, by point.
+ const lookItems=(()=>{const rows=new Map<number,string[]>();for(const f of record?.checks?.findings||[])if(!f.supported)rows.set(f.block_index,[...(rows.get(f.block_index)||[]),f.reason]);for(const f of record?.quality?.failures||[])rows.set(f.block_index,[...(rows.get(f.block_index)||[]),f.reason]);return [...rows].sort((a,b)=>a[0]-b[0]);})();
  const selectedFinding=!editing?record?.checks?.findings.find(f=>f.block_index===selected):undefined;
  async function downloadPdf(revision:string){
   const response=await fetch(path+`/pdf?revision=${encodeURIComponent(revision)}`);
@@ -89,7 +108,9 @@ export function TailorResume({jobId,label}:{jobId:string;label?:string}) {
   setView(await request());
  }
  async function finish(){
-  if(busy||running||!view?.record)return;setBusy(true);setError('');setConfirmApplied(false);
+  if(busy||running||!view?.record)return;
+  if(inlineKeywords.length&&!window.confirm(`${inlineKeywords.length} keyword ${inlineKeywords.length===1?'edit has':'edits have'} no ✓ or ✕ yet and will be in your PDF as shown. Download anyway?`))return;
+  setBusy(true);setError('');setConfirmApplied(false);
   try{
    let current=view;
    if(editing){current=await request('/edit',{revision:view.record.revision,blocks:blocks.filter(b=>b.text.trim())});setView(current);setEditing(false);}
@@ -102,7 +123,8 @@ export function TailorResume({jobId,label}:{jobId:string;label?:string}) {
  <dialog ref={dialog} className="skills-dialog tailoring-dialog" onCancel={e=>{e.preventDefault();close();}} aria-label="Tailor resume">
  <div className="skills-dialog-heading"><div><h2>Tailor your resume</h2><p>{label||"Review the draft, make your edits, then save and download."}</p></div><button onClick={close} aria-label="Close resume tailoring">Close</button></div>
  {error&&<p role="alert">{error}</p>}
- {!view?<p>Loading your resume…</p>:<>
+ {readError&&<div role="alert"><p>{readError}</p><button disabled={editing} onClick={()=>setReload(n=>n+1)}>Reload saved draft · No AI usage</button>{editing&&<p>Finish your edits before reloading.</p>}</div>}
+ {!view?<p>{readError?'Resume could not be loaded. Your saved draft has not been deleted.':'Loading your resume…'}</p>:<>
  {record?.draft&&<div className="resume-score-entry"><button className="primary" disabled={busy||running||!view.final_review_supported} onClick={()=>void checkFinal()}>{checkingFinal?'Checking resume…':view.final_review&&!editing?'View final resume check':'Final resume check'}</button>{!view.final_review_supported&&<span>The server needs updating to enable scoring.</span>}</div>}
  <p><strong>Starting resume:</strong> {view.base_source?`${view.base_source.title} (version ${view.base_source.version})`:record?'Earlier saved starting resume':view.base_title||'Choose a resume below'}</p>
  <details open={!record}><summary>Choose resume and writing approach</summary>
@@ -126,28 +148,39 @@ export function TailorResume({jobId,label}:{jobId:string;label?:string}) {
  {!view.configured&&<p role="alert">Connect your OpenAI API key to prepare a draft.</p>}
  </details>
  <details><summary>Ground rules included</summary><p>PAR by default, with XYZ, concise STAR, or your existing style. Every claim needs candidate evidence. Preserve ownership, dates, titles, numbers, and project context. Never invent qualifications or copy requirements as experience. Use plain language, relevant accomplishments, and readable formatting. Review changes before approval; no automatic applications.</p><p>Citation checks and an AI claim review help catch errors; they are not independent verification of your experience.</p></details>
- {record&&<><p role="status"><strong>{record.state==='APPROVED'?'Approved resume':['ERROR','INTERRUPTED'].includes(record.state)?'Preparation stopped — draft saved':record.stage||record.state}</strong> · {record.framework} · Rules v{record.policy_version}</p>
+ {record&&<><p role="status"><strong>{record.state==='APPROVED'?'Approved resume':['ERROR','INTERRUPTED'].includes(record.state)?'Preparation stopped — draft saved':running?record.stage:record.state==='EDITED'?'Your edits are saved':'Draft ready'}</strong></p>
  {running&&<p>{record?.state==='QUEUED'?'Queued behind another resume; it starts automatically. ':''}Preparation continues on the server if you close this window or refresh.</p>}
  {record.error&&<p role="alert">{record.error}</p>}
  {['ERROR','INTERRUPTED'].includes(record.state)&&!record.draft&&!editing&&<button disabled={busy} onClick={()=>void act('',{consent_to_send:true,framework:record.framework,base_resume:record.context.sources[0].text,retry:true,...(view.summary_supported?{include_summary:record.include_summary??false}:{})})}>Retry unfinished preparation · API usage</button>}
  {['ERROR','INTERRUPTED'].includes(record.state)&&record.draft&&!editing&&<button disabled={busy||running} onClick={()=>void act('/check',{revision:record.revision,confirmed:true})}>Resume preparation from saved draft · API usage</button>}
  {record.draft&&<>
- {record.job_review&&!editing&&<section className="resume-quality" aria-label="Resume against this JD"><h3>How this draft addresses the job</h3><p>{record.job_review.summary}</p>{record.job_review.priorities.map((p,i)=><details key={i}><summary>{p.status==='clear'?'Clearly demonstrated':p.status==='weak'?'Could be stronger':'Not demonstrated'} · {p.jd_quote}</summary><p>{p.reason}</p>{p.block_indices.map(index=><blockquote key={index}>{record.draft?.blocks[index]?.text}</blockquote>)}{p.improvement&&<p><strong>Suggested improvement:</strong> {p.improvement}</p>}</details>)}{record.job_review.readability.length>0&&<><h4>Clarity and emphasis</h4><ul>{record.job_review.readability.map((x,i)=><li key={i}>{x}</li>)}</ul></>}{record.job_review.preservation.length>0&&<><h4>Preserving your background</h4><ul>{record.job_review.preservation.map((x,i)=><li key={i}>{x}</li>)}</ul></>}<p>Review of the AI draft. Suggestions do not block your edits or download.</p></section>}
- <section aria-label="Resume quality checks" className="resume-quality">
- <h3>Experience bullet quality</h3>
- {record.approach_decisions?.length? <details><summary>How the resume approach was used</summary><ul>{record.approach_decisions.map((d,i)=><li key={i}><strong>{d.decision==='applied'?'Changed':'Kept original'}: {d.suggested_change}</strong><p>{d.reason}</p></li>)}</ul></details>:null}
- {record.edit_warnings?.length? <details><summary>Changes kept within your resume approach</summary><ul>{record.edit_warnings.map((w,i)=><li key={i}>{w}</li>)}</ul></details>:null}
- {record.review_warnings?.length? <details><summary>Some statements could not be checked</summary><p>Your draft is saved. This is an incomplete review, not a rejection of your experience.</p><ul>{record.review_warnings.map((w,i)=><li key={i}>{w}</li>)}</ul></details>:null}
- {!view.quality_checks_version&&<p>The stronger checks need the server update to finish. Existing scan work is being preserved.</p>}
- {record.quality?<><p><strong>{record.quality.passed} of {record.quality.total} bullets meet {record.quality.framework}</strong> · {record.quality.required} required (80%). {record.quality.meets_threshold?'Coverage requirement met.':'Suggestions for the AI draft; you can edit and download your version.'}</p>
- {record.quality.failures.length>0&&<details><summary>Bullets needing work ({record.quality.failures.length})</summary>{record.quality.failures.map(f=><div key={f.block_index}><p><strong>{record.draft?.blocks[f.block_index]?.text}</strong></p><p>{f.reason}</p></div>)}</details>}</>:<p>Your edits are saved as your own resume wording.</p>}
- {record.checks?.findings.some(f=>!f.supported)&&<details><summary>Impact or evidence issues ({record.checks.findings.filter(f=>!f.supported).length})</summary>{record.checks.findings.filter(f=>!f.supported).map(f=><div key={f.block_index}><p><strong>{record.draft?.blocks[f.block_index]?.text}</strong></p><p>{f.reason}</p></div>)}</details>}
- </section>
+ {!editing&&record.checks&&<section className="resume-quality" aria-label="Before you download"><h3>Before you download</h3>
+ {lookItems.length===0?<p>Nothing needs your attention. Your own master bullets are used as written.</p>:<details open><summary>Points that need a look ({lookItems.length})</summary><ul className="look-list">{lookItems.map(([index,reasons])=><li key={index}><p>{record.draft?.blocks[index]?.text}</p><p className="look-reason">{reasons.join(' ')}</p><button onClick={()=>{setSelected(index);setShowEvidence(true);}}>Show in resume</button></li>)}</ul><p>These are only points the AI wrote or changed. Edit them below, or keep them if you know they are right.</p></details>}
+ </section>}
  {!record.proposals&&<p>This saved draft predates job-specific structural suggestions. <button disabled={busy||running||editing} onClick={()=>void act('',{consent_to_send:true,framework:record.framework,base_resume:record.context.sources[0].text,remember:false,retry:false})}>Prepare updated tailoring · API usage</button></p>}
- {record.draft.questions.length>0&&<details><summary>Questions and missing details ({record.draft.questions.length})</summary><ul>{record.draft.questions.map((q,i)=><li key={i}>{q}</li>)}</ul><p>Add factual details to the relevant experience in Your context, then reassess before generating a new draft.</p></details>}
+ {record.draft.questions.length>0&&<details><summary>Questions for you ({record.draft.questions.length})</summary><ul>{record.draft.questions.map((q,i)=><li key={i}>{q}</li>)}</ul><p>Nothing was changed because of these. If one applies, add the detail to Your context and prepare a new draft.</p></details>}
+{record.keyword_error&&!editing&&<p role="status">{record.keyword_error} Your resume draft is unaffected.</p>}
+ {record.keywords&&!editing&&<section className="resume-proposals" aria-label="Job keywords">
+ <h3>Job keywords on your resume · {tiers.filter(([id])=>keywordRows.some(k=>k.tier===id)).map(([id,name])=>`${name} ${keywordRows.filter(k=>k.tier===id&&k.state==='covered').length} of ${keywordRows.filter(k=>k.tier===id).length}`).join(' · ')}</h3>
+ <p className="keyword-legend">Keywords from this job description. ✓ already on your resume · ? added for you to keep or undo · ~ your experience relates but no natural place was found · ✕ no evidence in your experience. Hover a keyword to see where the job mentions it.</p>
+ {essentialGaps.length>0&&<p role="status" className="keyword-gap"><strong>Essential to this role, with no evidence on your resume:</strong> {essentialGaps.map(k=>k.keyword).join(', ')}. Consider whether to apply, or add real experience to Your context.</p>}
+ {tiers.map(([id,name])=>{const rows=keywordRows.filter(k=>k.tier===id);return rows.length>0&&<div key={id} className="keyword-tier"><strong>{name}</strong><p className="keyword-list">{rows.map(k=><span key={k.keyword} className={`keyword-chip ${k.state}`} title={[k.jd_quote,...(k.signals||[])].filter(Boolean).join(' · ')}>{chipMark[k.state]}{k.keyword}</span>)}</p></div>;})}
+ {inlineKeywords.length>0&&<p role="status"><strong>{inlineKeywords.length} keyword {inlineKeywords.length===1?'edit is':'edits are'} already placed in your resume below</strong>, highlighted with the keyword marked. Click ✓ to keep or ✕ to restore your original wording. Every fact stays as you wrote it.</p>}
+ {keywordCards.length>0&&<p>Each suggestion adds a job keyword to one point and keeps every fact as you wrote it. For essential keywords the point may be redrafted around the keyword. Yes adds it to your resume; No keeps your wording.</p>}
+ {keywordCards.map(p=><div key={p.id} className="keyword-card">
+ <p className="keyword-card-tier">{(p.keywords||[]).map(w=>`${tiers.find(([id])=>id===keywordTier(w))?.[1]}: ${w}`).join(' · ')}</p>
+ <h4>{p.question||`Add “${p.keywords?.join('”, “')}” to this point?`}</h4>
+ <div className="resume-proposal-comparison"><div><h4>Now</h4>{p.before.map(b=><p key={b.item_id}>{b.text}</p>)}</div><div><h4>With {p.keywords?.join(', ')}</h4><p>{p.text}</p></div></div>
+ <p><strong>Why:</strong> {p.reason}</p>
+ {proposalFeedback?.id===p.id&&<p role={proposalFeedback.error?'alert':'status'}>{proposalFeedback.message}</p>}
+ <div className="resume-proposal-actions"><button className="primary" disabled={busy||running} onClick={()=>void decideProposal(p.id,'accept')}>Yes</button><button disabled={busy||running} onClick={()=>void decideProposal(p.id,'reject')}>No</button></div>
+ </div>)}
+ {keywordRows.some(k=>k.state==='unplaced')&&<details><summary>Your experience supports these, but no natural place was found ({keywordRows.filter(k=>k.state==='unplaced').length})</summary><ul>{keywordRows.filter(k=>k.state==='unplaced').map(k=><li key={k.keyword}><strong>{k.keyword}</strong>{k.reason?` · ${k.reason}`:''}</li>)}</ul><p>You can add these yourself in the resume below if a point fits.</p></details>}
+ {keywordRows.some(k=>k.state==='missing')&&<details><summary>Not on your resume ({keywordRows.filter(k=>k.state==='missing').length})</summary><ul>{keywordRows.filter(k=>k.state==='missing').map(k=><li key={k.keyword}><strong>{k.keyword}</strong>{k.reason?` · ${k.reason}`:''}</li>)}</ul><p>Nothing is added without your evidence. If you have this experience, add it to Your context and prepare a new draft.</p></details>}
+ </section>}
  <section className="resume-proposals" aria-label="Changes already in the draft">
- <h3>Changes already in the draft ({appliedChanges.length})</h3>
- <p>These exact changes are visible in yellow in the resume. Pending suggestions below have not been added.</p>
+ <p><strong>{appliedChanges.length} {appliedChanges.length===1?'point is':'points are'} changed from your master</strong>, highlighted in the resume below (green for added words, yellow for rewritten points). Click one to compare it with your master and see why.</p>
+ {appliedChanges.length>0&&<details><summary>List all changes</summary>
  {appliedChanges.map(({block,index,original})=><details key={`${block.item_id}:${index}`}><summary>{block.kind==='role'?'Role details':block.kind==='bullet'?'Resume point':'Resume text'} · {block.text.slice(0,85)}{block.text.length>85?'…':''}</summary>
  <div className="resume-proposal-comparison"><div><h4>Master resume</h4><p>{original?.text||'New point'}</p></div><div><h4>In your draft now</h4><p>{block.text}</p></div></div>
  <p><strong>Why:</strong> {block.reason}</p>
@@ -155,11 +188,12 @@ export function TailorResume({jobId,label}:{jobId:string;label?:string}) {
  {block.jd_quote?<blockquote><strong>JD requirement:</strong> {block.jd_quote}</blockquote>:<p>{['fact_correction','framework'].includes(block.change_type||'')?'This change does not claim a specific JD requirement.':'No exact JD quotation was saved for this edit.'}</p>}
  <button onClick={()=>{setSelected(index);setShowEvidence(true);}}>Show evidence for this change</button>
  </details>)}
+ </details>}
  </section>
  <section className="resume-proposals" aria-label="Tailoring suggestions">
- {record.proposals&&<h3>Tailoring suggestions · {record.proposals.filter(p=>p.status==='pending').length} pending</h3>}
- {record.proposals?.length===0&&<p>No structural changes proposed. Wording changes appear in yellow below.</p>}
- {record.proposals?.map(p=><details key={p.id}><summary>{p.operation==='summary'?'Add professional summary':p.operation.charAt(0).toUpperCase()+p.operation.slice(1)+' a resume point'} · {p.status==='pending'?'Not in the draft':p.status==='accepted'?(p.automatic?'Automatically applied within this role':'Applied to draft'):'Declined'}</summary>
+ {record.proposals&&<h3>Tailoring suggestions · {structural.filter(p=>p.status==='pending').length} pending</h3>}
+ {record.proposals&&structural.length===0&&<p>No structural changes proposed. Wording changes appear in yellow below.</p>}
+ {structural.map(p=><details key={p.id}><summary>{p.operation==='summary'?'Add professional summary':p.operation.charAt(0).toUpperCase()+p.operation.slice(1)+' a resume point'} · {p.status==='pending'?'Not in the draft':p.status==='accepted'?(p.automatic?'Automatically applied within this role':'Applied to draft'):'Declined'}</summary>
  <p><strong>Why for this job:</strong> {p.reason}</p><p><strong>Job requirement:</strong> {p.jd_quote}</p>
  <div className="resume-proposal-comparison pending-comparison"><div><h4>Before this suggestion</h4>{p.before.length?p.before.map(b=><p key={b.item_id}>{b.text}</p>):<p>New point</p>}</div><div><h4>{p.status==='accepted'?'Previously applied wording':p.status==='rejected'?'Declined wording':'Proposed wording — not applied'}</h4><p>{p.text|| (p.operation==='remove'?'Remove this point.':'Move this point to the proposed position.')}</p></div></div>
  {p.after_id&&<p><strong>Place after:</strong> {record.draft?.blocks.find(b=>b.item_id===p.after_id)?.text||p.after_id}</p>}
@@ -198,9 +232,9 @@ export function TailorResume({jobId,label}:{jobId:string;label?:string}) {
  {view.exported&&!editing&&<section className="application-confirmation" aria-label="Apply with saved resume"><h3>Your saved PDF</h3><p>Version {view.exported.revision.slice(0,8)} · {new Date(view.exported.created_at).toLocaleString()}{view.exported.revision!==record.revision?' · Earlier downloaded version; finish the current draft to create a new PDF.':''}</p><button disabled={busy||running} onClick={()=>{setBusy(true);setError('');void downloadPdf(view.exported!.revision).catch(e=>setError(String(e))).finally(()=>setBusy(false));}}>Download saved PDF again</button> {view.job_url&&/^https?:\/\//.test(view.job_url)?<a className="primary" href={view.job_url} target="_blank" rel="noreferrer">Open job &amp; apply ↗</a>:<p>No application link was saved for this role. Use the original job listing.</p>} <button disabled={busy||running||applicationSaved} onClick={()=>setConfirmApplied(true)}>{applicationSaved?'Recorded in Applied jobs':'I applied'}</button></section>}
  {confirmApplied&&view.exported&&!editing&&<form className="application-confirmation" onSubmit={e=>{e.preventDefault();void recordApplication();}}><h3>Record your application</h3><p>Confirm you submitted this application using saved PDF version {view.exported.revision.slice(0,8)}. This exact copy will be kept in Applied jobs.</p><label>Application date <input type="date" required value={appliedDate} onChange={e=>setAppliedDate(e.target.value)}/></label><button type="button" disabled={busy} onClick={()=>setConfirmApplied(false)}>Cancel</button> <button className="primary" disabled={busy||!appliedDate}>Confirm I applied</button></form>}
  {view.pages&&view.master_pages&&view.pages>view.master_pages&&!editing&&<section role="alert" className="resume-page-warning" aria-label="Page length"><h3>This resume exports to {view.pages} pages</h3><p>Your master resume fits on {view.master_pages===1?'one page':`${view.master_pages} pages`}. These points grew during tailoring; shorten them in the resume below, save, then download again.</p><ul>{(record.draft?.blocks||[]).map((b,i)=>{const m=record.context.master?.find(x=>x.item_id===b.item_id);const grew=m?b.text.trim().split(/\s+/).length-m.text.trim().split(/\s+/).length:0;return grew>0?<li key={i}><button className="link-button" onClick={()=>{setSelected(i);setShowEvidence(true);}}>+{grew} words</button> {b.text.slice(0,90)}…</li>:null;})}</ul></section>}
- <p className="resume-change-legend"><span aria-hidden="true"/> Yellow means this paragraph contains edits or is new. Unchanged words within an edited paragraph are highlighted too. Select one to compare the original and evidence.</p>
+ <p className="resume-change-legend"><span aria-hidden="true"/> <strong>Green</strong> marks words added to your own point. <strong>Yellow</strong> marks a point that was rewritten, replaced or added. Select one to compare it with your master and see the evidence.</p>
  <div className={`resume-workspace ${showEvidence?'with-evidence':''}`}>
- <Suspense fallback={<p>Opening document editor…</p>}><ResumeDocument key={`${record.revision}:${editorReset}`} initial={record.draft.blocks} master={record.context.master} disabled={busy||!!running} onChange={next=>{setBlocks(next);setEditing(JSON.stringify(next)!==JSON.stringify(record.draft!.blocks));setConfirmed(false);}} onSelect={setSelected}/></Suspense>
+ <Suspense fallback={<p>Opening document editor…</p>}><ResumeDocument key={`${record.revision}:${editorReset}`} initial={record.draft.blocks} master={record.context.master} disabled={busy||!!running} onChange={next=>{setBlocks(next);setEditing(JSON.stringify(next)!==JSON.stringify(record.draft!.blocks));setConfirmed(false);}} onSelect={setSelected} suggestions={inlineKeywords.map(p=>({id:p.id,item_id:p.before[0]?.item_id||'',keywords:p.keywords||[],question:p.question||''}))} onDecide={(id,decision)=>{if(editing){setError('Save your changes first, then use ✓ or ✕.');return;}void decideInline(id,decision);}}/></Suspense>
  {showEvidence&&<aside className="resume-evidence-panel" aria-label="Selected point evidence">
  <h3>Evidence</h3>{selectedBlock&&record.context.master&&<strong className="resume-change-status">{changedFromMaster(selectedBlock,record.context.master.find(b=>b.item_id===selectedBlock.item_id))?'Changed from master':'Unchanged from master'}</strong>}<p className="resume-panel-help">Select a point in the resume to see its sources.</p>
  {selectedBlock&&<><p className="resume-selected-point">{selectedBlock.text}</p>
