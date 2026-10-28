@@ -365,3 +365,17 @@ def test_ready_list_shows_unapplied_prepared_resumes_best_fit_first(setup):
     rows = s.ready(jobs, scores, applied={'job-3'})
     assert [r['job_id'] for r in rows] == ['job-2', 'job-1']  # Applied jobs drop out; best fit first.
     assert rows[0]['url'] == 'https://example.com/2' and rows[0]['to_answer'] == 0
+    assert not any(r['preparing'] for r in rows)
+
+
+def test_ready_list_keeps_a_resume_that_is_still_being_prepared(setup):
+    from app.tailoring import QUEUE_KEY
+    s, j, *_ = setup
+    generate(s, j)
+    key = s.engine.get('tailoring:latest:' + j.id)
+    record = s.engine.get(key)
+    record.update(state='QUEUED', draft=None)
+    s.engine.put(key, record)
+    s.engine.put(QUEUE_KEY, [key])
+    rows = s.ready({j.id: j}, {}, applied=set())
+    assert [(r['job_id'], r['preparing']) for r in rows] == [(j.id, True)]

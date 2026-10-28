@@ -818,19 +818,22 @@ class Tailoring:
         with closing(self.engine.connect()) as db:
             latest = {k.removeprefix('tailoring:latest:'): json.loads(v) for k, v in
                       db.execute("SELECT key, payload FROM cache WHERE key LIKE 'tailoring:latest:%'")}
-        running = self.alive_keys()
+        running = self.alive_keys() | set(self.engine.get(QUEUE_KEY) or [])
         rows = []
         for job_id, key in latest.items():
             job = jobs.get(job_id)
-            if not job or job_id in applied or key in running: continue
+            if not job or job_id in applied: continue
             record = self.engine.get(key) or {}
-            if not record.get('draft') or record.get('state') not in ('DRAFT', 'NEEDS_REVIEW', 'EDITED', 'APPROVED'): continue
+            # A resume still being prepared stays on the list, marked as preparing, so it never seems lost.
+            preparing = key in running
+            if not preparing and (not record.get('draft') or record.get('state') not in ('DRAFT', 'NEEDS_REVIEW', 'EDITED', 'APPROVED')): continue
             proposals = record.get('proposals') or []
             info = scores.get(job_id) or {}
             rows.append({'job_id': job_id, 'company': job.company, 'title': job.title,
                          'url': str(getattr(job, 'source_url', '') or info.get('url') or ''),
                          'score': (info.get('assessment') or {}).get('score'),
                          'recommendation': (info.get('assessment') or {}).get('recommendation'),
+                         'preparing': preparing,
                          'to_answer': sum(1 for p in proposals if p.get('status') == 'pending'),
                          'keywords_added': sum(1 for p in proposals if p.get('automatic') and p.get('operation') == 'keyword' and p.get('status') == 'accepted'),
                          'downloaded': bool(self.engine.get('tailoring:export-latest:' + job_id)),

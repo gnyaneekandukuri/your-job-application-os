@@ -2,7 +2,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { MarkApplied } from './MarkApplied';
 import { TailorResume } from './TailorResume';
 
-type Ready={job_id:string;company:string;title:string;url:string;score:number|null;recommendation:string|null;to_answer:number;keywords_added:number;downloaded:boolean;updated_at:string};
+type Ready={job_id:string;company:string;title:string;url:string;score:number|null;recommendation:string|null;preparing?:boolean;to_answer:number;keywords_added:number;downloaded:boolean;updated_at:string};
 
 // The daily apply list: every prepared resume not yet applied to, best fit first.
 export function ReadyToApply(){
@@ -20,7 +20,7 @@ export function ReadyToApply(){
    {rows.map(r=><tr key={r.job_id}>
     <td><strong>{r.company}</strong><br/>{r.title}</td>
     <td>{r.score!=null?`${Math.round(r.score)}%`:'–'}{r.recommendation?<><br/><span className="ready-note">{r.recommendation}</span></>:null}</td>
-    <td>{r.to_answer?`${r.to_answer} to answer`:'Ready'}{r.downloaded?<><br/><span className="ready-note">PDF downloaded</span></>:null}</td>
+    <td>{r.preparing?'Preparing… appears ready in a few minutes':r.to_answer?`${r.to_answer} to answer`:'Ready'}{r.downloaded?<><br/><span className="ready-note">PDF downloaded</span></>:null}</td>
     <td>{r.keywords_added||'–'}</td>
     <td className="ready-actions"><TailorResume jobId={r.job_id} label={`${r.company} · ${r.title}`} buttonLabel="Review & download"/>{/^https?:\/\//.test(r.url)&&<a href={r.url} target="_blank" rel="noreferrer">Open job ↗</a>}<MarkApplied jobId={r.job_id} company={r.company} onRecorded={()=>{query.setQueryData<Ready[]>(['ready-to-apply'],rows=>(rows||[]).filter(x=>x.job_id!==r.job_id));void query.invalidateQueries({queryKey:['ready-to-apply']});}}/></td>
    </tr>)}
