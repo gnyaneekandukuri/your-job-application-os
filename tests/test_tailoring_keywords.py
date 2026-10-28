@@ -353,7 +353,7 @@ def test_singular_and_plural_both_count_but_two_letter_initials_do_not():
     assert [r['status'] for r in rows][:2] == ['present', 'present'] and rows[2]['status'] != 'present'  # "as" is not "agentic systems".
 
 
-def test_ready_list_shows_unapplied_prepared_resumes_best_fit_first(setup):
+def test_ready_list_shows_unapplied_prepared_resumes_newest_first(setup):
     from types import SimpleNamespace
     s, j, p, *_ = setup
     second = SimpleNamespace(id='job-2', title='Data PM', company='Other Inc', description=j.description, source_url='https://example.com/2')
@@ -363,7 +363,11 @@ def test_ready_list_shows_unapplied_prepared_resumes_best_fit_first(setup):
     scores = {'job-1': {'assessment': {'score': 55, 'recommendation': 'Apply normally'}},
               'job-2': {'assessment': {'score': 81, 'recommendation': 'Attack hard'}}}
     rows = s.ready(jobs, scores, applied={'job-3'})
-    assert [r['job_id'] for r in rows] == ['job-2', 'job-1']  # Applied jobs drop out; best fit first.
+    assert [r['job_id'] for r in rows] == ['job-2', 'job-1']  # Applied jobs drop out; latest prepared first.
+    record = s.engine.get(s.engine.get('tailoring:latest:job-1'))
+    record['updated_at'] = '2999-01-01T00:00:00+00:00'
+    s.engine.put(s.engine.get('tailoring:latest:job-1'), record)
+    assert [r['job_id'] for r in s.ready(jobs, scores, applied={'job-3'})] == ['job-1', 'job-2']  # Newest wins over fit.
     assert rows[0]['url'] == 'https://example.com/2' and rows[0]['to_answer'] == 0
     assert not any(r['preparing'] for r in rows)
 

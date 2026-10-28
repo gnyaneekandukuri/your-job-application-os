@@ -813,7 +813,7 @@ class Tailoring:
         return text_template(base)
 
     def ready(self, jobs, scores, applied):
-        """Prepared resumes not yet applied to, best fit first: the daily apply list."""
+        """Prepared resumes not yet applied to, newest first: the daily apply list."""
         from contextlib import closing
         with closing(self.engine.connect()) as db:
             latest = {k.removeprefix('tailoring:latest:'): json.loads(v) for k, v in
@@ -838,7 +838,9 @@ class Tailoring:
                          'keywords_added': sum(1 for p in proposals if p.get('automatic') and p.get('operation') == 'keyword' and p.get('status') == 'accepted'),
                          'downloaded': bool(self.engine.get('tailoring:export-latest:' + job_id)),
                          'updated_at': record.get('updated_at') or record.get('created_at', '')})
-        return sorted(rows, key=lambda r: (r['score'] is None, -(r['score'] or 0), r['updated_at']))
+        # In progress first, then the most recently prepared, so a new resume is always at the top.
+        rows.sort(key=lambda r: r['updated_at'], reverse=True)
+        return sorted(rows, key=lambda r: not r['preparing'])
 
     def statuses(self, job_ids):
         """Latest resume state per job for list views; reads only small JSON fields, not whole drafts."""
