@@ -277,7 +277,7 @@ class JobList:
     def last_scan_new_ids(self):
         """Use recorded scan membership, not posting dates or manual additions."""
         with closing(sqlite3.connect(f'file:{self.discovery.path.as_posix()}?mode=ro', uri=True, timeout=10)) as db:
-            scan = db.execute('SELECT id FROM scans WHERE finished IS NOT NULL ORDER BY id DESC LIMIT 1').fetchone()
+            scan = db.execute("SELECT id FROM scans WHERE finished IS NOT NULL AND COALESCE(json_extract(payload,'$.backlog_only'),0)=0 ORDER BY id DESC LIMIT 1").fetchone()
             if not scan: return []
             return [r[0] for r in db.execute("SELECT opportunity_id FROM scan_roles WHERE scan_id=? AND json_extract(payload,'$.newly_saved')=1", (scan[0],))]
 
@@ -455,7 +455,7 @@ class JobList:
                 raise Missing('Scan not found')
             return self._run(db, row, True)
 
-    def assessments(self):
+    def assessments(self, added="all"):
         with closing(self.connect()) as db:
             row = db.execute('SELECT metadata,revision FROM snapshot WHERE id=1').fetchone()
         result = json.loads(row['metadata']).get('assessment_results',{}) if row else {'items':[], 'settings':{}, 'queued_count':0}
@@ -479,6 +479,28 @@ class JobList:
         from .job_retention import age_state
         result['items'] = [r for r in result.get('items', []) if r.get('kept') or
                            age_state({'first_seen':r.get('entered_at')}) != 'older_than_four_days']
+
+        if added == 'last_scan':
+            opportunity_ids = set(self.last_scan_new_ids())
+            job_ids = set()
+            if opportunity_ids:
+                with closing(sqlite3.connect(f'file:{self.discovery.path.as_posix()}?mode=ro', uri=True, timeout=10)) as db:
+                    job_ids = {r[0] for r in db.execute(
+                        'SELECT job_id FROM opportunities WHERE id IN (' + ','.join('?' for _ in opportunity_ids) + ')',
+                        list(opportunity_ids)) if r[0]}
+            result['items'] = [r for r in result['items'] if r.get('opportunity_id') in opportunity_ids or r['job_id'] in job_ids]
+        elif added in ('today', 'yesterday'):
+            midnight = datetime.now(ZoneInfo('America/Chicago')).replace(hour=0, minute=0, second=0, microsecond=0)
+            start = midnight - timedelta(days=1) if added == 'yesterday' else midnight
+            end = start + timedelta(days=1)
+            def in_day(item):
+                try:
+                    entered = datetime.fromisoformat(item.get('entered_at') or '')
+                    return entered.tzinfo is not None and start <= entered < end
+                except (ValueError, TypeError):
+                    return False
+            result['items'] = [r for r in result['items'] if in_day(r)]
+        # last4 uses the existing retention filter above, including explicitly kept jobs.
 
         ids, urls = self.applied_keys()
         result['items'] = [r for r in result.get('items',[]) if r.get('job_id') not in ids and (r.get('url') or '').rstrip('/') not in urls]

@@ -282,8 +282,8 @@ def create_app(data_dir: Path | None = None):
         return {'items': state.tailoring.ready(state.service.store.read_jobs(ids), scores, applied)}
 
     @api.get("/api/assessments/saved")
-    def saved_assessment_results(request: Request):
-        result = request.app.state.job_list.assessments()
+    def saved_assessment_results(request: Request, added: str = Query('all', pattern='^(all|today|yesterday|last4|last_scan)$')):
+        result = request.app.state.job_list.assessments(added=added)
         resumes = request.app.state.tailoring.statuses([r['job_id'] for r in result.get('items', [])])
         jobs = request.app.state.service.store.read_jobs([r['job_id'] for r in result.get('items', []) if r['assessment']['state']=='COMPLETE'])
         approaches = request.app.state.resume_approach.views(jobs.values())
