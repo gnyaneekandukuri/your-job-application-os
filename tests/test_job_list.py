@@ -386,8 +386,8 @@ def test_last_scan_uses_new_membership_and_waits_for_running_scan(model):
     import sqlite3
     m,source,d=model
     with sqlite3.connect(d.path) as db:
-        db.executescript('CREATE TABLE scans(id INTEGER,finished TEXT); CREATE TABLE scan_roles(scan_id INTEGER,opportunity_id TEXT,payload TEXT);')
-        db.executemany('INSERT INTO scans VALUES (?,?)',[(1,'finished'),(2,'finished'),(3,None)])
+        db.executescript("CREATE TABLE scans(id INTEGER,finished TEXT,payload TEXT DEFAULT '{}'); CREATE TABLE scan_roles(scan_id INTEGER,opportunity_id TEXT,payload TEXT);")
+        db.executemany('INSERT INTO scans(id,finished) VALUES (?,?)',[(1,'finished'),(2,'finished'),(3,None)])
         db.executemany('INSERT INTO scan_roles VALUES (?,?,?)',[(1,'1','{"newly_saved":true}'),(2,'2','{"newly_saved":true}'),(2,'3','{"newly_saved":false}'),(2,'4','{"newly_saved":true}'),(3,'5','{"newly_saved":true}')])
     source['items']=[listing(n) for n in range(1,7)]
     m.refresh()
@@ -397,7 +397,7 @@ def test_last_scan_uses_new_membership_and_waits_for_running_scan(model):
     assert m.page(added='last_scan',query='Manager 3')['total']==0
     with sqlite3.connect(d.path) as db: db.execute("UPDATE scans SET finished='finished' WHERE id=3")
     assert [x['id'] for x in m.page(added='last_scan')['items']]==['5']
-    with sqlite3.connect(d.path) as db: db.execute("INSERT INTO scans VALUES (4,'finished')")
+    with sqlite3.connect(d.path) as db: db.execute("INSERT INTO scans(id,finished) VALUES (4,'finished')")
     assert m.page(added='last_scan')['total']==0
     with sqlite3.connect(d.path) as db: db.execute('DELETE FROM scans')
     assert m.page(added='last_scan')['total']==0
@@ -456,3 +456,50 @@ def test_passed_duplicate_hidden_with_stale_primary(model):
         db.execute("INSERT INTO passed_jobs VALUES('alternate')")
     assert [r['id'] for r in m.page()['items']] == ['2']
     assert [r['id'] for r in m.page(show='passed')['items']] == ['1']
+
+
+def test_analyzed_dates_use_entry_time_chicago_and_manual_jobs(model):
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+    m, source, _ = model
+    midnight = datetime.now(ZoneInfo('America/Chicago')).replace(hour=0, minute=0, second=0, microsecond=0)
+    def row(jid, entered, **extra):
+        return {'job_id':jid, 'entered_at':entered, 'assessment':{'state':'COMPLETE', 'assessed_at':midnight.isoformat()}, **extra}
+    source['assessment_results']['items'] = [
+        row('today-manual', midnight.isoformat()),
+        row('yesterday', (midnight-timedelta(seconds=1)).isoformat()),
+        row('old-kept', (midnight-timedelta(days=10)).isoformat(), kept=True),
+        row('unknown', None),
+    ]
+    m.refresh()
+    assert [r['job_id'] for r in m.assessments('today')['items']] == ['today-manual']
+    assert [r['job_id'] for r in m.assessments('yesterday')['items']] == ['yesterday']
+    assert {r['job_id'] for r in m.assessments('last4')['items']} == {'today-manual','yesterday','old-kept','unknown'}
+    assert m.assessments('today')['counts']['complete'] == 1
+
+
+def test_analyzed_last_scan_skips_repair_and_running_scans(model):
+    import sqlite3
+    m, source, d = model
+    with sqlite3.connect(d.path) as db:
+        db.executescript("""CREATE TABLE scans(id INTEGER, finished TEXT, payload TEXT);
+            CREATE TABLE scan_roles(scan_id INTEGER, opportunity_id TEXT, payload TEXT);
+            CREATE TABLE opportunities(id TEXT, job_id TEXT);""")
+        db.executemany('INSERT INTO scans VALUES (?,?,?)', [
+            (1,'done','{}'), (2,'done','{"backlog_only":true}'), (3,None,'{}')])
+        db.executemany('INSERT INTO scan_roles VALUES (?,?,?)', [
+            (1,'new','{"newly_saved":true}'), (1,'repeat','{"newly_saved":false}'),
+            (3,'running','{"newly_saved":true}')])
+        db.execute("INSERT INTO opportunities VALUES ('new','linked-job')")
+    source['items'] = [listing('new'), listing('repeat')]
+    source['assessment_results']['items'] = [
+        {'job_id':'linked-job','assessment':{'state':'COMPLETE'}},
+        {'job_id':'manual','assessment':{'state':'COMPLETE'}},
+        {'job_id':'old','opportunity_id':'repeat','assessment':{'state':'COMPLETE'}},
+    ]
+    m.refresh()
+    assert [r['job_id'] for r in m.assessments('last_scan')['items']] == ['linked-job']
+    assert [r['id'] for r in m.page(added='last_scan')['items']] == ['new']
+    with sqlite3.connect(d.path) as db:
+        db.execute("INSERT INTO scans VALUES (4,'done','{}')")
+    assert m.assessments('last_scan')['items'] == []
