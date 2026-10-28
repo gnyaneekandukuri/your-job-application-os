@@ -2,6 +2,11 @@ param([int]$DrainTimeoutSeconds = 300, [ValidateRange(1, 3600)][int]$StartTimeou
 $ErrorActionPreference = 'Stop'
 $productRoot = Split-Path -Parent $PSScriptRoot
 $dataRoot = if ($env:JOB_REVIEW_DATA_DIR) { $env:JOB_REVIEW_DATA_DIR } else { Join-Path $productRoot '.local' }
+# The app reads the drain flag from its active workspace (see default_data_directory).
+$marker = Join-Path $dataRoot 'active-workspace'
+if (-not $env:JOB_REVIEW_DATA_DIR -and (Test-Path -LiteralPath $marker)) {
+    $dataRoot = Join-Path $dataRoot ((Get-Content -LiteralPath $marker -Raw).Trim())
+}
 $drainFlag = Join-Path $dataRoot 'maintenance.flag'
 $ownsFlag = $false
 $serverStopped = $false
@@ -34,8 +39,8 @@ try {
         } while ($true)
         Stop-Process -Id $serverId
         $serverStopped = $true
-        Wait-Process -Id $serverId -Timeout 15 -ErrorAction SilentlyContinue
-        if (Get-Process -Id $serverId -ErrorAction SilentlyContinue) { throw 'Listener did not stop within 15 seconds.' }
+        Wait-Process -Id $serverId -Timeout 60 -ErrorAction SilentlyContinue
+        if (Get-Process -Id $serverId -ErrorAction SilentlyContinue) { throw 'Listener did not stop within 60 seconds.' }
     }
     $healthy = $false
     for ($attempt = 1; $attempt -le 2; $attempt++) {
