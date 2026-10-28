@@ -10,7 +10,10 @@ class Engine:
     def put(self,k,v): self.data[k]=v
     def paid(self,kind,payload):
         self.calls.append(payload)
-        return {'status':'completed','output':[{'type':'message','content':[{'type':'output_text','text':json.dumps({'text':'I built a data assistant and would like to discuss this role.'})}]}]}
+        result={'text':'I built a data assistant and would like to discuss this role.'}
+        if payload['text']['format']['name']=='cover_letter':
+            result['needs']=[{'jd_quote':json.loads(payload['input'])['jd'][:16],'evidence':'Built a data assistant'}]*2
+        return {'status':'completed','output':[{'type':'message','content':[{'type':'output_text','text':json.dumps(result)}]}]}
 
 def setup():
     e=Engine();j=SimpleNamespace(id='job',company='Example',title='PM',description='Build data products')
@@ -113,3 +116,18 @@ def test_missing_cover_skill_fails_before_paid_request(tmp_path,monkeypatch):
     with pytest.raises(RetrievalError,match='skill could not be loaded'):
         m.generate(t,j,m.DraftInput(kind='cover_letter'))
     assert not e.calls
+
+
+def test_cover_letter_is_planned_from_jd_needs_and_rejects_invented_quotes():
+    e,j,t,c=setup()
+    m.generate(t,j,m.DraftInput(kind='cover_letter'))
+    assert e.calls[-1]['text']['format']['name']=='cover_letter'
+    assert 'most central to this role' in e.calls[-1]['instructions']
+    paid=e.paid
+    def invented(kind,payload):
+        response=paid(kind,payload)
+        data=json.loads(response['output'][0]['content'][0]['text']);data['needs'][0]['jd_quote']='Own pricing for a global portfolio'
+        response['output'][0]['content'][0]['text']=json.dumps(data);return response
+    e.paid=invented
+    with pytest.raises(RetrievalError,match='not in this JD'):
+        m.generate(t,j,m.DraftInput(kind='cover_letter',note='new',revision=m.view(e,j,'cover_letter')['revision']))

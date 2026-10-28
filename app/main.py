@@ -230,7 +230,7 @@ def create_app(data_dir: Path | None = None):
     @api.get("/api/discovery/page")
     def job_list_page(request: Request, page: int = Query(1, ge=1), size: int = Query(25, ge=1, le=100),
                       query: str = Query('', max_length=200), priority: str = 'all', location: str = 'match',
-                      company: str = 'focus', board: str = 'all', show: str = 'all', added: str = Query('all', pattern='^(all|today|yesterday|last4)$'), runs: bool = False, view: str = '', runs_page: int = Query(1, ge=1), runs_limit: int = Query(10, ge=1, le=50)):
+                      company: str = 'focus', board: str = 'all', show: str = 'all', added: str = Query('all', pattern='^(all|today|yesterday|last4|last_scan)$'), runs: bool = False, view: str = '', runs_page: int = Query(1, ge=1), runs_limit: int = Query(10, ge=1, le=50)):
         if runs or view == 'runs':
             return request.app.state.job_list.runs(runs_page, runs_limit)
         return request.app.state.job_list.page(page,size,query,priority,location,company,board,show,runs or view == 'runs',added=added)

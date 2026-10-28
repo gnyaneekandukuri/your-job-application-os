@@ -180,6 +180,36 @@ def _run_props(rpr):
     return props
 
 
+def _indent(ind):
+    """Left indent and hanging indent in points, from a Word w:ind element."""
+    if ind is None: return {}
+    props = {}
+    left = ind.get(W+'left') or ind.get(W+'start')
+    try:
+        if left is not None: props['indent'] = max(0, min(144, int(left)/20))
+        if ind.get(W+'hanging') is not None: props['hanging'] = max(0, min(72, int(ind.get(W+'hanging'))/20))
+        elif ind.get(W+'firstLine') is not None: props['hanging'] = 0
+    except ValueError: return {}
+    return props
+
+
+def _list_indents(numbering):
+    """Indent of each (numId, level) pair, read from the list definitions in word/numbering.xml."""
+    if numbering is None: return {}
+    abstract = {}
+    for definition in numbering.findall(W+'abstractNum'):
+        for level in definition.findall(W+'lvl'):
+            ppr = level.find(W+'pPr')
+            indent = _indent(ppr.find(W+'ind')) if ppr is not None else {}
+            if indent: abstract[(definition.get(W+'abstractNumId'), level.get(W+'ilvl'))] = indent
+    result = {}
+    for instance in numbering.findall(W+'num'):
+        base = instance.find(W+'abstractNumId')
+        for (aid, level), indent in abstract.items():
+            if base is not None and aid == base.get(W+'val'): result[(instance.get(W+'numId'), level)] = indent
+    return result
+
+
 def _par_props(ppr):
     props = {}
     if ppr is None: return props
@@ -192,7 +222,12 @@ def _par_props(ppr):
     borders = ppr.find(W+'pBdr')
     if borders is not None:
         props['rule'] = 'below' if borders.find(W+'bottom') is not None else 'above' if borders.find(W+'top') is not None else 'none'
-    if ppr.find(W+'numPr') is not None: props['numbered'] = True
+    numbering = ppr.find(W+'numPr')
+    if numbering is not None:
+        props['numbered'] = True
+        num, level = numbering.find(W+'numId'), numbering.find(W+'ilvl')
+        if num is not None: props['num'] = (num.get(W+'val'), level.get(W+'val') if level is not None else '0')
+    props.update(_indent(ppr.find(W+'ind')))
     jc = ppr.find(W+'jc')
     if jc is not None and jc.get(W+'val') in ('left', 'center', 'right'): props['align'] = jc.get(W+'val')
     return props
@@ -211,6 +246,7 @@ def docx_template(raw):
     with zipfile.ZipFile(io.BytesIO(raw)) as archive:
         root = ET.fromstring(archive.read('word/document.xml'))
         styles = ET.fromstring(archive.read('word/styles.xml')) if 'word/styles.xml' in archive.namelist() else None
+        lists = _list_indents(ET.fromstring(archive.read('word/numbering.xml')) if 'word/numbering.xml' in archive.namelist() else None)
     table, run_defaults, par_defaults, default_style = {}, {}, {}, None
     if styles is not None:
         run_defaults = _run_props(styles.find(W+'docDefaults/'+W+'rPrDefault/'+W+'rPr'))
@@ -236,7 +272,10 @@ def docx_template(raw):
         ppr = paragraph.find(W+'pPr')
         named = ppr.find(W+'pStyle') if ppr is not None else None
         style_run, par, names = resolved(named.get(W+'val') if named is not None else default_style)
-        par.update(_par_props(ppr))
+        direct = _par_props(ppr)
+        # Word precedence for indents: paragraph > list definition > style.
+        par.update(lists.get(direct.get('num') or par.get('num'), {}))
+        par.update(direct)
         pieces = []
         for run in paragraph.iter(W+'r'):
             props = {**style_run, **_run_props(run.find(W+'rPr'))}
@@ -286,6 +325,9 @@ def docx_template(raw):
         for key in ('space_before', 'space_after'):
             if key in par: fmt[key] = max(0, min(48, par[key]))
         if kind == 'heading': fmt['rule'] = par.get('rule', 'none')
+        if par.get('indent'):
+            fmt['indent'] = par['indent']
+            fmt['hanging'] = min(par.get('hanging', 0), par['indent'])
         blocks.append({'kind': kind, 'text': text, 'format': fmt})
     page = {'line_spacing': max(.8, min(3, resolved(default_style)[1].get('line_spacing') or 1))}
     section = root.find('.//'+W+'body/'+W+'sectPr')

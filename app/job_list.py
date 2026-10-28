@@ -274,6 +274,22 @@ class JobList:
                 if jid: ids.add(jid)
         return ids, urls
 
+    def last_scan_new_ids(self):
+        """Use recorded scan membership, not posting dates or manual additions."""
+        with closing(sqlite3.connect(f'file:{self.discovery.path.as_posix()}?mode=ro', uri=True, timeout=10)) as db:
+            scan = db.execute('SELECT id FROM scans WHERE finished IS NOT NULL ORDER BY id DESC LIMIT 1').fetchone()
+            if not scan: return []
+            return [r[0] for r in db.execute("SELECT opportunity_id FROM scan_roles WHERE scan_id=? AND json_extract(payload,'$.newly_saved')=1", (scan[0],))]
+
+    def live_passes(self):
+        """Read small decision tables independently of the background listing snapshot."""
+        if not self.discovery.path.exists(): return set(), set()
+        with closing(sqlite3.connect(f'file:{self.discovery.path.as_posix()}?mode=ro', uri=True, timeout=10)) as db:
+            tables = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            ids = {r[0] for r in db.execute('SELECT opportunity_id FROM passed_jobs')} if 'passed_jobs' in tables else set()
+            jobs = {r[0] for r in db.execute('SELECT job_id FROM passed_saved_jobs')} if 'passed_saved_jobs' in tables else set()
+            return ids, jobs
+
     def page(self, page=1, size=25, query='', priority='all', location='match',
              company='focus', board='all', show='all', runs=False, added='all'):
         if runs:
@@ -286,7 +302,19 @@ class JobList:
             metadata = json.loads(row['metadata'])
             metadata.pop('assessment_results',None)
             focus = (metadata.get('company_preference') or {}).get('focus','any')
-            where, args = (["json_extract(payload,'$.passed')=1"] if show == 'passed' else ['completed=0']), []
+            passed_ids, passed_jobs = self.live_passes()
+            db.execute('CREATE TEMP TABLE live_pass_ids(id TEXT PRIMARY KEY)')
+            db.execute('CREATE TEMP TABLE live_pass_jobs(id TEXT PRIMARY KEY)')
+            db.executemany('INSERT INTO live_pass_ids VALUES(?)', [(v,) for v in passed_ids])
+            db.executemany('INSERT INTO live_pass_jobs VALUES(?)', [(v,) for v in passed_jobs])
+            live_pass = """(id IN (SELECT id FROM live_pass_ids)
+                OR json_extract(payload,'$.job_id') IN (SELECT id FROM live_pass_jobs)
+                OR EXISTS (SELECT 1 FROM json_each(listings.payload,'$.duplicate_ids') d
+                    JOIN live_pass_ids p ON p.id=d.value)
+                OR EXISTS (SELECT 1 FROM json_each(listings.payload,'$.duplicate_job_ids') d
+                    JOIN live_pass_jobs p ON p.id=d.value))"""
+            effective_pass = "(COALESCE(json_extract(payload,'$.passed'),0)=1 OR COALESCE(" + live_pass + ",0))"
+            where, args = ([effective_pass] if show == 'passed' else ['completed=0', 'NOT '+effective_pass]), []
             applied_ids, applied_urls = self.applied_keys()
             for field, values in (('job_id',applied_ids),('url',applied_urls),('id',{v.removeprefix('opportunity:') for v in applied_ids if v.startswith('opportunity:')})):
                 if values:
@@ -308,7 +336,11 @@ class JobList:
             if board != 'all':
                 where.append('id IN (SELECT id FROM boards WHERE board=?)'); args.append(board)
             if query: where.append('instr(search_text,?)>0'); args.append(query.lower())
-            if added in ('today', 'yesterday'):
+            if added == 'last_scan':
+                ids = self.last_scan_new_ids()
+                where.append('id IN ('+','.join('?' for _ in ids)+')' if ids else '0')
+                args.extend(ids)
+            elif added in ('today', 'yesterday'):
                 midnight = datetime.now(ZoneInfo('America/Chicago')).replace(hour=0, minute=0, second=0, microsecond=0)
                 start = midnight - timedelta(days=1) if added == 'yesterday' else midnight
                 end = start + timedelta(days=1)
@@ -335,12 +367,13 @@ class JobList:
             clause = ' AND '.join(where)
             total = db.execute('SELECT count(*) FROM listings WHERE '+clause,args).fetchone()[0]
             pages = max(1,math.ceil(total/size)); page = min(max(1,page),pages)
-            # High priority first and Low last, then newest discovery day; company preference only breaks ties within a day.
-            order = ("CASE priority WHEN 'high' THEN 0 WHEN 'low' THEN 2 ELSE 1 END,substr(first_seen,1,10) DESC,"
-                     + ('sort_order,backing DESC,' if focus == 'startups' else 'backing DESC,' if focus != 'any' else '')+'first_seen DESC,id')
+            # Newest additions first across priorities; stable ID breaks timestamp ties.
+            order = "julianday(first_seen) DESC,id"
             items = [] if runs else [json.loads(r[0]) for r in db.execute(
                 'SELECT payload FROM listings WHERE '+clause+' ORDER BY '+order+' LIMIT ? OFFSET ?',
                 [*args,size,(page-1)*size])]
+            if show == 'passed':
+                for item in items: item['passed'] = True
             if not runs:
                 metadata.pop('run_reports',None)
                 if metadata.get('scan'):

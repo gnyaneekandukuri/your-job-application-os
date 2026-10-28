@@ -380,3 +380,79 @@ def test_added_last4_keeps_saved_and_filters_before_pagination(model):
     assert result['total'] == 2 and result['pages'] == 2
     assert {i['id'] for i in m.page(added='last4')['items']} == {'1', '3'}
     assert m.page(added='all')['total'] == 3
+
+
+def test_last_scan_uses_new_membership_and_waits_for_running_scan(model):
+    import sqlite3
+    m,source,d=model
+    with sqlite3.connect(d.path) as db:
+        db.executescript('CREATE TABLE scans(id INTEGER,finished TEXT); CREATE TABLE scan_roles(scan_id INTEGER,opportunity_id TEXT,payload TEXT);')
+        db.executemany('INSERT INTO scans VALUES (?,?)',[(1,'finished'),(2,'finished'),(3,None)])
+        db.executemany('INSERT INTO scan_roles VALUES (?,?,?)',[(1,'1','{"newly_saved":true}'),(2,'2','{"newly_saved":true}'),(2,'3','{"newly_saved":false}'),(2,'4','{"newly_saved":true}'),(3,'5','{"newly_saved":true}')])
+    source['items']=[listing(n) for n in range(1,7)]
+    m.refresh()
+    result=m.page(added='last_scan',size=1)
+    assert result['total']==2 and result['pages']==2
+    assert {x['id'] for x in m.page(added='last_scan')['items']}=={'2','4'}
+    assert m.page(added='last_scan',query='Manager 3')['total']==0
+    with sqlite3.connect(d.path) as db: db.execute("UPDATE scans SET finished='finished' WHERE id=3")
+    assert [x['id'] for x in m.page(added='last_scan')['items']]==['5']
+    with sqlite3.connect(d.path) as db: db.execute("INSERT INTO scans VALUES (4,'finished')")
+    assert m.page(added='last_scan')['total']==0
+    with sqlite3.connect(d.path) as db: db.execute('DELETE FROM scans')
+    assert m.page(added='last_scan')['total']==0
+
+
+def test_newest_first_across_priority_company_and_pages(model):
+    m, source, _ = model
+    source['items'] = [
+        listing(1, first_seen='2026-10-25T12:00:00+00:00'),
+        listing(2, first_seen='2026-10-26T12:00:00+00:00',
+                keyword_match={'label':'Worth checking','priority':'worth_checking'}),
+        listing(3, first_seen='2026-10-26T13:00:00+00:00',
+                keyword_match={'label':'Low priority','priority':'low'},
+                company_fit={'group':'unknown','sort_order':100,'backing_boost':0}),
+    ]
+    assert m.refresh()
+    assert [r['id'] for r in m.page(size=2)['items']] == ['3', '2']
+    assert [r['id'] for r in m.page(size=2, page=2)['items']] == ['1']
+    assert [r['id'] for r in m.page(priority='high')['items']] == ['1']
+
+
+def test_pass_decisions_override_stale_snapshot_before_pagination(model):
+    import sqlite3
+    m, source, d = model
+    source['items'] = [listing(1), listing(2), listing(3, job_id='saved-3')]
+    assert m.refresh()
+    with sqlite3.connect(d.path) as db:
+        db.execute('CREATE TABLE passed_jobs(opportunity_id TEXT PRIMARY KEY)')
+        db.execute('CREATE TABLE passed_saved_jobs(job_id TEXT PRIMARY KEY)')
+        db.execute("INSERT INTO passed_jobs VALUES('1')")
+        db.execute("INSERT INTO passed_saved_jobs VALUES('saved-3')")
+    d.table_view.side_effect = AssertionError('Pass visibility must not rebuild the snapshot')
+    page = m.page(size=1)
+    assert page['total'] == 1 and page['pages'] == 1
+    assert [r['id'] for r in page['items']] == ['2']
+    passed = m.page(show='passed')
+    assert {r['id'] for r in passed['items']} == {'1','3'}
+    assert all(r['passed'] for r in passed['items'])
+    with sqlite3.connect(d.path) as db:
+        db.execute('DELETE FROM passed_jobs')
+        db.execute('DELETE FROM passed_saved_jobs')
+    assert m.page()['total'] == 3
+
+
+def test_passed_duplicate_hidden_with_stale_primary(model):
+    import sqlite3
+    m, source, d = model
+    source['items'] = [listing(1), listing(2)]
+    assert m.refresh()
+    with m.connect() as db:
+        row = json.loads(db.execute("SELECT payload FROM listings WHERE id='1'").fetchone()[0])
+        row['duplicate_ids'] = ['1','alternate']
+        db.execute("UPDATE listings SET payload=? WHERE id='1'", (json.dumps(row),))
+    with sqlite3.connect(d.path) as db:
+        db.execute('CREATE TABLE passed_jobs(opportunity_id TEXT PRIMARY KEY)')
+        db.execute("INSERT INTO passed_jobs VALUES('alternate')")
+    assert [r['id'] for r in m.page()['items']] == ['2']
+    assert [r['id'] for r in m.page(show='passed')['items']] == ['1']

@@ -4,22 +4,52 @@ import { Extension, Mark } from '@tiptap/core';
 import { Plugin, PluginKey } from '@tiptap/pm/state';
 import { Decoration, DecorationSet } from '@tiptap/pm/view';
 import StarterKit from '@tiptap/starter-kit';
-import {changedFromMaster} from './resumeChanges';
+import {addedWordRanges,changedFromMaster} from './resumeChanges';
 import {uniqueResumeOrigins,paragraphText} from './resumeDocumentLogic';
 
 export type ResumeBlock={change_type?:string;jd_quote?:string;item_id?:string;format?:{font_family:string;font_size:number;bold:boolean;italic:boolean;align:string};kind:'heading'|'contact'|'role'|'bullet'|'text';text:string;citations:{source_id:string;quote:string}[];reason:string};
+type BlockFormat={font_family:string;font_size:number;bold:boolean;italic:boolean;align:string;space_before?:number|null;space_after?:number|null;rule?:string|null;indent?:number|null;hanging?:number|null};
+// Mirror the master's Word layout: spacing, section rules and bullet indents (Word's default bullet when unknown).
+function formatStyle(f:BlockFormat,kind:string){
+ const css=[`font-family:${f.font_family}`,`font-size:${f.font_size}pt`,`font-weight:${f.bold?700:400}`,`font-style:${f.italic?'italic':'normal'}`,`text-align:${f.align}`];
+ if(f.space_before!=null)css.push(`margin-top:${f.space_before}pt`);
+ if(f.space_after!=null)css.push(`margin-bottom:${f.space_after}pt`);
+ if(kind==='heading')css.push(f.rule==='below'?'border-bottom:1px solid #444;border-top:0':f.rule==='above'?'border-top:1.5px solid #222;border-bottom:0':'border:0','text-transform:none','letter-spacing:normal','padding-top:0','padding-bottom:0');
+ if(kind==='bullet'){const indent=f.indent||36;css.push(`padding-left:${indent}pt`,`--bullet-at:${Math.max(0,indent-(f.hanging??18))}pt`);}
+ return css.join(';')+';';
+}
 const Metadata=Extension.create({name:'resumeMetadata',addGlobalAttributes(){return [{types:['paragraph'],attributes:{
- origin:{default:null,rendered:false},manualId:{default:null,rendered:false},format:{default:null,renderHTML:attrs=>attrs.format?{style:`font-family:${attrs.format.font_family};font-size:${attrs.format.font_size}pt;font-weight:${attrs.format.bold?700:400};font-style:${attrs.format.italic?'italic':'normal'};text-align:${attrs.format.align};`}:{}},kind:{default:'text',renderHTML:attrs=>({'data-kind':attrs.kind})}
+ origin:{default:null,rendered:false},manualId:{default:null,rendered:false},format:{default:null,renderHTML:attrs=>attrs.format?{style:formatStyle(attrs.format,attrs.kind)}:{}},kind:{default:'text',renderHTML:attrs=>({'data-kind':attrs.kind})}
 }}];}});
 const RightField=Mark.create({name:'resumeRight',renderHTML(){return ['span',{class:'resume-right-field'},0];}});
-export function ResumeDocument({initial,master,disabled,onChange,onSelect}:{initial:ResumeBlock[];master?:ResumeBlock[];disabled:boolean;onChange:(blocks:ResumeBlock[])=>void;onSelect:(index:number)=>void}) {
+export type KeywordSuggestion={id:string;item_id:string;keywords:string[];question:string};
+// Keep/undo controls for a job keyword already placed in this point; not part of the editable text.
+function keywordControl(s:KeywordSuggestion,onDecide:(id:string,decision:'accept'|'reject')=>void){
+ const box=document.createElement('span');box.className='keyword-inline';box.contentEditable='false';
+ const label=document.createElement('span');label.textContent=`Job keyword: ${s.keywords.join(', ')}${s.question?` · ${s.question}`:''}`;box.append(label);
+ for(const [decision,mark,name] of [['accept','✓','Keep'],['reject','✕','Undo']] as const){
+  const button=document.createElement('button');button.type='button';button.textContent=mark;button.title=`${name} this keyword edit`;button.setAttribute('aria-label',`${name} job keyword ${s.keywords.join(', ')}`);
+  button.onmousedown=e=>e.preventDefault();button.onclick=e=>{e.preventDefault();onDecide(s.id,decision);};box.append(button);
+ }
+ return box;
+}
+export function ResumeDocument({initial,master,disabled,onChange,onSelect,suggestions=[],onDecide}:{initial:ResumeBlock[];master?:ResumeBlock[];disabled:boolean;onChange:(blocks:ResumeBlock[])=>void;onSelect:(index:number)=>void;suggestions?:KeywordSuggestion[];onDecide?:(id:string,decision:'accept'|'reject')=>void}) {
  const changes=Extension.create({name:'resumeChanges',addProseMirrorPlugins(){return [new Plugin({key:new PluginKey('resumeChanges'),props:{decorations(state){
-  if(!master)return DecorationSet.empty;
+  if(!master&&!suggestions.length)return DecorationSet.empty;
   const marks:Decoration[]=[];
   state.doc.forEach((node,pos)=>{
-   const source=initial[node.attrs.origin];const original=master.find(b=>b.item_id===source?.item_id);
+   const source=initial[node.attrs.origin];const original=master?.find(b=>b.item_id===source?.item_id);
    const text=paragraphText(node);
-   if(changedFromMaster({text,kind:node.attrs.kind},original))marks.push(Decoration.node(pos,pos+node.nodeSize,{class:'resume-changed',title:original?'This paragraph contains edits':'Added point'}));
+   if(master&&changedFromMaster({text,kind:node.attrs.kind},original)){
+    // Words added to the candidate's own point are green; a rewritten, replaced or new point is yellow.
+    const added=original&&original.kind===node.attrs.kind?addedWordRanges(original.text.replace(/\t/g,''),node.textContent):null;
+    if(added)for(const [from,to] of added)marks.push(Decoration.inline(pos+1+from,pos+1+to,{class:'resume-added-words',title:'Words added to your point'}));
+    else marks.push(Decoration.node(pos,pos+node.nodeSize,{class:'resume-changed',title:original?'This point was rewritten':'Added point'}));
+   }
+   const suggestion=suggestions.find(s=>s.item_id===source?.item_id);
+   if(!suggestion||!onDecide)return;
+   for(const word of suggestion.keywords){const at=node.textContent.toLowerCase().indexOf(word.toLowerCase());if(at>=0)marks.push(Decoration.inline(pos+1+at,pos+1+at+word.length,{class:'keyword-inline-word'}));}
+   marks.push(Decoration.widget(pos+node.nodeSize-1,()=>keywordControl(suggestion,onDecide),{side:1,ignoreSelection:true,key:suggestion.id}));
   });return DecorationSet.create(state.doc,marks);
  }}})];}});
  const editor=useEditor({

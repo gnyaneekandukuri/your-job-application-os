@@ -74,3 +74,30 @@ def test_jd_quotes_match_despite_typographic_punctuation():
     from app.tailoring import normalized_quote
     jd = 'As Ploy’s first PM — you’ll own “major” initiatives'
     assert normalized_quote("Ploy's first PM - you'll own \"major\" initiatives") in normalized_quote(jd)
+
+
+def test_calibri_bold_and_bold_italic_use_the_real_calibri_files():
+    from pathlib import Path
+    import pytest
+    from app.resume_pdf import font_name
+    if not Path('C:/Windows/Fonts/calibrib.ttf').is_file(): pytest.skip('Calibri is not installed')
+    assert font_name({'font_family': 'Calibri', 'bold': True}) == 'Resume-calibrib'
+    assert font_name({'font_family': 'Calibri', 'bold': True, 'italic': True}) == 'Resume-calibriz'
+
+
+def test_word_list_indent_is_read_from_the_numbering_definition():
+    import io, zipfile
+    from app.resume_master import docx_template
+    w = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"'
+    document = (f'<w:document {w}><w:body>'
+                '<w:p><w:r><w:t>Alex Example</w:t></w:r></w:p><w:p><w:r><w:t>alex@example.com</w:t></w:r></w:p>'
+                '<w:p><w:r><w:rPr><w:b/></w:rPr><w:t>EXPERIENCE</w:t></w:r></w:p>'
+                '<w:p><w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="1"/></w:numPr></w:pPr><w:r><w:t>Built a reporting tool for 12 users.</w:t></w:r></w:p>'
+                '</w:body></w:document>')
+    numbering = (f'<w:numbering {w}><w:abstractNum w:abstractNumId="7"><w:lvl w:ilvl="0"><w:pPr><w:ind w:left="720" w:hanging="360"/></w:pPr></w:lvl></w:abstractNum>'
+                 '<w:num w:numId="1"><w:abstractNumId w:val="7"/></w:num></w:numbering>')
+    raw = io.BytesIO()
+    with zipfile.ZipFile(raw, 'w') as z:
+        z.writestr('word/document.xml', document); z.writestr('word/numbering.xml', numbering)
+    bullet = next(b for b in docx_template(raw.getvalue()) if b['kind'] == 'bullet')
+    assert (bullet['format']['indent'], bullet['format']['hanging']) == (36.0, 18.0)

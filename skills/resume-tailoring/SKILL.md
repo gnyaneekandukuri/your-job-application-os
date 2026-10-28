@@ -5,7 +5,7 @@ description: Tailor or review an industry resume against a job description using
 
 # Resume tailoring
 
-Policy version: 2.2. Default audience: US industry applications across roles and candidates. Ask about regional conventions when a different market requires them. Do not embed a particular candidate's history, target company, or preferred occupation in these rules.
+Policy version: 2.4. Default audience: US industry applications across roles and candidates. Ask about regional conventions when a different market requires them. Do not embed a particular candidate's history, target company, or preferred occupation in these rules.
 
 ## Load before drafting
 
@@ -26,6 +26,12 @@ Honor the candidate's selected alternative:
 - **Existing style:** preserve the candidate's voice and chosen section structure while improving relevance and clarity.
 
 Keep framework choice separate from layout, section order, and page length. Candidate preferences may override stylistic defaults; every mode must preserve factual accuracy. Save a per-job override without silently changing the candidate's general preference.
+
+## The master resume is the source of truth
+
+The master resume is the candidate's own record. Stories and other sources are context, not an exhaustive record: a detail missing from a story, or a story that describes the work more narrowly, never makes master wording wrong. Never correct, qualify or narrow master wording from stories. When a story seems to conflict, keep the master as written and ask the candidate a question. Corrections the candidate saved as confirmed facts are the only automatic corrections.
+
+Unchanged master wording is used as written and is not re-audited. Claim checks apply to wording the model writes or changes, which must be supported by the master or the candidate's sources.
 
 ## Select evidence before rewriting
 
@@ -64,6 +70,22 @@ The application must enforce proposal decisions in code; writing this rule does 
 - Show transferable experience accurately. Do not rename previous work to match a new target field. Aspirations belong in an explicitly forward-looking statement, never in past accomplishments.
 - Use JD terminology only when it accurately describes the candidate's work. No keyword stuffing, hidden text, invented tool use, or copied requirements presented as experience.
 - Coaching notes may guide writing but are not evidence of candidate achievements. Keep confidential details out when the candidate has marked them private; ask about a useful anonymized description if necessary.
+
+## Job keyword coverage
+
+Applicant screens match a JD's own wording, so an honest accomplishment can be missed when it is phrased differently. After the review, list the JD's concrete keywords (hard skills, tools, technologies, methods and domains, including nice-to-have ones) and mark each as present, implied, suggested or missing. Skip soft skills, company marketing, benefits, years of experience and degrees. Coverage is literal, as screening software reads it: a keyword counts only when its phrase or standard abbreviation is on the page. "Implied" is reserved for the generic occupation, such as product management on a resume of PM titles; related wording such as "ran A/B tests" does not cover "experimentation platform".
+
+Rank each keyword as essential (the role is about it, so a recruiter would likely reject a resume without it), important (clearly wanted) or minor (a passing mention, example or nice-to-have). The application corrects the rank with countable evidence: a keyword in the job title is essential, a nice-to-have is minor, and repetition or a requirement sentence raises a minor keyword to important.
+
+Evidence supports a keyword at two levels: implied, when a named method or tool in the evidence is a kind of the keyword (SARIMA entails time-series forecasting), placed directly; and typical, when the documented work makes it very likely though unstated (SQL for a former engineer building data products), placed with a yes/no question. A different industry or domain is not evidence. Every keyword the candidate's evidence supports gets a placement; a keyword is missing only when no evidence relates to it. An essential keyword may justify redrafting a whole bullet around it, keeping every fact; important keywords get the lightest edit; minor keywords go only on a skills line. An essential keyword with no evidence is reported as a gap. The resume's substance and voice come first:
+
+- Weave at most one new keyword into an experience bullet, in the JD's wording, changing as few words as possible. Keep the opening verb, ownership, every number, customer, tool, method and named entity, and the outcome.
+- When no bullet takes the keyword naturally, append it to an existing skills line, keeping its entries and style.
+- Use each keyword once across the resume. Never edit the professional summary, headings, contact or role lines, and never add filler such as "leveraged", "utilized" or "applied ... practices".
+- When evidence relates to the keyword but does not prove it, ask one short yes/no question about the specific work instead of claiming or dropping it.
+- Drop any suggestion that a hiring manager would notice was inserted for the JD. Missing keywords are reported, never invented.
+
+Keyword suggestions stay out of the draft until the candidate answers Yes. They do not count toward the resume approach's edit budget.
 
 ## Metrics in every professional-experience bullet
 
