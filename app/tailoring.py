@@ -425,6 +425,31 @@ GENERIC_KEYWORDS = {'ai', 'ml', 'data', 'system', 'systems', 'automation', 'tech
                     'products', 'platform', 'platforms', 'tools', 'analytics', 'engineering', 'design', 'scale', 'customers', 'users'}
 
 
+def keyword_on_page(keyword, page):
+    """Whether a job keyword is on the resume text (casefolded); singular forms count ("LLM" covers "LLMs")."""
+    word = keyword.casefold()
+    forms = [word, word + 's'] + ([word[:-1]] if word.endswith('s') and len(word) > 3 else [])
+    # A standard abbreviation also counts: "RAG" covers "retrieval-augmented generation".
+    # Two-letter initials are ordinary words too ("agentic systems" -> "as"), so they never count.
+    initials = ''.join(w[0] for w in re.findall(r'[a-z0-9]+', word))
+    if len(initials) >= 3: forms += [initials, initials + 's']
+    return any(re.search(r'(?<!\w)' + re.escape(f) + r'(?!\w)', page) for f in forms)
+
+
+def keyword_match(record):
+    """Covered and total job keywords per importance on the saved resume, as the keyword chips count them."""
+    page = ' '.join(b['text'] for b in (record.get('draft') or {}).get('blocks', [])).casefold()
+    pending = {k.casefold() for p in record.get('proposals') or [] if p.get('operation') == 'keyword' and p.get('status') == 'pending'
+               for k in p.get('keywords', [])}
+    match = {}
+    for row in record.get('keywords') or []:
+        tier = match.setdefault(row.get('importance') or 'important', [0, 0])
+        tier[1] += 1
+        if row['keyword'].casefold() not in pending and (row['status'] in ('present', 'implied') or keyword_on_page(row['keyword'], page)):
+            tier[0] += 1
+    return match
+
+
 def keyword_proposals(coverage, blocks, description, proposals, job=None, requirements=(), evidence=None, confirmed=frozenset()):
     """Turn the keyword pass into Yes/No suggestions that keep each bullet's substance."""
     rows = [k.model_dump() for k in coverage.keywords if k.keyword.strip().casefold() not in GENERIC_KEYWORDS]
@@ -481,14 +506,9 @@ def keyword_proposals(coverage, blocks, description, proposals, job=None, requir
     suggested = {k.casefold() for p in created for k in p['keywords']}
     page = ' '.join(b['text'] for b in blocks).casefold()
     for row in rows:
-        # Literal coverage is decided here, not by the model; singular forms count ("LLM" covers "LLMs").
+        # Literal coverage is decided here, not by the model.
         word = row['keyword'].casefold()
-        forms = [word, word + 's'] + ([word[:-1]] if word.endswith('s') and len(word) > 3 else [])
-        # A standard abbreviation also counts: "RAG" covers "retrieval-augmented generation".
-        # Two-letter initials are ordinary words too ("agentic systems" -> "as"), so they never count.
-        initials = ''.join(w[0] for w in re.findall(r'[a-z0-9]+', word))
-        if len(initials) >= 3: forms += [initials, initials + 's']
-        on_page = any(re.search(r'(?<!\w)' + re.escape(f) + r'(?!\w)', page) for f in forms)
+        on_page = keyword_on_page(row['keyword'], page)
         if row['status'] != 'present' and on_page:
             row['status'], row['reason'] = 'present', 'This wording is already on your resume.'
         elif row['status'] == 'present' and not on_page:
@@ -813,29 +833,35 @@ class Tailoring:
         return text_template(base)
 
     def ready(self, jobs, scores, applied):
-        """Prepared resumes not yet applied to, best fit first: the daily apply list."""
+        """Prepared resumes not yet applied to, newest first: the daily apply list."""
         from contextlib import closing
         with closing(self.engine.connect()) as db:
             latest = {k.removeprefix('tailoring:latest:'): json.loads(v) for k, v in
                       db.execute("SELECT key, payload FROM cache WHERE key LIKE 'tailoring:latest:%'")}
-        running = self.alive_keys()
+        running = self.alive_keys() | set(self.engine.get(QUEUE_KEY) or [])
         rows = []
         for job_id, key in latest.items():
             job = jobs.get(job_id)
-            if not job or job_id in applied or key in running: continue
+            if not job or job_id in applied: continue
             record = self.engine.get(key) or {}
-            if not record.get('draft') or record.get('state') not in ('DRAFT', 'NEEDS_REVIEW', 'EDITED', 'APPROVED'): continue
+            # A resume still being prepared stays on the list, marked as preparing, so it never seems lost.
+            preparing = key in running
+            if not preparing and (not record.get('draft') or record.get('state') not in ('DRAFT', 'NEEDS_REVIEW', 'EDITED', 'APPROVED')): continue
             proposals = record.get('proposals') or []
             info = scores.get(job_id) or {}
             rows.append({'job_id': job_id, 'company': job.company, 'title': job.title,
                          'url': str(getattr(job, 'source_url', '') or info.get('url') or ''),
                          'score': (info.get('assessment') or {}).get('score'),
                          'recommendation': (info.get('assessment') or {}).get('recommendation'),
+                         'preparing': preparing,
+                         'keyword_match': keyword_match(record),
                          'to_answer': sum(1 for p in proposals if p.get('status') == 'pending'),
                          'keywords_added': sum(1 for p in proposals if p.get('automatic') and p.get('operation') == 'keyword' and p.get('status') == 'accepted'),
                          'downloaded': bool(self.engine.get('tailoring:export-latest:' + job_id)),
                          'updated_at': record.get('updated_at') or record.get('created_at', '')})
-        return sorted(rows, key=lambda r: (r['score'] is None, -(r['score'] or 0), r['updated_at']))
+        # In progress first, then the most recently prepared, so a new resume is always at the top.
+        rows.sort(key=lambda r: r['updated_at'], reverse=True)
+        return sorted(rows, key=lambda r: not r['preparing'])
 
     def statuses(self, job_ids):
         """Latest resume state per job for list views; reads only small JSON fields, not whole drafts."""

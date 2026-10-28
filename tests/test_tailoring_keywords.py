@@ -353,7 +353,7 @@ def test_singular_and_plural_both_count_but_two_letter_initials_do_not():
     assert [r['status'] for r in rows][:2] == ['present', 'present'] and rows[2]['status'] != 'present'  # "as" is not "agentic systems".
 
 
-def test_ready_list_shows_unapplied_prepared_resumes_best_fit_first(setup):
+def test_ready_list_shows_unapplied_prepared_resumes_newest_first(setup):
     from types import SimpleNamespace
     s, j, p, *_ = setup
     second = SimpleNamespace(id='job-2', title='Data PM', company='Other Inc', description=j.description, source_url='https://example.com/2')
@@ -363,5 +363,33 @@ def test_ready_list_shows_unapplied_prepared_resumes_best_fit_first(setup):
     scores = {'job-1': {'assessment': {'score': 55, 'recommendation': 'Apply normally'}},
               'job-2': {'assessment': {'score': 81, 'recommendation': 'Attack hard'}}}
     rows = s.ready(jobs, scores, applied={'job-3'})
-    assert [r['job_id'] for r in rows] == ['job-2', 'job-1']  # Applied jobs drop out; best fit first.
+    assert [r['job_id'] for r in rows] == ['job-2', 'job-1']  # Applied jobs drop out; latest prepared first.
+    record = s.engine.get(s.engine.get('tailoring:latest:job-1'))
+    record['updated_at'] = '2999-01-01T00:00:00+00:00'
+    s.engine.put(s.engine.get('tailoring:latest:job-1'), record)
+    assert [r['job_id'] for r in s.ready(jobs, scores, applied={'job-3'})] == ['job-1', 'job-2']  # Newest wins over fit.
     assert rows[0]['url'] == 'https://example.com/2' and rows[0]['to_answer'] == 0
+    assert not any(r['preparing'] for r in rows)
+
+
+def test_keyword_match_counts_covered_keywords_per_tier_except_undecided_ones():
+    from app.tailoring import keyword_match
+    row = lambda keyword, importance, status='missing': {'keyword': keyword, 'importance': importance, 'status': status}
+    record = {'draft': {'blocks': [{'text': 'Built an agentic workflow and RAG search in SQL.'}]},
+              'keywords': [row('agentic workflows', 'essential'), row('Applied AI', 'essential'), row('SQL', 'important'),
+                           row('LLMs', 'important', 'implied'), row('RAG', 'important')],
+              'proposals': [{'operation': 'keyword', 'status': 'pending', 'keywords': ['RAG']}]}
+    assert keyword_match(record) == {'essential': [1, 2], 'important': [2, 3]}  # RAG awaits ✓/✕, so it does not count yet.
+
+
+def test_ready_list_keeps_a_resume_that_is_still_being_prepared(setup):
+    from app.tailoring import QUEUE_KEY
+    s, j, *_ = setup
+    generate(s, j)
+    key = s.engine.get('tailoring:latest:' + j.id)
+    record = s.engine.get(key)
+    record.update(state='QUEUED', draft=None)
+    s.engine.put(key, record)
+    s.engine.put(QUEUE_KEY, [key])
+    rows = s.ready({j.id: j}, {}, applied=set())
+    assert [(r['job_id'], r['preparing']) for r in rows] == [(j.id, True)]
