@@ -372,6 +372,16 @@ def test_ready_list_shows_unapplied_prepared_resumes_newest_first(setup):
     assert not any(r['preparing'] for r in rows)
 
 
+def test_keyword_match_counts_covered_keywords_per_tier_except_undecided_ones():
+    from app.tailoring import keyword_match
+    row = lambda keyword, importance, status='missing': {'keyword': keyword, 'importance': importance, 'status': status}
+    record = {'draft': {'blocks': [{'text': 'Built an agentic workflow and RAG search in SQL.'}]},
+              'keywords': [row('agentic workflows', 'essential'), row('Applied AI', 'essential'), row('SQL', 'important'),
+                           row('LLMs', 'important', 'implied'), row('RAG', 'important')],
+              'proposals': [{'operation': 'keyword', 'status': 'pending', 'keywords': ['RAG']}]}
+    assert keyword_match(record) == {'essential': [1, 2], 'important': [2, 3]}  # RAG awaits ✓/✕, so it does not count yet.
+
+
 def test_ready_list_keeps_a_resume_that_is_still_being_prepared(setup):
     from app.tailoring import QUEUE_KEY
     s, j, *_ = setup
